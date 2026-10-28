@@ -1,9 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="360" viewBox="0 0 1280 360" role="img" aria-label="Yuki. AI teammates that run your brand's social accounts. Live at xman.ink.">
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="360" viewBox="0 0 1280 360" role="img" aria-label="Yuki. AI teammates, each with its own computer. Live at xman.ink.">
 <rect x="1" y="1" width="1278" height="358" rx="20" fill="#FBFAF7" stroke="#E8E6DF" stroke-width="2"/>
 <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Helvetica, Arial, sans-serif">
-<text x="72" y="134" font-size="72" font-weight="700" fill="#1C1C1A">Yuki</text>
-<text x="72" y="184" font-size="26" fill="#5F5E5A">AI teammates that run your brand's social accounts.</text>
-<text x="72" y="220" font-size="20" fill="#888780">替品牌经营海外社媒的 AI 成员</text>
+<text x="72" y="130" font-size="72" font-weight="700" fill="#1C1C1A">Yuki</text>
+<text x="72" y="180" font-size="24" fill="#5F5E5A">AI teammates, each with its own computer.</text>
+<text x="72" y="216" font-size="20" fill="#888780">每个都有自己电脑的 AI 成员</text>
 <rect x="72" y="252" width="452" height="44" rx="22" fill="#E1F5EE" stroke="#0F6E56" stroke-width="1.5"/>
 <circle cx="98" cy="274" r="6" fill="#0F6E56"/>
 <text x="114" y="281" font-size="18" fill="#085041">Live at <tspan font-weight="600">xman.ink</tspan> · open-source client coming</text>
@@ -17,7 +17,7 @@
 <circle cx="974" cy="76" r="3.5" fill="#B4B2A9"/>
 <circle cx="986" cy="76" r="3.5" fill="#B4B2A9"/>
 <circle cx="998" cy="76" r="3.5" fill="#B4B2A9"/>
-<text x="976" y="105" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#5F5E5A">reddit.com/r/…</text>
+<text x="976" y="105" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#5F5E5A">github.com/…</text>
 <rect x="976" y="114" width="90" height="6" rx="3" fill="#D3D1C7"/>
 <circle cx="1190" cy="100" r="14" fill="#E1F5EE" stroke="#0F6E56" stroke-width="1.5"/>
 <path d="M1183 100 l5 5 l9 -10" fill="none" stroke="#0F6E56" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -30,7 +30,7 @@
 <circle cx="974" cy="156" r="3.5" fill="#B4B2A9"/>
 <circle cx="986" cy="156" r="3.5" fill="#B4B2A9"/>
 <circle cx="998" cy="156" r="3.5" fill="#B4B2A9"/>
-<text x="976" y="185" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#5F5E5A">x.com/…</text>
+<text x="976" y="185" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#5F5E5A">mail.google.com/…</text>
 <rect x="976" y="194" width="90" height="6" rx="3" fill="#D3D1C7"/>
 <circle cx="1190" cy="180" r="14" fill="#E1F5EE" stroke="#0F6E56" stroke-width="1.5"/>
 <path d="M1183 180 l5 5 l9 -10" fill="none" stroke="#0F6E56" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -43,7 +43,7 @@
 <circle cx="974" cy="236" r="3.5" fill="#B4B2A9"/>
 <circle cx="986" cy="236" r="3.5" fill="#B4B2A9"/>
 <circle cx="998" cy="236" r="3.5" fill="#B4B2A9"/>
-<text x="976" y="265" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#5F5E5A">v2ex.com/t/…</text>
+<text x="976" y="265" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#5F5E5A">docs.google.com/…</text>
 <rect x="976" y="274" width="90" height="6" rx="3" fill="#D3D1C7"/>
 <circle cx="1190" cy="260" r="14" fill="#E1F5EE" stroke="#0F6E56" stroke-width="1.5"/>
 <path d="M1183 260 l5 5 l9 -10" fill="none" stroke="#0F6E56" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
