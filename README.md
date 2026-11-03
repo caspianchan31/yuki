@@ -1,30 +1,98 @@
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/yuki-banner-dark.svg">
-  <img alt="Yuki. AI teammates, each with its own computer. Live at xman.ink." src="assets/yuki-banner-light.svg" width="100%">
+  <source media="(prefers-color-scheme: dark)" srcset="assets/banner-dark.svg">
+  <img alt="Yuki — AI teammates in your chat" src="assets/banner-light.svg" width="100%">
 </picture>
 
-**Yuki** gives you a team of AI teammates. Each one has a name, a job and its own cloud computer. You hand out work in a chat or a group, the way you would with coworkers; they pick it up, finish it on their own and bring the results back to the conversation. They only come to you when something needs your decision.
+<p align="center">
+  <a href="https://yukilab.si"><b>Try it at yukilab.si</b></a> ·
+  <a href="#what-yuki-does"><b>What it does</b></a> ·
+  <a href="#open-source"><b>Open source</b></a> ·
+  <a href="README.zh-CN.md"><b>中文</b></a>
+</p>
 
-**Yuki** 给你一队 AI 成员。每个成员有名字、有分工、有自己的一台云电脑。你像跟同事一样在聊天或群里派活；它们自己接、自己做完，把结果带回对话里，只有要你拍板的事才来找你。
+<p align="center">
+  <img alt="Hosted: live" src="https://img.shields.io/badge/hosted-live-111111?style=flat-square">
+  <img alt="Open source: coming soon" src="https://img.shields.io/badge/open%20source-coming%20soon-111111?style=flat-square">
+</p>
 
-### How it works
+Yuki is an AI teammate that lives in a chat. Open it and Yuki is already there: tell it what you need in one sentence. Add more teammates when you want help, put them in a group, and they hand work to each other in the open. When something needs a sign-in or a decision, they come to you; nothing goes out in your name until you say so.
 
-- **One teammate, one computer.** Every teammate has its own cloud desktop, browser and logins. Nothing is shared between teammates.
-- **A team, not a single bot.** Put teammates in a group, @ one to make the job its own, and watch them hand work to each other in the open.
-- **Results come back to the chat.** Every action comes back with something you can check: a link, a file or a screenshot.
-- **You keep the keys.** Passwords, 2FA codes and passkeys are typed by you, in the teammate's desktop. The AI never sees them.
-- **It acts on its own.** Teammates pick up work and finish it, and only come to you when there is a real decision to make.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/chat-dark.svg">
+  <img alt="A Yuki conversation: a routine made from one sentence, and an email draft waiting for Send" src="assets/chat-light.svg" width="100%">
+</picture>
 
-### What's in Yuki
+## What Yuki does
 
-| Part | What it is | Status |
-|:---|:---|:---|
-| Yuki hosted | Everything below, run for you at [xman.ink](https://xman.ink). | Live, by invitation |
-| Yuki client | Chat, teammates, groups, routines, reports and the agent engine. Open source and self-hostable. | Coming to this repo |
-| Yuki desktop service | A cloud computer, browser and saved logins for each teammate. | Coming for self-hosters |
+<table>
+<tr>
+<td width="50%" valign="top">
 
-Star or watch this repo to hear when the client lands.
+**Talk, don't configure**<br>
+No setup forms. The first thing you say becomes the teammate's job; to change it, just say so.
 
-### Built on
+</td>
+<td width="50%" valign="top">
 
-Yuki started as a fork of [OpenMuse](https://github.com/CopilotKit/openmuse) by CopilotKit (MIT). It has since grown multi-tenant workspaces, a cloud desktop per account and its own operations loop. The single-user, self-hosted version lives on as [openmuse-standalone](https://github.com/caspianchan31/openmuse-standalone).
+**Teammates and groups**<br>
+Groups of 2 to 6. `@` a teammate, a group, a routine or an app. Handoffs happen in the conversation, where you can see them.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+**Routines**<br>
+"Every weekday at 9…" or "when an email arrives…". Pause, test and edit them on the teammate's card. A run with nothing new stays quiet.
+
+</td>
+<td valign="top">
+
+**Skills**<br>
+Save a way of working in one sentence, or have Yuki learn it from something it just did with you.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+**Apps and MCP**<br>
+Gmail, Google Calendar, your own mailbox, Slack, and any MCP server. Connect once; every teammate can use it.
+
+</td>
+<td valign="top">
+
+**You approve what matters**<br>
+Allow once, always allow, or deny. Email and Slack messages are drafts until you press Send. Action review checks each step against your own rules.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+**A computer to work on**<br>
+Teammates use a cloud desktop with a real browser. Watch the live preview, take over when a site needs you, hand it back when you're done.
+
+</td>
+<td valign="top">
+
+**Your data, your server**<br>
+Conversations live in your own Postgres (or embedded PGlite). Secrets are sealed with your own key and never shown to the model.
+
+</td>
+</tr>
+</table>
+
+## Open source
+
+The single-user core of Yuki (everything in the grid above, for one person on their own server) is being prepared for release in this repository under the MIT license. Star or watch the repo to hear when it lands.
+
+|  | Open-source core (coming here) | [Hosted](https://yukilab.si) |
+|:--|:--|:--|
+| Chat, teammates, groups, routines, skills, apps, approvals | ✓ | ✓ |
+| Cloud desktop | Bring your own provider | Included |
+| Teams, shared spaces, billing | — | ✓ |
+
+## Built on
+
+Yuki started as a fork of [OpenMuse](https://github.com/CopilotKit/openmuse) by CopilotKit (MIT).
