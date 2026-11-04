@@ -90,7 +90,7 @@ The single-user core of Yuki (everything in the grid above, for one person on th
 |  | Open-source core (coming here) | [Hosted](https://yukilab.si) |
 |:--|:--|:--|
 | Chat, teammates, groups, routines, skills, apps, approvals | ✓ | ✓ |
-| Cloud desktop | Bring your own provider | Included |
+| Computer | Your own machine | Cloud computer |
 | Teams, shared spaces, billing | — | ✓ |
 
 ## Built on
