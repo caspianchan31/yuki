@@ -52,8 +52,6 @@ export const handOverTools = new Set([
   "route_request",
   "create_project",
   "delegate_task",
-  "create_job",
-  "assign_job",
   "create_routine",
   "save_skill",
   "learn_skill",
@@ -121,7 +119,7 @@ export function hallGateMiddleware(gate: HallGate, chatCompletions: boolean): Ch
         return {
           type: "skip",
           result: {
-            error: `Not run: this request is a project's, so this reply only hands it over (delegate_task or create_job); ${call.toolName} runs in that project's task.`,
+            error: `Not run: this request is a project's, so this reply only hands it over (delegate_task); ${call.toolName} runs in that project's task.`,
           },
         };
       return;

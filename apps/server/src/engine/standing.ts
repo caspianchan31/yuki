@@ -3,18 +3,13 @@
 // default desktop has no account, so its actions go on the project's own ledger (its scope, each
 // row with the task's id): before, it wrote none, and a task that never acted looked like one
 // that had nothing to report.
-import {
-  type AgentTask,
-  type OperatingPlan,
-  operatingPlanOf,
-} from "../../../../packages/domain/src/agent.ts";
+import type { AgentTask } from "../../../../packages/domain/src/agent.ts";
 import {
   isStandingTask,
   type RecentAction,
   recentActionsShown,
   type StandingActivity,
 } from "../../../../packages/domain/src/standing.ts";
-import { readPlan } from "../accounts/records.ts";
 import type { Store } from "../db.ts";
 import { envOwner, isEnvironmentId, scopeOfOwner } from "../environments.ts";
 import {
@@ -23,7 +18,7 @@ import {
   confirmsRef,
   kindOfRow,
   recentWindowMs,
-} from "./pacing.ts";
+} from "./action-ledger.ts";
 
 /** The ledger of a project's default desktop: the project's own scope. */
 export const defaultDesktopLedger = (owner: string) => scopeOfOwner(owner);
@@ -66,9 +61,6 @@ export async function standingActivity(
   now = new Date(),
 ): Promise<StandingActivity | null> {
   if (!isStandingTask(task)) return null;
-  const account = accountLedgerOf(owner, task);
-  const plan: Pick<OperatingPlan, "pace" | "setAt"> | null =
-    (account ? await readPlan(db, account) : null) ?? operatingPlanOf(task.state);
   const since = now.getTime() - recentWindowMs;
   const actionsLast7Days: Record<string, number> = {};
   let unconfirmedLast7Days = 0;
@@ -88,7 +80,6 @@ export async function standingActivity(
       target: row.target ?? null,
       permalink: row.permalink ?? null,
       at: row.at,
-      ...(row.stranger ? { stranger: row.stranger } : {}),
       ...(row.unconfirmed
         ? { unconfirmed: { confirms: confirmsRef(row.id), links: (row.links ?? []).slice(0, 3) } }
         : {}),
@@ -97,8 +88,8 @@ export async function standingActivity(
   // Newest first: what was just done is what the next choice must steer around.
   recent.sort((a, b) => b.at.localeCompare(a.at));
   return {
-    planPace: plan?.pace?.trim() || null,
-    planSetAt: plan?.setAt ?? null,
+    planPace: null,
+    planSetAt: null,
     actionsLast7Days,
     unconfirmedLast7Days,
     lastActionAt,

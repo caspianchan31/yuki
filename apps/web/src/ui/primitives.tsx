@@ -158,18 +158,16 @@ export function Pill({
 /** A round face with an optional state dot (.avatar .st). */
 export function Avatar({
   initial,
-  founder,
   state,
   size = 20,
 }: {
   initial: string;
-  founder?: boolean;
   state?: "run" | "wait" | "need" | "block" | "idle";
   size?: number;
 }) {
   return (
     <span
-      className={cx("avatar", founder && "f")}
+      className="avatar"
       style={
         size === 20 ? undefined : { width: size, height: size, fontSize: Math.round(size * 0.42) }
       }

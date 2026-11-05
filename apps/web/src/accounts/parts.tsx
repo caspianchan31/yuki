@@ -1,5 +1,5 @@
 /**
- * Phase C (docs/web.md): the small pieces only the 账号与代理 area draws, from
+ * Phase C (docs/web.md): the small pieces only the 账号 area draws, from
  * shell/accounts/parts.tsx and shell/components/AccountLight.tsx (the prototype's .info, .ptag,
  * .opt, .confirm, the account light), plus the account's face, a key/value row and a block, in
  * the DOM. Shared building blocks stay in ui/primitives.tsx.
@@ -148,15 +148,9 @@ export const lineClass = (state: MemberState) =>
 export function Face({ person }: { person: PersonRow }) {
   return (
     <div className="acc-face">
-      <Avatar
-        initial={person.initial}
-        founder={person.founder}
-        state={dotOf[person.state]}
-        size={56}
-      />
+      <Avatar initial={person.initial} state={dotOf[person.state]} size={56} />
       <div className="acc-stack tight">
         <span className={cx("line", lineClass(person.state))}>{person.line}</span>
-        {person.routine ? <span className="acc-faint">{person.routine}</span> : null}
         {person.label ? <span className="acc-small">{person.label}</span> : null}
       </div>
     </div>

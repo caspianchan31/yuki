@@ -1,4 +1,4 @@
-# wait_until: a background task paces itself (fork feature)
+# wait_until: a background task paces itself
 
 A background model run could only end with `finish_task`, `ask_user` or a prepared review. A task whose own rules say to wait ("wait 30 minutes between posts") therefore either asked the person "continue now or wait 30 minutes?" or posted everything at once: a run cannot sit idle for half an hour (five-minute idle timeout, `AGENT_RUN_MAX_MINUTES` cap). Turning such a task into a repeating task was rejected as a workaround. `wait_until` lets a one-off task wait inside itself.
 
@@ -41,7 +41,7 @@ Principle: the system never asks the person to do what it can do or wait out its
 
 ## A wait because the infrastructure failed
 
-`wait_until` takes an optional `blocked` (`proxy`, `desktop`, `network`, `model`, `rate_limit`, `sign_in`; the enum is the contract, no prose repeats it): the part that failed when the wait is because of it. It opens or keeps the task's incident (`state.incident`, `report-back.md`); a wait without it ends one. Since 2026-10-20 the incident is what the owner sees, and no run reports it, nor its end. Nothing else about the wait changes. `sign_in` and `proxy` here are the task's retries; the owner-facing facts are `record_sign_in` and the proxy self-check (`account-login.md`).
+`wait_until` takes an optional `blocked` (`desktop`, `network`, `model`, `rate_limit`, `sign_in`; the enum is the contract, no prose repeats it): the part that failed when the wait is because of it. It opens or keeps the task's incident (`state.incident`, `report-back.md`); a wait without it ends one. Since 2026-10-20 the incident is what the owner sees, and no run reports it, nor its end. Nothing else about the wait changes. `sign_in` and `proxy` here are the task's retries; the owner-facing facts are `record_sign_in` and the proxy self-check (`account-login.md`).
 
 ## Controls on a waiting task
 

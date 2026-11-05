@@ -1,30 +1,24 @@
 /**
  * Credentials (fork feature, docs/credentials.md): every secret the system holds, per
- * project. An entry is a mailbox, a proxy or a site login (a user name with any of a
- * password, a two-factor seed and cookies), linked to the account (identity) or the project that
- * uses it. Pure types shared by the server and the mobile app; nothing here carries a secret
- * value, only what is saved and how it went.
+ * project. An entry is a mailbox or a site login (a user name with any of a password, a
+ * two-factor seed and cookies), linked to the account (identity) or the project that uses it.
+ * Pure types shared by the server and the mobile app; nothing here carries a secret value, only
+ * what is saved and how it went. (v1.5: only these two kinds; a proxy, or another kind saved
+ * before, stays in the database, unread.)
  */
 
-export type CredentialKind = "proxy" | "site_login" | "mailbox";
+export type CredentialKind = "site_login" | "mailbox";
 /** Who uses an entry: one account of the project, or the project itself (its default desktop
  * and the conversations and tasks not bound to an account). */
 export type CredentialUsedBy = { type: "account"; environmentId: string } | { type: "project" };
 /** How an entry went the last time it was used: a site login by the last sign-in the AI
- * recorded, a proxy by the last check. `status` is a code the
- * client words; `detail` is what the AI wrote when it recorded a sign-in. */
+ * recorded. `status` is a code the client words; `detail` is what the AI wrote when it recorded
+ * a sign-in. */
 export interface CredentialResult {
   ok: boolean;
   status: string;
   detail: string | null;
   at: string;
-}
-export interface ProxyParts {
-  scheme: string;
-  host: string;
-  port: number;
-  /** Whether the proxy URL carries a user name (and password). */
-  auth: boolean;
 }
 export interface TotpParts {
   digits: number;
@@ -49,7 +43,7 @@ export interface MailboxParts {
   imapPort: number | null;
   password: boolean;
 }
-export type CredentialParts = ProxyParts | SiteLoginParts | MailboxParts;
+export type CredentialParts = SiteLoginParts | MailboxParts;
 /** The pseudo-site of a request for a mailbox (a task needed to send and the project has none):
  * `CredentialRequestView.site` holds it where a site login's request holds the domain. */
 export const mailboxRequestSite = "mailbox";
@@ -100,37 +94,27 @@ export type CredentialPart =
   | "totp_code"
   | "totp_seed"
   | "cookies"
-  | "proxy_url"
   | "mailbox_password";
 export type CredentialPurpose =
   | "fill"
   | "cookie_import"
   /** The cookies a proven sign-in left in the desktop's browser, saved. */
   | "cookie_export"
-  | "sandbox_write"
-  | "proxy_check"
   | "mail_send"
   | "mail_read";
 export type CredentialActor =
   /** `userId` names the member who did it (absent on older lines). */
-  | {
-      type: "owner";
-      userId?: string /** the platform operator. */;
-      platform?: boolean;
-    }
+  | { type: "owner"; userId?: string }
   | { type: "task"; taskId: string; title: string | null; run: number | null }
   | { type: "chat"; threadId: string }
-  | {
-      type: "system";
-      what: "desktop_start" | "proxy_replaced" | "migration" | "desktop_stop";
-    };
+  | { type: "system"; what: "desktop_start" | "migration" | "desktop_stop" };
 /** One line of an entry's history: what happened, by whom and when; never a value. */
 export interface CredentialAuditRow {
   id: string;
   at: string;
   entryId: string;
   entryKind: CredentialKind;
-  /** What the entry was at the time: `site · username`, `scheme://host:port`, a mailbox's address. */
+  /** What the entry was at the time: `site · username`, a mailbox's address. */
   entryName: string;
   event: CredentialAuditEvent;
   part: CredentialPart | null;
@@ -230,62 +214,16 @@ export interface SiteLoginView {
   lastUsedAt: string | null;
   unreadable: boolean;
 }
-/** The proxy's last self-check from the desktop (run at each start, when the proxy is replaced
- * and when a sign-in reports `blocked`): the proxy handshake and a tunnel to each known site. */
-export type ProxyCheckStatus =
-  | "ok"
-  | "unreachable"
-  | "auth_rejected"
-  | "bad_setting"
-  | "handshake_failed"
-  | "missing"
-  /** Replaced and not checked yet (with pendingRestart): no check has run on it. */
-  | "pending";
-export interface ProxyCheck {
-  at: string;
-  proxy: ProxyCheckStatus;
-  sites: Record<string, "ok" | "refused">;
-  /** The proxy was replaced while the desktop was not running: checked at the next start. */
-  pendingRestart?: boolean;
-}
-/** Whether a check says the proxy does not work: the handshake failed, or a known site could
- * not be reached through it. */
-export const proxyDown = (check: ProxyCheck | null | undefined) =>
-  !!check &&
-  !check.pendingRestart &&
-  (check.proxy !== "ok" || Object.values(check.sites).some((site) => site === "refused"));
-/** What the account's run read on the public
- * bot-detection check page after it opened the desktop browser (record_browser_check): `ok` when
- * the page marked nothing, `attention` when it marked anything, and the words it showed (`result`,
- * clipped and masked like any desktop output). Kept beside the proxy check, as a fact of the
- * account (or the project's default desktop), never a value the server read itself. Fork
- *:
- * `seen` is the page's own words the record quotes, found by the server in the page's text when
- * it was recorded, and `url` the address of the page they were read on (masked like any desktop
- * output); a check recorded before then has neither. */
-export type BrowserCheckStatus = "ok" | "attention";
-export interface BrowserCheck {
-  at: string;
-  /** The desktop start it was made on (that start's
-   * key); absent on a check from before. */
-  desktopStart?: string | null;
-  status: BrowserCheckStatus;
-  result: string;
-  seen?: string;
-  url?: string | null;
-}
-export const browserCheckStatuses: readonly BrowserCheckStatus[] = ["ok", "attention"];
-
 /** What a guidance card in the chat asks the
  * owner for. The card posts what he types to the credentials API itself; the conversation and
  * the model only ever see what was asked and whether it was saved. A verification code is typed
  * into the focused field of the desktop that asked for it and never saved. */
-export const guideKinds = ["site_login", "proxy", "verification_code"] as const;
+export const guideKinds = ["site_login", "verification_code"] as const;
 export type GuideKind = (typeof guideKinds)[number];
 /** A guidance card the chat's AI showed (request_credential): never a value. `status`: open,
- * saved (a login, proxy or key was saved for it, from the card or anywhere else), typed (the
- * code was typed on the desktop), withdrawn (no longer needed: the site stopped asking for a
- * code, or its account left the project). */
+ * saved (a login was saved for it, from the card or anywhere else), typed (the code was typed on
+ * the desktop), withdrawn (no longer needed: the site stopped asking for a code, or its account
+ * left the project). */
 export interface CredentialGuideView {
   id: string;
   kind: GuideKind;

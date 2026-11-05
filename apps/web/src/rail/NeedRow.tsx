@@ -11,8 +11,8 @@
  *                     loop that stopped (failed or paused): 经营停了 / 经营暂停了 with 重试 or 恢复
  *                     (model.ts stopNeed), for as long as it is stopped
  *   review            an upstream proposal awaiting review → the review sheet
- *   account           desktop error / no proxy / logins → the account's desktop, the login editor,
- *                     the credentials page, 选一个出口 (the account's editor), 看账号; not operating
+ *   account           desktop error / logins → the account's desktop, the login editor,
+ *                     the credentials page, 看账号; not operating
  *                     (no goal, no job) → 定长期目标 (its detail), 在聊天里派活… (the chat)
  *   project           the project's own logins → the login editor or its default desktop
  * After acting the row collapses to a one-line receipt (nav.receipts), here and in the chat at
@@ -334,21 +334,9 @@ function AccountNeed({
   const [open, setOpen] = useState(false);
   const { account, flags } = item;
   const m = accountNeedModel(item, variant);
-  const toCredentials = () => nav.setView("credentials");
-  // In the card's order; the most direct one (choose an exit, the desktop) leads.
+  const _toCredentials = () => nav.setView("credentials");
+  // In the card's order; the most direct one (the desktop) leads.
   const actions: Action[] = [];
-  if (m.exit)
-    actions.push({
-      key: "exit",
-      node: (
-        <Btn
-          variant="pri"
-          onClick={() => nav.openPanel({ kind: "accountEditor", environmentId: account.id })}
-        >
-          {t.exits.pick}
-        </Btn>
-      ),
-    });
   if (m.desktop)
     actions.push({
       key: "desktop",
@@ -369,37 +357,11 @@ function AccountNeed({
       ),
     });
   }
-  if (m.proxy)
-    actions.push({
-      key: "proxy",
-      node: <Btn onClick={toCredentials}>{t.needs.replaceProxy}</Btn>,
-    });
-  // Not operating: its long-term goal (its detail), or a job in the chat.
-  if (m.goal) {
-    actions.push({
-      key: "goal",
-      node: (
-        <Btn variant="pri" onClick={() => peekAccount(account.id)}>
-          {t.needs.setGoal}
-        </Btn>
-      ),
-    });
-    actions.push({
-      key: "dispatch",
-      node: (
-        <Btn onClick={() => nav.prefill(t.composer.dispatchPrefill(account.name), account.id)}>
-          {t.needs.dispatch}
-        </Btn>
-      ),
-    });
-  }
   if (guide) actions.push({ key: "guide", node: guide });
-  // 定长期目标 already opens the account.
-  if (!m.goal)
-    actions.push({
-      key: "account",
-      node: <Btn onClick={() => peekAccount(account.id)}>{t.needs.openAccount}</Btn>,
-    });
+  actions.push({
+    key: "account",
+    node: <Btn onClick={() => peekAccount(account.id)}>{t.needs.openAccount}</Btn>,
+  });
   const [first, ...rest] = actions;
   const more = rest.length > 0 || m.steps.length > 0 || needShots(item).length > 0;
   return (
@@ -463,11 +425,6 @@ function ProjectNeed({
           {m.logins.length > 1 ? t.needs.addLoginFor(login.site) : t.needs.addLogin}
         </Btn>
       ),
-    });
-  if (m.proxy)
-    actions.push({
-      key: "proxy",
-      node: <Btn onClick={toCredentials}>{t.needs.replaceProxy}</Btn>,
     });
   if (guide) actions.push({ key: "guide", node: guide });
   const [first, ...rest] = actions;

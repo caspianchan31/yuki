@@ -12,7 +12,7 @@
 
 Yuki is an AI teammate that lives in a chat. Open it and Yuki is already there: tell it what you need in one sentence. Add more teammates when you want help, put them in a group, and they hand work to each other in the open. When something needs a decision, they come to you; nothing goes out in your name until you say so.
 
-This repository is the open-source core: single-user, running on your own machine, MIT licensed.
+This repository is Yuki's source-available core: single-user, running on your own machine, under the Yuki Community License.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/yuki/chat-dark.svg">
@@ -110,28 +110,46 @@ Open http://localhost:5173. The first time, create your account with a username,
 
 Without a model key, `cp .env.example .env` alone starts a sample workspace with made-up data and a scripted Yuki.
 
+### Run it with docker compose, with a computer of its own
+
+One command starts the Yuki service and a separate **computer** container where your teammates run commands, keep files and browse. They work only there, never on your machine; you can watch its screen live, take it over and hand it back, and it pauses itself when nobody uses it. Needs Docker with the Compose plugin and about 3 GB of free memory.
+
+```sh
+cp .env.example .env
+# edit .env: MODEL, the provider's API key, OPENMUSE_ADMIN_USERNAME and OPENMUSE_ADMIN_PASSWORD
+docker compose up -d --build   # then open http://localhost:8787
+```
+
+Memory limits, the port and the idle pause are settings in `.env`. Details, limits and where the data lives: [docs/computer-container.md](docs/computer-container.md).
+
 ### Connect apps
 
 - **MCP servers**: 设置 (Settings) → 连接的应用 → 添加自定义 MCP 服务, with the server's address and, if it needs one, its access token. A server on your own machine or network (`http://localhost:…`) works too.
 - **Your own mailbox**: ⌘K → 凭据 (Credentials) → 添加发信邮箱 (SMTP, and IMAP to read).
 - **Gmail and Google Calendar**: create a Google OAuth web client, set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, and register `http://localhost:8787/api/google/callback` as its redirect URI.
-- **Slack**: set `SLACK_CLIENT_ID` and `SLACK_CLIENT_SECRET` of your Slack app.
+- **Slack**: create your own Slack app and set `SLACK_CLIENT_ID` and `SLACK_CLIENT_SECRET`; the steps are [just below](#connect-slack).
 
-## Open source and hosted
+#### Connect Slack
 
-|  | Open-source core (this repository) | [Hosted](https://yukilab.si) |
+Slack needs an app of your own, made once. Then 设置 → 连接的应用 → Slack → 连接 takes you to Slack to allow it and brings you back, connected.
+
+1. Open <https://api.slack.com/apps> → **Create New App** → **From scratch**; name it and pick your workspace.
+2. **OAuth & Permissions** → **Redirect URLs** → add `<PUBLIC_API_URL>/api/slack/callback` (for a local install, `http://localhost:8787/api/slack/callback`) and save.
+3. Same page → **Bot Token Scopes**, add: `channels:read`, `groups:read`, `channels:history`, `groups:history`, `users:read`, `chat:write`, `chat:write.public`.
+4. **Basic Information** → copy the **Client ID** and **Client Secret** into `.env` as `SLACK_CLIENT_ID` and `SLACK_CLIENT_SECRET`. Make sure `TOKEN_ENCRYPTION_KEY` is set too, then restart.
+5. In Slack, invite the app to each channel it should read (`/invite @your-app`); it can only read channels it is in. Teammates read and draft; a message goes out only when you press Send.
+
+## Core and hosted
+
+|  | Core (this repository) | [Hosted](https://yukilab.si) |
 |:--|:--|:--|
 | Chat, teammates, groups, routines, skills, apps, approvals | ✓ | ✓ |
 | A computer for teammates to work on | — | Cloud computer |
 | Teams, shared spaces, billing | — | ✓ |
 
-The open core has no computer: teammates work through chat, your apps and routines.
+The core has no computer: teammates work through chat, your apps and routines.
 The engine still holds some code from an earlier design (desktop accounts and proxies) that the app no longer reaches; a coming release removes it.
-
-## Built on
-
-Yuki started as a fork of [OpenMuse](https://github.com/CopilotKit/openmuse) by CopilotKit (MIT).
 
 ## License
 
-MIT
+[Yuki Community License 1.0](LICENSE): use it, change it and run it for yourself or inside your organization; offering it to others as a hosted service is not allowed. Each version becomes MIT two years after it is published. Third-party notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

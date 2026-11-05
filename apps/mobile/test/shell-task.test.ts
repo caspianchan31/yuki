@@ -7,7 +7,6 @@ import {
   type AccountView,
   buildAccountModels,
   needItems,
-  normalizePacing,
   operatingPlanOf,
   type TaskEntry,
   taskEntries,
@@ -97,17 +96,13 @@ function account(overrides: Record<string, unknown> = {}): AccountView {
       accountLabel: "u/Pine_Example_3",
       projectId: "p1",
       status: "running",
-      proxyConfigured: true,
       settings: {
-        proxy: { configured: true, preview: "http://•••@203.0.113.105:5890" },
         timezone: "America/Los_Angeles",
         locale: "en-US",
         updatedAt: null,
-        unreadable: false,
       },
       ...overrides,
     }),
-    pacing: normalizePacing(undefined),
   };
 }
 function report(overrides: Partial<ChatReport> = {}): ChatReport {
@@ -328,13 +323,13 @@ test("middle block by phase", () => {
   assert.deepEqual(blocks(failedShort, true), { need: true, blocks: [] });
   const failedLong = task({
     status: "failed",
-    error: "桌面连不上代理出口 203.0.113.105:5890\n（ECONNREFUSED），重试 3 次仍失败",
+    error: "桌面连不上 203.0.113.105:5890\n（ECONNREFUSED），重试 3 次仍失败",
     updatedAt: at(14, 41),
   });
   assert.deepEqual(blocks(failedLong, true).blocks, [
     {
       title: "错误",
-      body: "桌面连不上代理出口 203.0.113.105:5890\n（ECONNREFUSED），重试 3 次仍失败",
+      body: "桌面连不上 203.0.113.105:5890\n（ECONNREFUSED），重试 3 次仍失败",
       tone: "error",
     },
   ]);
@@ -369,7 +364,6 @@ test("账号 line: bound account, default desktop (a marker, not a block), loadi
   assert.deepEqual(accountLine(null, byId, ready), { kind: "default" });
   const bound = accountLine("a1", byId, ready);
   assert.equal(bound.kind, "account");
-  assert.equal(bound.kind === "account" && bound.account.exit, "203.0.113.105:5890");
   assert.deepEqual(accountLine("a9", new Map(), { loading: true, count: 0 }), {
     kind: "loading",
   });
@@ -1067,7 +1061,7 @@ test("a report or a step that mentions billing is shown as written", () => {
 });
 
 test("时间线 says why a task waited or was stopped, by the incident's word, never the raw error", () => {
-  // Fixer round 3 (minor 9, 10): the wait for a proxy and a pacing wait read apart, and a run the
+  // Fixer round 3 (minor 9, 10): a blocked wait reads by its incident's word, and a run the
   // model provider stopped names it.
   const line = (title: string, detail = "", kind: RunEvent["kind"] = "status") =>
     timelineEvent({ id: "e", date: at(14, 0), kind, title, detail }, now);
@@ -1075,9 +1069,9 @@ test("时间线 says why a task waited or was stopped, by the incident's word, n
   resume.setHours(15, 0, 0, 0);
   const wait = line(
     "Waiting 15 minutes",
-    `proxy 407 again; try later\nResumes at ${resume.toISOString()}\nBlocked: proxy`,
+    `desktop 502 again; try later\nResumes at ${resume.toISOString()}\nBlocked: desktop`,
   );
-  assert.deepEqual([wait?.title, wait?.detail], ["等待到 15:00", "原因：代理连不上"]);
+  assert.deepEqual([wait?.title, wait?.detail], ["等待到 15:00", "原因：桌面没响应"]);
   const stopped = line(
     "Run stopped by the infrastructure; it runs again by itself",
     `Blocked: model\n529 Overloaded\nResumes at ${resume.toISOString()}`,

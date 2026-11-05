@@ -6,7 +6,7 @@ Use the repository's **Security → Report a vulnerability** form for private re
 
 ## Deployment boundary
 
-OpenMuse currently supports one owner per deployment. Live mode has one admin account (username and password, scrypt-hashed; sessions are random bearer tokens stored hashed, 30 days); it is not multi-tenant account authentication. The account is created once on the setup page with a one-time code from the API log, so a public deployment cannot be claimed by the first visitor. Sample mode binds to loopback and contains fictional data. Use HTTPS and restricted network access for a remote live deployment.
+Yuki currently supports one owner per deployment. Live mode has one admin account (username and password, scrypt-hashed; sessions are random bearer tokens stored hashed, 30 days); it is not multi-tenant account authentication. The account is created once on the setup page with a one-time code from the API log, so a public deployment cannot be claimed by the first visitor. Sample mode binds to loopback and contains fictional data. Use HTTPS and restricted network access for a remote live deployment.
 
 The API holds provider credentials. Google tokens are encrypted at rest; short-lived signed URLs grant file access. Protect `.env`, `.openmuse` and database backups as private data. A signed URL is a credential until it expires.
 

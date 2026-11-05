@@ -1,10 +1,8 @@
-// The account facts that come from signing in and
-// from the proxy self-check. Plain records (not secrets), kept under the account's derived owner
-// (or, for the project's own logins, under the project's owner), so they go with the account
-// whichever project it is in, and are removed with it.
+// The account facts that come from signing in. Plain
+// records (not secrets), kept under the account's derived owner (or, for the project's own
+// logins, under the project's owner), so they go with the account whichever project it is in,
+// and are removed with it.
 import {
-  type BrowserCheck,
-  type ProxyCheck,
   type SignInPage,
   type SiteSignInFact,
 } from "../../../../packages/domain/src/credentials.ts";
@@ -15,12 +13,6 @@ export const signInKind = "site-sign-in";
  * or a code was typed for it) while its fact asked him to (`needs_code`, `needs_owner`), until a
  * newer fact for the site is recorded. Kept beside the facts, one per site. */
 export const ownerHandledKind = "sign-in-owner-handled";
-export const proxyCheckKind = "proxy-check";
-export const proxyCheckId = "latest";
-/** What the run last read on the bot-detection check page, one per
- * account (or project), beside the proxy check. */
-export const browserCheckKind = "browser-check";
-export const browserCheckId = "latest";
 
 type StoredSignIn = SiteSignInFact & { id: string };
 /** The owner said he handled `site` himself: when (`at`), the task owner the recheck came from
@@ -54,8 +46,6 @@ export const ownerHandledUnconfirmedMs = 10 * 60 * 1000;
 /** Whether the owner's handling `handled` has waited too long for a record (`ownerHandledStale`). */
 export const handledStale = (handled: OwnerHandled, now: number) =>
   now - Date.parse(handled.checkAt ?? handled.at) >= ownerHandledUnconfirmedMs;
-type StoredCheck = ProxyCheck & { id: string };
-type StoredBrowserCheck = BrowserCheck & { id: string };
 
 /** Every site's latest sign-in fact of an account (or the project), by site. A fact the owner
  * said he handled and no newer fact confirmed carries `ownerHandledAt` (the AI is confirming it),
@@ -103,31 +93,6 @@ export async function writePage(
 export async function readOwnerHandled(db: Pick<Store, "list">, factOwner: string) {
   return db.list<OwnerHandled>(factOwner, ownerHandledKind);
 }
-export async function readProxyCheck(db: Store, factOwner: string): Promise<ProxyCheck | null> {
-  const row = await db.get<StoredCheck>(factOwner, proxyCheckKind, proxyCheckId);
-  if (!row) return null;
-  const { id: _, ...check } = row;
-  return check;
-}
-export async function writeProxyCheck(db: Store, factOwner: string, check: ProxyCheck) {
-  await db.put<StoredCheck>(factOwner, proxyCheckKind, { id: proxyCheckId, ...check });
-}
-/** Removes the proxy's last check (the account no longer has a proxy). */
-export async function removeProxyCheck(db: Store, factOwner: string) {
-  await db.remove(factOwner, proxyCheckKind, proxyCheckId);
-}
-export async function readBrowserCheck(
-  db: Pick<Store, "get">,
-  factOwner: string,
-): Promise<BrowserCheck | null> {
-  const row = await db.get<StoredBrowserCheck>(factOwner, browserCheckKind, browserCheckId);
-  if (!row) return null;
-  const { id: _, ...check } = row;
-  return check;
-}
-export async function writeBrowserCheck(db: Store, factOwner: string, check: BrowserCheck) {
-  await db.put<StoredBrowserCheck>(factOwner, browserCheckKind, { id: browserCheckId, ...check });
-}
 /** Removes one site's sign-in fact (the login no longer serves that account). */
 export async function removeSignIn(db: Store, factOwner: string, site: string) {
   await db.remove(factOwner, signInKind, site);
@@ -136,7 +101,7 @@ export async function removeSignIn(db: Store, factOwner: string, site: string) {
 /** The sign-ins and the
  * browser check belong to the desktop, so when it is destroyed every site's fact goes back to
  * `pending` (the login stays saved, the new desktop has not signed in) and the browser check
- * and any owner's handling go. The proxy check stays: the proxy is the account's, not the desktop's. */
+ * and any owner's handling go. */
 export async function forgetDesktopSignIns(db: Store, factOwner: string) {
   const at = new Date().toISOString();
   for (const row of await db.list<StoredSignIn>(factOwner, signInKind))
@@ -150,14 +115,15 @@ export async function forgetDesktopSignIns(db: Store, factOwner: string) {
     });
   for (const row of await db.list<{ id: string }>(factOwner, ownerHandledKind))
     await db.remove(factOwner, ownerHandledKind, row.id);
-  await db.remove(factOwner, browserCheckKind, browserCheckId);
+  await db.remove(factOwner, "browser-check", "latest");
 }
-/** Removes every sign-in fact, the proxy check and the browser check (the account is deleted). */
+/** Removes every sign-in fact and the browser check (the account is deleted), and the proxy's
+ * last check an older version kept for it. */
 export async function removeFacts(db: Store, factOwner: string) {
   for (const row of await db.list<{ id: string }>(factOwner, signInKind))
     await db.remove(factOwner, signInKind, row.id);
   for (const row of await db.list<{ id: string }>(factOwner, ownerHandledKind))
     await db.remove(factOwner, ownerHandledKind, row.id);
-  await db.remove(factOwner, proxyCheckKind, proxyCheckId);
-  await db.remove(factOwner, browserCheckKind, browserCheckId);
+  await db.remove(factOwner, "proxy-check", "latest");
+  await db.remove(factOwner, "browser-check", "latest");
 }

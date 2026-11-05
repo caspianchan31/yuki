@@ -1,7 +1,7 @@
 // The credential store's own key and envelope.
 // The key lives in its own file (CREDENTIAL_KEY_FILE), apart from the data and apart from
 // TOKEN_ENCRYPTION_KEY; it is read once at startup and handed only to the CredentialStore.
-import { createHash, createHmac, hkdfSync, randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { decryptSecret, encryptSecret } from "../../../../packages/integrations/src/secret-box.ts";
 
@@ -66,24 +66,6 @@ export const isCredentialKey = (value: string): value is CredentialKey => keyPat
  * that does not belong to it is refused instead of reading every entry as unreadable. */
 export const keyFingerprint = (key: CredentialKey) =>
   createHash("sha256").update(Buffer.from(key, "base64")).digest("hex").slice(0, 8);
-
-/** A keyed fingerprint of `text` for one `purpose`: HMAC-SHA256 under a subkey derived from the
- * store's key (HKDF, its own info per purpose, so it is never the sealing key itself). The same
- * text gives the same tag under the same key, so a value can be told again without unsealing
- * anything; without the key a tag says nothing of the text, and a guess cannot be checked against
- * it (unlike a plain hash). Base64url, 43 characters. */
-export function keyedTag(key: CredentialKey, purpose: string, text: string): string {
-  const subkey = Buffer.from(
-    hkdfSync(
-      "sha256",
-      Buffer.from(key, "base64"),
-      Buffer.alloc(0),
-      `openmuse:credential-store:tag:v1:${purpose}`,
-      32,
-    ),
-  );
-  return createHmac("sha256", subkey).update(text, "utf8").digest("base64url");
-}
 
 /** The associated data of one entry: its ciphertext opens only under this scope and id. */
 const entryAad = (scope: string, id: string) => `openmuse:credential-store:v1:${scope}:${id}`;

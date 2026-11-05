@@ -620,7 +620,7 @@ test("进度汇报 and 平台管理 live in the address; any other fragment is l
   assert.deepEqual(pageOfHash("#progress"), { progress: true });
   // The core knows no 平台管理 tab until the tenancy layer names them (tenancy/web/register-pages.ts).
   assert.equal(pageOfHash("#platform-codes"), null);
-  registerShellPages(["pending", "codes", "exits", "spaces", "referrers", "system"]);
+  registerShellPages(["codes", "spaces", "referrers", "system"]);
   assert.deepEqual(pageOfHash("#platform-codes"), { platform: "codes" });
   assert.equal(pageOfHash("#platform-nope"), null);
   // A password reset link's token is not a page.

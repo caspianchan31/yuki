@@ -140,6 +140,8 @@ export const slackMessageSchema = z.object({
   channelName: z.string().max(200).optional(),
   text: z.string().trim().min(1).max(4000),
   threadTs: z.string().max(40).optional(),
+  /** Who wrote the message a reply answers, and the start of it (for the draft card). */
+  threadPreview: z.string().max(200).optional(),
 });
 export const proposalSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("email.send"), data: emailDraftSchema }),

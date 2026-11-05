@@ -4,7 +4,6 @@
 
 import { useProjects } from "@m/projects-state";
 import { useShellData } from "@m/shell/data";
-import { useFounderRef } from "@m/shell/founder/useFounder";
 import { allMembers, type GroupMember } from "@m/shell/members/groups";
 import { t } from "@m/shell/strings";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -46,7 +45,6 @@ export function useEveryone(): SpaceMember[] {
 export function useAllMembers(): GroupMember[] {
   const data = useShellData();
   const everyone = useEveryone();
-  const founderId = useFounderRef()?.environmentId ?? null;
   const accounts = data.accounts.value;
   return useMemo(
     () =>
@@ -58,9 +56,8 @@ export function useAllMembers(): GroupMember[] {
           face: account.view.face,
         })),
         environments: everyone,
-        founderId,
       }),
-    [accounts, everyone, founderId],
+    [accounts, everyone],
   );
 }
 

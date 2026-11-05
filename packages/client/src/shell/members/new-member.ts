@@ -7,7 +7,10 @@ import {
 } from "../../../../../packages/domain/src/environments.ts";
 import type { MemberFace } from "../../../../../packages/domain/src/member-face.ts";
 import type { MemberTemplate } from "../../../../../packages/domain/src/member-templates.ts";
-import { templateSetup } from "../../../../../packages/domain/src/template-setup.ts";
+import {
+  templateAgents,
+  templateSetup,
+} from "../../../../../packages/domain/src/template-setup.ts";
 import { refusalText, t } from "../strings.ts";
 
 const n = t.newMember;
@@ -63,16 +66,23 @@ interface TemplateApi {
 }
 
 /** Saves a template on a member: her persona, her goal, and one repeating task per routine that
- * has an interval. The same three calls the account editor made. */
+ * has an interval, then her AGENTS.md. The first three calls are what the account editor made. */
 export async function applyMemberTemplate(
   api: TemplateApi,
   template: MemberTemplate,
   environmentId: string,
   timeZone: string,
+  name = template.name,
 ): Promise<void> {
   const setup = templateSetup(template, environmentId, timeZone);
   const path = `/api/agent/accounts/${encodeURIComponent(environmentId)}`;
   await api.request(`${path}/persona`, { fields: setup.persona }, "PUT");
   await api.request(`${path}/goal`, { text: setup.goal }, "PUT");
   for (const task of setup.tasks) await api.request("/api/agent/tasks", task);
+  // Her duties and routines, written into her AGENTS.md (it replaces the first fill).
+  await api.request(
+    `/api/members/${encodeURIComponent(environmentId)}/files/AGENTS.md`,
+    { content: templateAgents(template, name) },
+    "PUT",
+  );
 }

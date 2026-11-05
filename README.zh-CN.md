@@ -12,7 +12,7 @@
 
 Yuki 是聊天里的 AI 同事。打开就有 Yuki，第一句话告诉它做什么。需要帮手就加成员，拉进群里，它们在对话里互相交接。要你拍板时才来找你；没有你点头，不会以你的名义发出任何东西。
 
-这个仓库是 Yuki 的开源核心：单用户，跑在你自己的电脑上，MIT 许可证。
+这个仓库是 Yuki 的源码公开核心：单用户，跑在你自己的电脑上，采用 Yuki 社区许可证。
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/yuki/chat-dark.svg">
@@ -110,28 +110,46 @@ pnpm --dir apps/web dev       # 网页 http://localhost:5173
 
 没有模型密钥时，只做 `cp .env.example .env` 也能启动：一个示例工作区，数据是虚构的，Yuki 按脚本回答。
 
+### 用 docker compose 启动（带一台独立的电脑）
+
+一条命令同时启动 Yuki 服务和一个单独的**电脑**容器：队友在里面跑命令、存文件、上网；他们只在那台电脑里干活，不碰你的机器。你能看它的实时画面、接手、再交还；没人用时它自己暂停。需要 Docker（含 Compose）和约 3 GB 空闲内存。
+
+```sh
+cp .env.example .env
+# 编辑 .env：MODEL、模型服务商的密钥、OPENMUSE_ADMIN_USERNAME 和 OPENMUSE_ADMIN_PASSWORD
+docker compose up -d --build   # 然后打开 http://localhost:8787
+```
+
+内存上限、端口、闲置暂停时间都在 `.env` 里改。详情、限制和数据存放位置见 [docs/computer-container.md](docs/computer-container.md)（英文）。
+
 ### 连接应用
 
 - **MCP 服务**：设置 → 连接的应用 → 添加自定义 MCP 服务，填地址，需要的话填访问令牌。跑在你自己电脑或内网上的服务（`http://localhost:…`）也可以。
 - **自己的邮箱**：⌘K → 凭据 → 添加发信邮箱（SMTP，要收信再填 IMAP）。
 - **Gmail 和谷歌日历**：建一个 Google OAuth 网页客户端，设置 `GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`，回调地址登记为 `http://localhost:8787/api/google/callback`。
-- **Slack**：设置你的 Slack 应用的 `SLACK_CLIENT_ID`、`SLACK_CLIENT_SECRET`。
+- **Slack**：先建一个自己的 Slack 应用，再设置 `SLACK_CLIENT_ID`、`SLACK_CLIENT_SECRET`，步骤见[下面](#连接-slack)。
 
-## 开源版和托管版
+#### 连接 Slack
 
-|  | 开源核心（本仓库） | [托管版](https://yukilab.si) |
+Slack 要用你自己建的应用，建一次就行。之后在 设置 → 连接的应用 → Slack 点「连接」，去 Slack 允许一下就回来，已经连好。
+
+1. 打开 <https://api.slack.com/apps> → **Create New App** → **From scratch**，起名并选你的工作区。
+2. **OAuth & Permissions** → **Redirect URLs**，添加 `<PUBLIC_API_URL>/api/slack/callback`（本机安装就是 `http://localhost:8787/api/slack/callback`），保存。
+3. 同一页的 **Bot Token Scopes** 加上：`channels:read`、`groups:read`、`channels:history`、`groups:history`、`users:read`、`chat:write`、`chat:write.public`。
+4. **Basic Information** 里复制 **Client ID** 和 **Client Secret**，填进 `.env` 的 `SLACK_CLIENT_ID`、`SLACK_CLIENT_SECRET`；确认 `TOKEN_ENCRYPTION_KEY` 也设了，然后重启。
+5. 在 Slack 里把应用邀请进要读的频道（`/invite @你的应用`）；它只能读自己在里面的频道。成员可以读和起草；消息只在你点发送时才发出。
+
+## 核心版和托管版
+
+|  | 核心版（本仓库） | [托管版](https://yukilab.si) |
 |:--|:--|:--|
 | 聊天、成员、群、例行、技能、应用、审批 | ✓ | ✓ |
 | 给成员干活用的电脑 | — | 云电脑 |
 | 团队、共享空间、计费 | — | ✓ |
 
-开源核心不带电脑：成员通过聊天、你连接的应用和例行干活。
-引擎里还留着一些早期设计（桌面账号、代理）的代码，应用里已经用不到，后续版本会清掉。
-
-## 出处
-
-Yuki 起源于 CopilotKit 的 [OpenMuse](https://github.com/CopilotKit/openmuse)（MIT）。
+核心版不带电脑：成员通过聊天、你连接的应用和例行干活。
+引擎里还留着一些早期设计（桌面账号）的代码，应用里已经用不到，后续版本会清掉。
 
 ## 许可证
 
-MIT
+[Yuki 社区许可证 1.0](LICENSE)：可以自己用、改代码、在自己的公司内部用；不可以拿去给别人提供托管服务。每个版本发布满两年后改按 MIT 授权。第三方声明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

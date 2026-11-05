@@ -151,7 +151,7 @@ export interface TaskPhaseWords {
   /** A task stopped before the report line on a run without a completion call: "上一轮没确认做完
    * · 卡在：第 4 步 打开评论区". */
   unfinished: (step: string) => string;
-  /** The line of a task with an open infrastructure incident (fork, report line): "代理连不上
+  /** The line of a task with an open infrastructure incident (fork, report line): "网络连不上
    * （13:02 起）· 14:00 再试". Optional: without it the line is the wait's or the schedule's. */
   incident?: (kind: IncidentKind, since: string, next: string) => string;
   /** "第 4 步 打开评论区" */

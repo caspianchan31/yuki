@@ -15,7 +15,6 @@ import {
 import type { ReactElement } from "react";
 import {
   DelegatedTaskCard,
-  JobToolCard,
   ProjectToolCard,
   RedirectCard,
   RouteLine,
@@ -80,19 +79,6 @@ const renderers: Record<WorkspaceToolName, (props: RenderProps) => ReactElement 
   ),
   resume_task: ({ args, result, status }) => (
     <RedirectCard kind="resume" args={args} result={result} loading={status !== "complete"} />
-  ),
-  // The project's jobs, in the capybara's words (查看 opens the job).
-  create_job: ({ result, status }) => (
-    <JobToolCard name="create_job" result={result} loading={status !== "complete"} />
-  ),
-  assign_job: ({ result, status }) => (
-    <JobToolCard name="assign_job" result={result} loading={status !== "complete"} />
-  ),
-  update_job: ({ result, status }) => (
-    <JobToolCard name="update_job" result={result} loading={status !== "complete"} />
-  ),
-  close_job: ({ result, status }) => (
-    <JobToolCard name="close_job" result={result} loading={status !== "complete"} />
   ),
   agent_status: ({ result, status }) => (
     <ServerToolCard name="agent_status" result={result} loading={status !== "complete"} />

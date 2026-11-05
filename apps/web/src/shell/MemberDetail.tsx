@@ -15,7 +15,6 @@ import {
   dutyText,
   goalRoutines,
   memberRoutines,
-  memoriesForMember,
   usageDayLabel,
 } from "@m/shell/members/member-detail";
 import { loginLine } from "@m/shell/model";
@@ -27,6 +26,8 @@ import { DesktopPreview } from "../accounts/DesktopPreview";
 import { MemberFace } from "../ui/MemberFace";
 import { faceOf } from "../ui/member-face";
 import { Btn, ErrorLine, Field, IconBtn, Skeleton } from "../ui/primitives";
+import { ContainerComputer } from "./ContainerComputer";
+import { FilePreview, NotesList, useMemberFiles } from "./MemberFiles";
 import { openMemberComputer } from "./member-computer";
 import { RoutineCards } from "./RoutineCards";
 import "./new-member.css";
@@ -50,7 +51,6 @@ export function MemberDetail({
   const [typed, setTyped] = useState("");
   const [removeError, setRemoveError] = useState("");
   const [duty, setDuty] = useState("");
-  const [dutyError, setDutyError] = useState("");
   const [dutyFor, setDutyFor] = useState<string | null>(null);
   const [goalText, setGoalText] = useState("");
   const [usage, setUsage] = useState<{
@@ -65,9 +65,9 @@ export function MemberDetail({
   const accountId = account?.id;
   const projectId = account?.projectId ?? null;
   const dutyHere = dutyFor === accountId ? duty : "";
-  const dutyErrorHere = dutyFor === accountId ? dutyError : "";
   const goalHere = dutyFor === accountId ? goalText : "";
   const usageHere = usageFor === accountId ? usage : null;
+  const files = useMemberFiles(accountId, projectId, account?.name ?? "");
 
   useEffect(() => {
     if (!accountId || !lookup.isCurrent) return;
@@ -88,7 +88,6 @@ export function MemberDetail({
               boundaries: parts?.boundaries?.value ?? null,
             }),
           );
-          setDutyError("");
           setGoalText(operating.goal?.text ?? "");
           setDutyFor(accountId);
         })
@@ -96,7 +95,6 @@ export function MemberDetail({
           if (gone) return;
           setDuty("");
           setGoalText("");
-          setDutyError("职责还没读到");
           setDutyFor(accountId);
           dutyTimer = window.setTimeout(loadDuty, 5_000);
         });
@@ -161,9 +159,7 @@ export function MemberDetail({
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
   const role = dutyLines[0] ?? "";
-  const dutyBody = dutyLines.length > 1 ? dutyLines.slice(1).join("\n") : dutyHere;
   const logins = loginLine(account.view);
-  const memories = memoriesForMember(data.memories, account.id);
   // With no computer connected (未接电脑) nothing about a desktop is shown.
   const computer = account.view.computer !== false;
   const screen = computer ? memberScreen(account, account.tasks) : null;
@@ -206,9 +202,7 @@ export function MemberDetail({
       ) : null}
       <section>
         <h3>职责</h3>
-        <div className="member-card member-duty">
-          {dutyBody || dutyErrorHere || "还没有写职责。"}
-        </div>
+        <FilePreview files={files} path="AGENTS.md" />
       </section>
       <section>
         <h3>例行</h3>
@@ -220,7 +214,6 @@ export function MemberDetail({
           routines={shownRoutines}
           entries={account.tasks}
           projectId={projectId}
-          timezone={account.timezone ?? null}
         />
         {goalRoutines(goalHere).map((routine) => (
           <div key={`${routine.title}\n${routine.when}`} className="member-card">
@@ -229,13 +222,23 @@ export function MemberDetail({
           </div>
         ))}
       </section>
+      {computer ? null : <ContainerComputer />}
       {computer ? (
         <section>
           <h3>电脑</h3>
           <div className="member-card">
-            <div>{account.desktopWord}</div>
-            <div className="roster-line">
-              {account.exit ? `出口 ${account.exit}` : "还没有出口"}
+            <div>{t.desktop.card[account.desktop] ?? account.desktopWord}</div>
+            {account.desktopReason ? (
+              <div className="roster-line">{account.desktopReason}</div>
+            ) : null}
+            <div className="member-actions">
+              <button
+                type="button"
+                className="member-run quiet"
+                onClick={() => openMemberComputer(nav, data.recheckSignIn, account)}
+              >
+                {t.memberCard.openComputer}
+              </button>
             </div>
             {logins ? <div className="roster-line">{logins}</div> : null}
             {appsToConnect(goalHere) ? (
@@ -273,18 +276,14 @@ export function MemberDetail({
         </div>
       </section>
       <section>
-        <h3>记住的事</h3>
-        {memories.length === 0 ? (
-          <p className="muted">还没有记住的事。</p>
-        ) : (
-          <ul className="member-card">
-            {memories.map((memory) => (
-              <li key={memory.id}>{memory.text}</li>
-            ))}
-          </ul>
-        )}
+        <h3>{t.memberFiles.memory}</h3>
+        <FilePreview files={files} path="MEMORY.md" />
       </section>
-      <p className="roster-line">要改职责或例行，直接在对话里跟 {account.name} 说。</p>
+      <section>
+        <h3>{t.memberFiles.notes}</h3>
+        <NotesList files={files} />
+      </section>
+      <p className="roster-line">也可以直接在对话里跟 {account.name} 说，她会自己改。</p>
       <section>
         <h3>其他</h3>
         {computer ? (
@@ -342,6 +341,7 @@ export function MemberDetail({
           </div>
         )}
       </section>
+      {files.editor}
     </div>
   );
 }

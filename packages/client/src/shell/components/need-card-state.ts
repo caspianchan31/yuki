@@ -50,11 +50,6 @@ export interface AccountNeedModel {
   login: { kind: "login"; site: string } | null;
   wrongPassword: boolean;
   desktop: boolean;
-  proxy: boolean;
-  /** A platform-set-up space's account without an exit: pick one. */
-  exit: boolean;
-  /** Not operating: 定长期目标 (its detail) and 在聊天里派活… (the chat). */
-  goal: boolean;
   need: DesktopNeed | undefined;
   steps: string[];
 }
@@ -75,9 +70,6 @@ export function accountNeedModel(
     login: login && login.kind === "login" ? { kind: "login", site: login.site } : null,
     wrongPassword: other.some((flag) => siteFlag(flag)?.status === "wrong_password"),
     desktop: actions.some((action) => action.kind === "desktop"),
-    proxy: actions.some((action) => action.kind === "proxy"),
-    exit: actions.some((action) => action.kind === "exit"),
-    goal: actions.some((action) => action.kind === "goal"),
     ...desktopOf(item, other),
   };
 }
@@ -87,7 +79,6 @@ export interface ProjectNeedModel {
   other: AccountFlag[];
   logins: { site: string; replace: boolean }[];
   desktop: boolean;
-  proxy: boolean;
   need: DesktopNeed | undefined;
   steps: string[];
 }
@@ -109,7 +100,6 @@ export function projectNeedModel(
         : [],
     ),
     desktop: actions.some((entry) => entry.action.kind === "desktop"),
-    proxy: actions.some((entry) => entry.action.kind === "proxy"),
     ...desktopOf(item, other),
   };
 }

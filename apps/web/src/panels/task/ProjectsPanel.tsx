@@ -26,7 +26,6 @@ import { projectsMax } from "../../../../../packages/domain/src/projects";
 import { useTenancyUi } from "../../tenancy-ui";
 import { Btn, cx, ErrorLine, Field, Sheet, Skeleton } from "../../ui/primitives";
 import type { PanelProps } from "../types";
-import { FounderRow } from "./founder";
 
 type ProjectForm = "new" | "rename" | "delete";
 
@@ -124,7 +123,6 @@ export function ProjectsPanel({ panel, onClose }: PanelProps<"projects">) {
     <Sheet title={t.projects.title} onClose={onClose}>
       <div className="tp">
         <ui.SpaceSwitch />
-        {available ? <FounderRow /> : null}
         {overview.projects ? (
           <p className="tp-small">{t.projects.countsSource}</p>
         ) : overview.available && overview.error ? (

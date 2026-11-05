@@ -72,6 +72,20 @@ function resultSummary(value: string) {
     : value;
 }
 
+/** A result's web address as a link (a sent Slack message's). */
+function linked(value: string) {
+  return value.split(/(https?:\/\/\S+)/).map((part, index) =>
+    /^https?:\/\//.test(part) ? (
+      // biome-ignore lint/suspicious/noArrayIndexKey: static split of one string
+      <a key={index} href={part} target="_blank" rel="noreferrer">
+        {part}
+      </a>
+    ) : (
+      part
+    ),
+  );
+}
+
 export function MailDetail({ mail: m, onClose }: { mail: Mail } & Close) {
   const { workspace: w, open } = useWorkspace();
   const { thread, loading, error, importing, importAttachment, reload } = useMailThread(m);
@@ -454,7 +468,16 @@ export function ReviewDetail({ initial, onClose }: { initial: ActionProposal } &
       <>
         <div className="kv">
           <ReviewLine label={r.account} value={action.account || w.profile.email} />
-          <ReviewLine label={r.slackChannel} value={String(d.channelName || d.channel || "")} />
+          <ReviewLine
+            label={r.slackChannel}
+            value={d.channelName ? `#${String(d.channelName)}` : String(d.channel || "")}
+          />
+          {d.threadTs ? (
+            <ReviewLine
+              label={r.slackThread}
+              value={String(d.threadPreview || `${r.slackThreadOf} ${String(d.threadTs)}`)}
+            />
+          ) : null}
         </div>
         <div className="lg-body">{String(d.text || "")}</div>
       </>
@@ -565,7 +588,7 @@ export function ReviewDetail({ initial, onClose }: { initial: ActionProposal } &
       <ErrorLine error={error || action.error} />
       {action.result ? (
         <Callout tone="green">
-          <span className="lg-select">{resultSummary(action.result)}</span>
+          <span className="lg-select">{linked(resultSummary(action.result))}</span>
         </Callout>
       ) : null}
       {pending && !action.noExpiry ? (

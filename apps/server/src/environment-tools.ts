@@ -1,9 +1,12 @@
-// Members in chat and background tasks, with no computer. A task given to a member runs as that
-// member (her ledger, her pacing, her routines); a chat reply drives no desktop, so it has no
-// environment to pick and no computer or sign-in tools.
+// Members in chat and background tasks. A task given to a member runs as that member (her
+// ledger, her routines). With no computer container configured a chat reply drives no desktop, so
+// it has no computer tools; with one (docs/computer-container.md) it gets the tools of
+// desktop-tools.ts on the members' shared computer.
 import { type RunStep, taskTitle } from "../../../packages/domain/src/agent.ts";
 import type { EnvironmentRef } from "../../../packages/domain/src/environments.ts";
 import type { ComputerService } from "./computer.ts";
+import { desktopOf } from "./desktop-computer.ts";
+import { desktopInstructions, desktopTools } from "./desktop-tools.ts";
 import {
   type ActiveEnvironment,
   type EnvironmentService,
@@ -18,11 +21,12 @@ const label = (ref: EnvironmentRef) =>
 export class ChatEnvironment {
   private current: ActiveEnvironment = { kind: "default" };
   readonly steps: RunStep[] = [];
-  /** No desktop is held: there is none. */
+  /** No desktop is held: members share one computer and the person taking the computer over pauses their tools
+   * (desktop-tools.ts), so a run holds nothing. */
   readonly session = { release: async () => {} };
   constructor(
     private readonly environments: EnvironmentService,
-    _computer: ComputerService,
+    private readonly computer: ComputerService,
     private readonly owner: string,
     private readonly threadId: string,
   ) {}
@@ -41,7 +45,7 @@ export class ChatEnvironment {
       if (!(error instanceof AppError && error.status === 404)) throw error;
       this.current = { kind: "blocked", deletedName: null };
     }
-    return "";
+    return desktopOf(this.computer) ? ` ${desktopInstructions}` : "";
   }
   ownerOf = () => (this.current.kind === "env" ? this.current.owner : this.owner);
   ref = (): EnvironmentRef | null => (this.current.kind === "env" ? this.current.ref : null);
@@ -71,8 +75,14 @@ export class ChatEnvironment {
       input: { ...input, environmentId: ref.id },
     };
   }
-  tools(_options: { signal?: AbortSignal } = {}) {
-    return [];
+  tools(options: { signal?: AbortSignal } = {}) {
+    const desktop = desktopOf(this.computer);
+    if (!desktop) return [];
+    return desktopTools(desktop, {
+      scope: `chat:${this.threadId}`,
+      owner: this.ownerOf,
+      signal: options.signal,
+    }).map(this.logSteps);
   }
 }
 

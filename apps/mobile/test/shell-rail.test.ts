@@ -11,7 +11,6 @@ import {
   type AccountView,
   buildAccountModels,
   flagLabel,
-  normalizePacing,
   taskEntries,
 } from "../../../packages/client/src/shell/model.ts";
 import {
@@ -59,13 +58,11 @@ function task(overrides: Partial<AgentTask> = {}): AgentTask {
     ...overrides,
   };
 }
-function account(overrides: Record<string, unknown> = {}, pacing?: unknown): AccountView {
+function account(overrides: Record<string, unknown> = {}, _pacing?: unknown): AccountView {
   const settings = {
-    proxy: { configured: true, preview: "http://•••@203.0.113.105:5890" },
     timezone: "America/Los_Angeles",
     locale: "en-US",
     updatedAt: null,
-    unreadable: false,
     ...((overrides.settings as object) ?? {}),
   };
   return {
@@ -75,11 +72,9 @@ function account(overrides: Record<string, unknown> = {}, pacing?: unknown): Acc
       accountLabel: "u/Oak_Example_2",
       projectId: "p1",
       status: "running",
-      proxyConfigured: true,
       ...overrides,
       settings,
     }),
-    pacing: normalizePacing(pacing),
   };
 }
 function report(overrides: Partial<ChatReport> = {}): ChatReport {
@@ -124,22 +119,10 @@ test("account row: flags (never a two-tasks flag), 此刻 +n", () => {
   );
   assert.equal(nowLine({ ...own, name: "a1name" })?.title, "AcmeGame Reddit推广");
 
-  const [noProxy, broken, unreadable] = models([
-    account({ id: "n", settings: { proxy: { configured: false, preview: null }, locale: null } }),
-    account({ id: "e", status: "error" }),
-    account({ id: "u", settings: { unreadable: true } }),
-  ]);
-  assert.deepEqual(
-    accountRowFlags(noProxy).map((flag) => [flag.label, flag.tone]),
-    [["无代理", "red"]],
-  );
+  const [broken] = models([account({ id: "e", status: "error" })]);
   assert.deepEqual(
     accountRowFlags(broken).map((flag) => [flag.label, flag.tone]),
     [["桌面出错", "red"]],
-  );
-  assert.deepEqual(
-    accountRowFlags(unreadable).map((flag) => [flag.label, flag.tone]),
-    [["代理读不出", "red"]],
   );
 });
 
@@ -170,7 +153,7 @@ test("an account whose task the infrastructure keeps stopping shows the fact, no
   for (const part of [t.incidents.kinds.model, "13:02", "14:48"])
     assert.ok(sub.includes(part), part);
   assert.equal(row.tasks[0].phase.needsYou, false);
-  // The desktop, the proxy: each in its words.
+  // The desktop: in its words.
   const [desktop] = models(
     [account({ id: "a2" })],
     [
@@ -405,7 +388,7 @@ test("the accounts table: 地区 from 1100, the actions give way to a docked det
   assert.equal(accountTableMinWidth({ region: true, act: false }), 706);
   assert.equal(accountTableMins({ region: true, act: true }), accountTableColumnWidths.roomy);
   assert.equal(accountTableMins({ region: true, act: false }), accountTableColumnWidths.tight);
-  // The exit keeps its full width beside the detail (an address is not cut).
+  // The meta column keeps its full width beside the detail.
   assert.equal(accountTableColumnWidths.tight.meta, accountTableColumnWidths.roomy.meta);
 });
 
@@ -498,9 +481,9 @@ test("the rail's account row: name, a problem to see, 此刻 and 下次; the res
   assert.equal(shown.now?.title, "推广");
   assert.match(shown.next ?? "", /15:00/);
   assert.deepEqual(shown.flags, []);
-  // No exit, no share count, no region, no pacing counters, no desktop state, no report.
+  // No share count, no region, no pacing counters, no desktop state, no report.
   const text = JSON.stringify({ ...shown, now: shown.now?.title });
-  for (const hidden of ["203.0.113.105", "5890", "共用", "跨", "en-US", "今日", "桌面", "已处理"])
+  for (const hidden of ["共用", "跨", "en-US", "今日", "桌面", "已处理"])
     assert.ok(!text.includes(hidden), hidden);
   // A problem the owner must see stays on the row.
   const [broken] = models([account({ id: "e", status: "error" })]);
@@ -586,9 +569,9 @@ test("the rail's task card: one state line, never what a run wrote, no counters,
     line({
       status: "scheduled",
       nextRunAt: at(15, 0),
-      state: { incident: { kind: "proxy", since: at(13, 2) } },
+      state: { incident: { kind: "desktop", since: at(13, 2) } },
     }),
-    /代理/,
+    /桌面/,
   );
 });
 
@@ -604,7 +587,7 @@ test("while the worker has no heartbeat a run reads 后台停着 on the task row
   const [entry] = taskEntries(raw, now, true);
   assert.deepEqual(railTaskState(entry, now).label, t.members.stalled);
   assert.notEqual(railTaskState(entry, now).label, entriesOf(raw)[0].phase.label);
-  // The account's 此刻 (its pill on 账号与代理 and on the phone's rows) is the same entry.
+  // The account's 此刻 (its pill on 账号 and on the phone's rows) is the same entry.
   const [row] = buildAccountModels({
     accounts: [account()],
     entries: taskEntries(raw, now, true),

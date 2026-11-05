@@ -4,9 +4,29 @@
  * name them the same way. Pure.
  */
 import type { ChatReport } from "../../../../../packages/domain/src/agent.ts";
-import { reportSpeaker, reportSpeakerOf, type Speaker } from "../founder/founder-core.ts";
 import type { AccountModel, TaskEntry } from "../model.ts";
 import { reportSource } from "./core.ts";
+
+export interface Speaker {
+  name: string;
+  /** The round avatar's letter: the name's first character, upper-cased. */
+  initial: string;
+}
+export function speakerInitial(name: string): string {
+  const first = Array.from(name.trim().replace(/^[@#[(（【「]+/, ""))[0] ?? "";
+  return first.toUpperCase();
+}
+/** Who speaks a chat report: the account the task runs on; null for a task on the default desktop
+ * (the card stays as it was). */
+export function reportSpeaker(account: { name: string } | null): Speaker | null {
+  const name = account?.name.trim();
+  return name ? { name, initial: speakerInitial(name) } : null;
+}
+/** The speaker a report names itself. */
+export function reportSpeakerOf(report: { speaker?: { name: string } }): Speaker | null {
+  const name = report.speaker?.name?.trim();
+  return name ? { name, initial: speakerInitial(name) } : null;
+}
 
 /** The speaker (the account that speaks) and the source line under it: 「每日巡检」 (the account
  * is not named twice; empty for the account's own loop), or 「每日巡检 · 跑在默认桌面」 for an

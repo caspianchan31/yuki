@@ -25,15 +25,10 @@
  *   - the tasks `taskPhase` puts in 需要你: ask_user questions (`waiting_input`, including
  *     auto-continue used up; waits have no limit), `waiting_approval`, failures within 7 days;
  *   - upstream reviews (`actions` awaiting_review) that no waiting_approval task stands for;
- *   - the project's accounts whose desktop is in error or that have no proxy saved, once per
- *     account, exactly as the client's account flags read GET /api/environments: a desktop the
- *     listing reports in error, a listing that failed (every account then reads 出错) or saved
- *     settings that could not be loaded are desktop errors; an unreadable proxy setting alone is
- *     neither (the client shows it apart, and it is not "no proxy");
- *   - (fork, make it run) the project's accounts, and in the default project the founder, that
- *     are not operating (`idleAccount`): no long-term goal, no open job (AccountLoops.wanted, the
- *     view's `hasWork`) and no live task bound to it: nothing makes them act. Still one item per
- *     account. Stopped standing loops are tasks in 需要你 (`taskPhase`, no 7-day expiry).
+ *   - the project's accounts whose desktop is in error, once per account, exactly as the client's
+ *     account flags read GET /api/environments: a desktop the listing reports in error, a
+ *     listing that failed (every account then reads 出错) or saved settings that could not be
+ *     loaded are desktop errors;
  * Site checks and sign-in walls are never in it, and neither is one account serving several
  * tasks. The other counts are the task phases: running, queued, waiting (a `wait_until` wait),
  * scheduled (a repeat or a one-off run later), failed7d.
@@ -42,8 +37,6 @@ import { Hono } from "hono";
 import type { AgentTask } from "../../../packages/domain/src/agent.ts";
 import {
   ownerSignInStatuses,
-  type ProxyCheck,
-  proxyDown,
   type SiteSignInFact,
 } from "../../../packages/domain/src/credentials.ts";
 import type { Environment } from "../../../packages/domain/src/environments.ts";
@@ -55,8 +48,8 @@ import {
   taskPhase,
   taskPhaseCounts,
 } from "../../../packages/domain/src/task-phase.ts";
-import type { ComputerSettings, ComputerSettingsEndpoint, DesktopState } from "./computer.ts";
-import { readProxyCheck, readSignIns } from "./credentials/facts.ts";
+import type { ComputerSettings, ComputerSettingsView, DesktopState } from "./computer.ts";
+import { readSignIns } from "./credentials/facts.ts";
 import type { Store } from "./db.ts";
 import { type EnvironmentService, envOwner } from "./environments.ts";
 import type { ProjectService } from "./projects.ts";
@@ -125,17 +118,11 @@ export interface ProjectOverviewSources {
   projects: Pick<ProjectService, "records">;
   environments: Pick<EnvironmentService, "allRecords" | "available">;
   computer: {
-    settings: Pick<ComputerSettings, "endpoint" | "systemHidden">;
+    settings: Pick<ComputerSettings, "view">;
     states: (owners: string[]) => Promise<DesktopState[]>;
   };
   /** Shares one desktop listing between reads for a short while; without it every read lists. */
   listing?: DesktopListingCache;
-  /** Whether an account has something to work on (AccountLoops.wanted);
-   * without it no account counts as not operating. */
-  hasWork?: (owner: string, environmentId: string) => Promise<boolean>;
-  /** Whether a project's default desktop has a proxy of its own (the client's
-   * `noProxy` on the project's item: none while it uses any site login); without it, not read. */
-  projectProxy?: (scope: string) => Promise<boolean>;
 }
 
 /** How long one desktop listing serves the overview (design §8.2 N4: 15–20 s). */
@@ -188,54 +175,22 @@ export function desktopListingCache(
   };
 }
 
-/** No proxy it can use (none saved, or one that can't be used as saved and has to be entered
- * again): the account's desktop browser cannot start (design §5.2 item 4). */
-export const proxyMissing = (endpoint: ComputerSettingsEndpoint) => endpoint.proxy === null;
-
 /** Facts only the owner can act on: a site refused the saved password,
- * asks for a code, suspended the account or has no saved login; or the proxy does not work. */
-export function factsNeedYou(facts: {
-  signIns: readonly Pick<SiteSignInFact, "status">[];
-  proxyCheck?: ProxyCheck | null;
-}) {
-  return (
-    facts.signIns.some((fact) => ownerSignInStatuses.includes(fact.status)) ||
-    proxyDown(facts.proxyCheck)
-  );
+ * asks for a code, suspended the account or has no saved login. */
+export function factsNeedYou(facts: { signIns: readonly Pick<SiteSignInFact, "status">[] }) {
+  return facts.signIns.some((fact) => ownerSignInStatuses.includes(fact.status));
 }
 /** The account-level 需要你 item (design §5.2 item 4, decision 4), the way the client's
  * accountFlags reads an environment view: its desktop is in error (EnvironmentService.compose:
- * the listing says so, or the saved settings could not be loaded), no proxy is saved, or (fork,
- * credentials) one of its facts only the owner can act on. One item per account; the caller adds
- * an account that is not operating (`idleAccount`, which needs the project's tasks) as the same
- * one item. */
+ * the listing says so, or the saved settings could not be loaded), or (fork, credentials) one
+ * of its facts only the owner can act on. One item per account. */
 export function accountNeedsYou(
   state: DesktopState,
-  endpoint: ComputerSettingsEndpoint | "failed",
-  facts: { signIns: readonly Pick<SiteSignInFact, "status">[]; proxyCheck?: ProxyCheck | null } = {
-    signIns: [],
-  },
+  settings: ComputerSettingsView | "failed",
+  facts: { signIns: readonly Pick<SiteSignInFact, "status">[] } = { signIns: [] },
 ): boolean {
-  if (state.state === "error" || endpoint === "failed") return true;
+  if (state.state === "error" || settings === "failed") return true;
   return factsNeedYou(facts);
-}
-
-/** An account nothing makes act, the same rule as the client's 没在经营 flag
- * (model.ts `isIdleAccount`): an account of a project, or the founder, with nothing to work on
- * (no long-term goal, no open job: `hasWork` false, AccountLoops.wanted) and no live (not ended)
- * task bound to it. An unassigned account that is not the founder is the owner's spare one and
- * never counts; an unknown `hasWork` (undefined) never counts either. */
-export function idleAccount(
-  record: Pick<Environment, "id" | "projectId" | "founder">,
-  hasWork: boolean | undefined,
-  tasks: readonly AgentTask[],
-  now: Date | number = Date.now(),
-): boolean {
-  if (hasWork !== false) return false;
-  if (!record.projectId && !record.founder) return false;
-  return !tasks.some(
-    (task) => taskEnvironmentId(task) === record.id && !taskPhase(task, { now }).ended,
-  );
 }
 
 /** Whether each account needs you, in order: one provider listing for all of them, and each
@@ -245,7 +200,7 @@ async function accountsNeedingYou(
   sources: ProjectOverviewSources,
   real: string,
   accounts: readonly Environment[],
-): Promise<{ flagged: boolean; sites: SiteNeed[]; hasWork: boolean | undefined }[]> {
+): Promise<{ flagged: boolean; sites: SiteNeed[] }[]> {
   const owners = accounts.map((record) => {
     try {
       return envOwner(real, record.id);
@@ -269,29 +224,15 @@ async function accountsNeedingYou(
     stateOf = new Map(listed.map((owner) => [owner, { state: "error", message: text }]));
   }
   return Promise.all(
-    owners.map(async (owner, index) => {
-      if (owner === null) return { flagged: false, sites: [], hasWork: undefined };
-      const endpoint = await sources.computer.settings
-        .endpoint(owner)
-        .catch((): "failed" => "failed");
+    owners.map(async (owner, _index) => {
+      if (owner === null) return { flagged: false, sites: [] };
+      const settings = await sources.computer.settings.view(owner).catch((): "failed" => "failed");
       const state = stateOf.get(owner) ?? { state: "error", message: "Not listed" };
-      // A member of a space the platform sets up does not fix its proxy;
-      // a proxy that does not work is the operator's alert, not this member's 需要你.
-      const theirs = !(await sources.computer.settings.systemHidden?.(owner));
-      const facts = {
-        signIns: await readSignIns(sources.db, owner),
-        proxyCheck:
-          theirs && sources.db.get ? await readProxyCheck(sources.db as Store, owner) : null,
-      };
-      const record = accounts[index] as Environment;
-      const hasWork = sources.hasWork
-        ? await sources.hasWork(real, record.id).catch(() => undefined)
-        : undefined;
-      // The account's own item (its desktop, its proxy) and one per site's step.
+      const facts = { signIns: await readSignIns(sources.db, owner) };
+      // The account's own item (its desktop) and one per site's step.
       return {
-        flagged: accountNeedsYou(state, endpoint, { signIns: [], proxyCheck: facts.proxyCheck }),
+        flagged: accountNeedsYou(state, settings, { signIns: [] }),
         sites: siteNeeds(facts.signIns),
-        hasWork,
       };
     }),
   );
@@ -318,16 +259,16 @@ export const pendingReviews = (
 export function projectNeedLines(input: {
   tasks: readonly AgentTask[];
   actions: readonly ActionProposal[];
-  /** `needsYou`: the account's own item (its desktop, its proxy, not operating); `sites`: each
+  /** `needsYou`: the account's own item (its desktop); `sites`: each
    * site's sign-in step, an item of its own. */
   accounts: readonly {
     record: Pick<Environment, "id" | "name">;
     needsYou: boolean;
     sites?: readonly SiteNeed[];
   }[];
-  /** Every account by id, for a task's account name (it may be the founder, in no project). */
+  /** Every account by id, for a task's account name . */
   accountNames?: ReadonlyMap<string, string>;
-  /** The project's own logins: its proxy's item (`true`, or `own`) and each site's step. */
+  /** The project's own logins: each site's step (`own`: kept for older callers, always false). */
   projectFacts: boolean | { own: boolean; sites: readonly SiteNeed[] };
   now: Date | number;
 }): ProjectNeedLine[] {
@@ -452,30 +393,13 @@ export async function buildProjectsOverview(
           .filter(({ record }) => (record.projectId ?? null) === id)
           .map(({ record, fact }) => ({
             record,
-            needsYou: fact.flagged || idleAccount(record, fact.hasWork, tasks, now),
+            needsYou: fact.flagged,
             sites: fact.sites,
           }));
-        // The project's own logins (its default desktop) count too: its
-        // proxy once, and each site's step as an item of its own.
+        // The project's own logins (its default desktop) count too, each
+        // site's step as an item of its own (2026-10-21).
         const projectSignIns = available ? await readSignIns(sources.db, scoped) : [];
-        const theirs = available && !(await sources.computer.settings.systemHidden?.(scoped));
-        const projectFacts = available
-          ? {
-              own:
-                factsNeedYou({
-                  signIns: [],
-                  proxyCheck:
-                    sources.db.get && theirs
-                      ? await readProxyCheck(sources.db as Store, scoped)
-                      : null,
-                }) ||
-                (theirs &&
-                  projectSignIns.length > 0 &&
-                  !!sources.projectProxy &&
-                  !(await sources.projectProxy(scoped))),
-              sites: siteNeeds(projectSignIns),
-            }
-          : { own: false, sites: [] };
+        const projectFacts = { own: false, sites: available ? siteNeeds(projectSignIns) : [] };
         // One source: the count is the number of lines the 需要你 page lists.
         const needs = projectNeedLines({
           tasks,

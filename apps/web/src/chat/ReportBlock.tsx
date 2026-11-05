@@ -76,7 +76,6 @@ function useReportTurn(turn: GroupTurn, from: ReturnType<typeof reportCardSource
       kind: "account" as const,
       name: from.speaker.name,
       initial: from.speaker.initial,
-      founder: from.speaker.founder,
     },
     head: true,
   };
@@ -220,10 +219,7 @@ export function ReportBlock({
   const label = t.reportCard.header(reportLabel(report.title, report.action));
   const subLine = page ? (
     turn.head && from.speaker ? (
-      <div className="sub-line">
-        {from.speaker.name}
-        {from.speaker.founder ? <span className="tag f">{t.group.founderTag}</span> : null}
-      </div>
+      <div className="sub-line">{from.speaker.name}</div>
     ) : null
   ) : from.source ? (
     <div className="sub-line">{from.source}</div>

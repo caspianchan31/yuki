@@ -29,19 +29,17 @@ describe("allMembers and groupChoices", () => {
     environments: [
       { id: "bob", name: "Bob", projectId: A },
       { id: "cai", name: "Cai", projectId: B },
-      { id: "fou", name: "Founder", projectId: null },
     ],
-    founderId: "fou",
   });
 
   it("lists each member once, the open project's first", () => {
     assert.deepEqual(
       members.map((member) => member.id),
-      ["ann", "bob", "cai", "fou"],
+      ["ann", "bob", "cai"],
     );
   });
 
-  it("leaves the founder out and says which group the others are in", () => {
+  it("says which group the others are in", () => {
     const choices = groupChoices(members, (id) => (id === A ? "写作群" : "运营群"));
     assert.deepEqual(
       choices.map((choice) => [choice.id, choice.group]),

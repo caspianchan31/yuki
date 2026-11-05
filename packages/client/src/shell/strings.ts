@@ -9,7 +9,7 @@
  *   here names a pace: the task decides each account's pacing from the account's facts.
  * - Nothing here asks for an approval of an action on a site; 等你审阅 is only the upstream
  *   email/calendar draft review and proposals.
- * - Technical names (accounts, sites, communities, proxy hosts, the action words a task reports)
+ * - Technical names (accounts, sites, communities, the action words a task reports)
  *   are data and never translated.
  * - Nothing here assumes a site: an account signs in to any site, by the AI, with its saved
  *   logins (credentials); nothing asks the person to sign in or to type a password anywhere but
@@ -35,7 +35,7 @@ import {
  * A step title the server wrote (the default plan steps, 「Understand the outcome」) reads in the
  * client's words (`serverText`), as in the task detail's step list; one the model wrote stays.
  * So does a failure the server wrote (a provider's quota answer). An open infrastructure
- * incident reads 「代理连不上（13:02 起）· 14:00 再试」 (fork, report line). */
+ * incident reads 「网络连不上（13:02 起）· 14:00 再试」 (fork, report line). */
 export const phaseWords: TaskPhaseWords = {
   ...taskPhaseWordsZh,
   step: (current, total, what) => taskPhaseWordsZh.step(current, total, serverText(what)),
@@ -68,9 +68,36 @@ const zh = {
     opening: "正在打开工作台…",
     retry: "重试",
   },
+  /** v1.5: the members' computer container, on the profile card (open core). */
+  containerComputer: {
+    title: "电脑",
+    shared: "所有成员共用这一台电脑，文件在 /workspace。",
+    running: "运行中",
+    stopped: "已暂停（文件都在，要用时自动恢复）",
+    unset: "没配置",
+    unsetHint:
+      "这台服务还没接电脑。用 docker compose 启动后会自动接上，见 docs/computer-container.md。",
+    error: "连不上电脑",
+    personDrives: "你正在操作，成员先等着",
+    memberDrives: "成员在用",
+    look: "看电脑",
+    closeLook: "收起画面",
+    drive: "接手",
+    handBack: "交还",
+    frame: "电脑的实时画面",
+    viewOnly: "这里只能看；要动手请先点「接手」。",
+    starting: "正在打开电脑…",
+    /** 设置 → 电脑. */
+    pause: "暂停",
+    start: "启动",
+    pausing: "正在暂停…",
+    startingUp: "正在启动…",
+  },
   /** v1.2: the profile card's own words. */
   memberCard: {
-    /** Opens the account sheet: proxy, time zone, language, logins, project, 启停. */
+    /** v1.5: opens the member's computer (the live view; a paused one is started there). */
+    openComputer: "看电脑",
+    /** Opens the account sheet: time zone, language, logins, project, 启停. */
     settings: "账号设置",
   },
   /** v1.2: the small dialog that makes a member: a name, a shape, a color, an optional template. */
@@ -209,39 +236,22 @@ const zh = {
     platform: {
       entry: "平台管理",
       // The task named here too, where the operator reads first.
-      hint: "开通注册、发邀请码、管出口和空间、重置用户密码。只有平台管理员看得到。",
+      hint: "发邀请码、管空间、重置用户密码。只有平台管理员看得到。",
       tabs: {
-        pending: "待开通",
         codes: "邀请码",
-        exits: "出口",
         /** 找用户 and each space's 成员与密码 are here. */
         spaces: "空间与用户",
         referrers: "介绍人",
         system: "系统",
       },
-      /** A tab's label with its count (待开通 3, 出口 1). */
-      tabCount: (label: string, n: number) => (n ? `${label} ${n}` : label),
-      /** The sidebar entry's red dot: exit alerts are open. */
-      alertsDot: (n: number) => `${n} 条出口告警没处理`,
       /** ⌘K commands that open a tab. */
       commands: {
         codes: "生成邀请码",
-        pending: "处理待开通",
-        exits: "管理出口与代理池",
         spaces: "新建空间",
-        alerts: "处理出口告警",
         referrers: "管理介绍人",
         system: "系统健康：后台、异常、安全",
         /** Opens 空间与用户 at 找用户. */
         resetPassword: "重置用户密码",
-      },
-      /** 需要你, for the platform operator: what waits in 平台管理, above the space's own. */
-      inbox: {
-        title: "平台管理",
-        pending: (space: string, username: string) => `「${space}」（${username}）的注册等你开通`,
-        pendingDesc: "配好出口后开通，或拒绝",
-        alert: (where: string) => `出口告警：${where}`,
-        go: "去处理",
       },
       /** 平台管理 → 邀请码: the sign-up settings under the codes. */
       settings: "注册设置",
@@ -255,22 +265,6 @@ const zh = {
         string,
         string
       >,
-      // 配置环境 → 从代理池分配 with nothing to give (在这里入池 beside it), and what the pool holds.
-      assignNone: "代理池里没有空闲且自检通过的代理。",
-      poolUnready: (n: number) => `池里有 ${n} 条没通过自检`,
-      goPool: "去出口查看",
-      /** What a paste into the pool did: how many went in, each one that failed its check. */
-      poolAdded: (n: number, passed: number, failed: string[]) =>
-        failed.length
-          ? `入池 ${n} 条${passed ? `，${passed} 条自检通过` : ""}：${failed.join("；")}`
-          : `入池 ${n} 条，自检都通过了，可以分配`,
-      /** Closes 配置环境 under a waiting sign-up. */
-      envClose: "收起",
-      checkedAt: (when: string) => `自检于 ${when}`,
-      /** A pool proxy that failed (or has not passed) its check: its check says why. */
-      unassignable: "不能分配",
-      swept: (checked: number, failed: number, when: string) =>
-        `全部自检于 ${when}：查了 ${checked} 条，${failed ? `${failed} 条没通过` : "都通过了"}`,
       /** 系统 → 后台 with no heartbeat yet: what to do about it. */
       workerUnknownHint:
         "后台一启动就会每秒报一次心跳。一直没有，就是这台服务器上的后台没在跑：看服务器配置里后台任务有没有被关掉、单独的后台进程有没有启动，再点刷新。",
@@ -314,7 +308,7 @@ const zh = {
     /** Red dot beside the project name: n things wait for you in other projects. */
     otherProjectsWaiting: (n: number) => `其他项目有 ${n} 件事等你`,
     backTo: (name: string) => `返回 ${name}`,
-    accounts: "账号与代理",
+    accounts: "账号",
     credentials: "凭据",
     settings: "设置",
   },
@@ -567,9 +561,6 @@ const zh = {
   needs: {
     title: (n: number) => `需要你 (${n})`,
     /** Account-level flags (decision 4). */
-    noProxy: "没设代理，桌面开不了",
-    /** The project's default desktop without its own proxy: it starts, but signs in nowhere. */
-    projectNoProxy: "没设代理，暂不登录",
     desktopError: "桌面出错",
     /** Facts only the owner can act on (credentials, docs/account-login.md). */
     wrongPassword: (site: string) => `${site} 密码不对`,
@@ -581,7 +572,6 @@ const zh = {
     unconfirmed: (site: string) => `${site} 还没确认上，再点一次「我弄好了」或让她再看`,
     suspended: (site: string) => `${site} 号被封`,
     noLogin: (site: string) => `缺 ${site} 登录`,
-    proxyDown: (reason: string) => `代理连不上：${reason}`,
     /** An account of a project (or the founder) with no long-term goal and
      * no open job: nothing makes it act (AccountLoops.wanted). */
     idle: "没在经营：给它一个长期目标或派活",
@@ -599,7 +589,6 @@ const zh = {
     replaceLogin: "去凭据页更换",
     addLogin: "去添加",
     openDesktop: "打开这个号的桌面",
-    replaceProxy: "去凭据页换代理",
     reviewSub: (title: string, expires: string) => `${title} · ${expires}后过期`,
     review: "审阅",
     answer: "回答",
@@ -661,7 +650,7 @@ const zh = {
     title: (n: number) => `账号 (${n})`,
     unassignedTitle: (n: number) => `未分配账号 (${n})`,
     join: "加入",
-    empty: "还没有账号。点「加入」从未分配账号里挑，或去「账号与代理」新建。",
+    empty: "还没有账号。点「加入」从未分配账号里挑，或去「账号」新建。",
     now: "此刻",
     pace: "节奏",
     next: "下次",
@@ -673,10 +662,7 @@ const zh = {
     nextSched: (clock: string) => clock,
   },
   flags: {
-    noProxy: "无代理",
-    proxyUnreadable: "代理读不出",
     desktopError: "桌面出错",
-    proxyDown: "代理连不上",
     /** No long-term goal and no open job. */
     idle: "没在经营",
     defaultDesktop: "跑在默认桌面",
@@ -687,6 +673,22 @@ const zh = {
     running: "运行中",
     error: "出错",
     stoppedKept: "已暂停（保留登录和文件）",
+    /** v1.5: a member's 电脑 row, the computer's real state. */
+    card: {
+      running: "开着",
+      stopped: "暂停（要用时自动打开，登录和文件都在）",
+      missing: "还没开过（要用时自动打开）",
+      error: "出错",
+    },
+    /** Why a computer is in error, in plain words (the server's message stays in its log). */
+    reasons: {
+      disabled: "云电脑还没开通",
+      noCredit: "云电脑服务额度用完了，平台正在处理",
+      timedOut: "云电脑没有及时响应，稍后会再试",
+      isolation: "这台电脑的归属对不上，已拒绝连接",
+      settings: "这台电脑的设置读不出来",
+      unknown: "云电脑暂时连不上，稍后会再试",
+    },
     /** The chat's desktop cards (use_desktop). */
     title: "桌面",
     using: "正在用桌面…",
@@ -750,11 +752,6 @@ const zh = {
     /** A rail task card's state while it waits: 「明天 00:00 继续」. */
     resumesAt: (clock: string) => `${clock} 继续`,
   },
-  reportsRail: {
-    title: "汇报 · 最新 5 条",
-    empty: "还没有汇报。",
-    unread: "有新汇报",
-  },
   notes: {
     title: "群资料",
     summary: (memories: number, sides: number) => `${memories} 条记忆 · ${sides} 个侧聊`,
@@ -767,84 +764,6 @@ const zh = {
     noMemories: "还没有记忆。",
     memoriesHint:
       "这里记的是群事实、你的指令，和系统自己拟的人设、口径与节奏（标「系统拟」）。要改，直接在聊天里说。",
-  },
-  pacing: {
-    /** Nothing set for the account: the next task to run on it decides, from the account's facts. */
-    unset: "节奏还没定，下次运行时由它自己定",
-    /** The view carried no pacing (another project's account, built from the topology). */
-    unknownHere: "切到所在群才看得到",
-    /** Who set a field: the task, or the person by hand. */
-    sourceAi: "AI 定",
-    sourceOwner: "手动",
-    /** The caps count every task's actions on the account (one ledger per account). */
-    accountHint: "额度按这个号算，所有任务一起计",
-    /** Account 节奏 lines (model.paceLine): today's usage against each set field. */
-    today: (parts: string[], tail: string) => `今天${parts.join(" · ")}${tail ? ` · ${tail}` : ""}`,
-    /** A kind is `<site>/<action>` as the task reports it; the line names its action in plain
-     * words (`actionWord`: 「发帖」), with the site only when the kinds are on more than one
-     * (`kindSite`); the one site goes under the line (`site`). */
-    kindUsed: (kind: string, used: number, cap: number) => `${kind} ${used}/${cap} 次`,
-    /** No cap set for the kind: the count alone. */
-    kindUsedNoCap: (kind: string, used: number) => `${kind} ${used} 次`,
-    kindSite: (word: string, site: string) => `${word}（${site}）`,
-    /** The `*` kind: every action without a cap of its own. */
-    anyKind: "所有动作",
-    site: (site: string) => `网站：${site}`,
-    kindOff: (kind: string) => `${kind} 关`,
-    gapSet: (minutes: number) => `间隔 ${minutes} 分`,
-    hoursSet: (start: number, end: number) => `当地 ${start}–${end} 点`,
-    canNow: "现在可做",
-    /** Some kinds used up today, others may go now. */
-    canNowExcept: (kinds: string[]) => `现在可做（${kinds.join("、")} 今日已满）`,
-    nextAt: (clock: string) => `下次可做 ${clock}`,
-    /** Every capped kind used up and the ledger names no resume time. */
-    fullNoClock: "今日额度已满",
-    /** 「今日额度已满，当地明早 9 点继续」; a clock that ends in a digit gets a space: 「… 10:50 继续」. */
-    fullAt: (clock: string) => `今日额度已满，${clock}${/\d$/.test(clock) ? " " : ""}继续`,
-    outsideHours: (clock: string) => `不在活动时段，${clock}${/\d$/.test(clock) ? " " : ""}继续`,
-    /** The clocks of the 节奏 line, on the account's own time (model.paceWhenLabel). */
-    when: {
-      /** The account's zone is known: 「当地 14:30」, 「当地明天 14:30」, 「当地明早 9 点」. */
-      local: (label: string) => (/^\d/.test(label) ? `当地 ${label}` : `当地${label}`),
-      hour: (hour: number) => `${hour} 点`,
-      morning: (hour: number) => `明早 ${hour} 点`,
-      tomorrow: (time: string) => `明天 ${time}`,
-      /** Two days or more ahead: 「10月12日 14:30」, 「10月12日 9 点」 (never 「10-12 9 点」). */
-      date: (month: number, day: number, time: string) => `${month}月${day}日 ${time}`,
-    },
-    /** The detail's second line and the editor's caption: each field as set, or 未定. */
-    fieldGap: (minutes: number) => `间隔 ${minutes} 分钟`,
-    fieldCap: (kind: string, n: number) => `${kind} 每天 ${n}`,
-    fieldHours: (start: number, end: number) => `时段 当地 ${start}–${end} 点`,
-    fieldUnset: (label: string) => `${label} 未定`,
-    labelGap: "间隔",
-    labelCaps: "每天上限",
-    labelHours: "时段",
-    withSource: (text: string, source: string) => `${text}（${source}）`,
-    /** The task's stated reason for what it set. */
-    reason: (text: string) => `AI 的理由：${text}`,
-    /** Editor (accounts unit): the person's own values, in force over the task's. */
-    editorTitle: "节奏",
-    editorHint:
-      "留空 = 不由你限制，任务自己按这个号的情况定。填了的以你填的为准，AI 不会改。上限按「站点/动作」分，填 0 表示这个号不做这一类。",
-    aiCurrent: (parts: string[]) => `AI 目前定的：${parts.join(" · ")}`,
-    aiNone: "AI 还没为这个号定节奏",
-    gapLabel: "两次动作之间至少隔（分钟）",
-    capsLabel: "每天上限（按站点/动作）",
-    capKind: "站点/动作",
-    capKindPlaceholder: "例如 example.com/post",
-    capValue: "每天",
-    addCap: "加一行",
-    removeCap: "删除这一行",
-    hoursLabel: "活动时段（当地时间，起–止）",
-    hoursStart: "起（0–23）",
-    hoursEnd: "止（1–24）",
-    timezoneFrom: (zone: string) => `按 ${zone}`,
-    /** The account sets no zone: the desktop template's zone is what its clock reads. */
-    timezoneTemplate: (zone: string) =>
-      zone ? `账号没设时区，按桌面模板的 ${zone}` : "账号没设时区，按桌面模板的时区",
-    timezoneUnreadable: (zone: string) =>
-      zone ? `账号时区读不出，按桌面模板的 ${zone}` : "账号时区读不出，按桌面模板的时区",
   },
   chat: {
     /** A reply's steps, folded under what it did. */
@@ -1028,6 +947,8 @@ const zh = {
     appArguments: "参数",
     slackChannel: "频道",
     slackText: "内容",
+    slackThread: "回复",
+    slackThreadOf: "线程",
     sampleHint: "这个操作只留在本地示例工作台里。",
     liveHint: "这是即将对你已连接账号执行的操作，确认前请核对。",
     kinds: {
@@ -1324,7 +1245,7 @@ const zh = {
     prefillText: "帮我 ……",
     defaultTitle: "Yuki",
     defaultBody: "告诉 Yuki 你要它做什么。需要帮手时，在左上角加成员。",
-    openAccounts: "打开账号与代理 ›",
+    openAccounts: "打开账号 ›",
     /** Web: the same place, now the new-member dialog. */
     newMember: "新建一个成员 ›",
     /** v1.2: an open member with nothing in her conversation yet. */
@@ -1431,28 +1352,13 @@ const zh = {
     action: (action: string, site: string) => (site ? `${action} · ${site}` : action),
   },
   accountsPage: {
-    title: "账号与代理",
-    summary: (accounts: number, exits: number, projects: number) =>
-      `${accounts} 个账号 · ${exits} 个代理出口 · ${projects} 个群`,
-    /** v1.2 simple view: the contact list has no project bar, so the count leaves projects out. */
-    summaryMembers: (accounts: number, exits: number) => `${accounts} 个账号 · ${exits} 个代理出口`,
+    title: "账号",
     newAccount: "新账号",
     byProject: "按群",
-    byExit: "按出口",
     unassigned: "未分配",
     /** Where the founder is (docs/founder.md): in the hall, for the whole space; never 未分配. */
     founderPlace: "Yuki · 创始人",
     noAccounts: "没有账号",
-    /** One exit two or more accounts of the same project share (never across projects). */
-    exitShared: (project: string, exit: string, accounts: number) =>
-      `${project}：${exit} 被 ${accounts} 个账号共用。出口按地址判定，不是实测 IP。`,
-    /** 「… · 2 个账号 · acmegame」: one exit inside one project (未分配 is its own group). */
-    exitGroup: (exit: string, accounts: number, project: string) =>
-      `${exit} · ${accounts} 个账号 · ${project}`,
-    noProxyGroup: "没设代理",
-    unreadableGroup: "代理读不出",
-    /** An exit group's heading without a count. */
-    exitPlain: (exit: string, project: string) => `${exit} · ${project}`,
     /** The judgment card's one button: the account's detail has every action. */
     look: "去看看",
     /** The quiet line under the list (it is read once, refreshed by hand). */
@@ -1460,7 +1366,6 @@ const zh = {
     columns: {
       account: "账号",
       project: "群",
-      exit: "出口",
       desktop: "桌面",
       now: "此刻",
       pace: "节奏",
@@ -1480,8 +1385,6 @@ const zh = {
     fetchedOnce: "打开这页时读一次；要看最新，点「刷新」。",
     /** A group heading with its account count: 「acmegame (1)」. */
     groupCount: (name: string, n: number) => `${name} (${n})`,
-    /** The exit note when no exit is shared by two accounts of one project. */
-    exitNote: "出口按代理地址（主机:端口）判定，不是实测 IP。",
     unknownProject: "已删除的群",
     loading: "正在读取账号…",
     /** One project's accounts could not be read; the row data comes from the topology. */
@@ -1506,32 +1409,16 @@ const zh = {
     seen: (text: string) => `页面上写着：${text}`,
     at: (clock: string) => `记于 ${clock}`,
     credentials: "凭据",
-    /** The proxy's self-check from the desktop. */
-    proxyOk: (clock: string) => `上次检查 ${clock} 可用`,
-    proxyDown: (clock: string, reason: string) => `上次检查 ${clock} 连不上：${reason}`,
-    proxyPending: "代理已更换，下次启动时检查",
-    /** What the run read on the bot-detection check page. */
-    browserOk: (clock: string, result: string) => `浏览器检测 ${clock} 正常：${result}`,
-    browserAttention: (clock: string, result: string) => `浏览器检测 ${clock} 有问题：${result}`,
-    proxyReasons: {
-      unreachable: "连不上代理服务器",
-      auth_rejected: "代理拒绝用户名密码",
-      bad_setting: "代理地址无效",
-      handshake_failed: "握手失败",
-      missing: "桌面里没有代理设置",
-    } as Readonly<Record<string, string>>,
-    siteRefused: (site: string) => `经代理到不了 ${site}`,
   },
   /** The card in the chat where the owner types what only he can
    * give; it goes to the credentials, never into the conversation. */
   guide: {
     /** The line above each card (`guideLead`): what now (the card to fill now) or 还有一件 (each
      * other card, drawn too: Fork), where to type it (the values never reach the
-     * chat). `whose` is 「本群的」 or 「 Alice 的」. */
+     * chat). */
     next: {
       site_login: (site: string) => `先给 ${site} 的登录`,
       verification_code: (site: string) => `先给 ${site} 的验证码`,
-      proxy: (whose: string) => `先给${whose}桌面填一个代理`,
       also: (what: string) => `还有一件：${what}`,
       typed: "填在下面的卡片里，不会进对话，我也看不到。",
     },
@@ -1539,9 +1426,7 @@ const zh = {
     later: {
       site_login: (site: string) => `${site} 的登录`,
       verification_code: (site: string) => `${site} 的验证码`,
-      proxy: (whose: string) => `${whose}代理`.trim(),
     },
-    whose: (name: string | null) => (name ? ` ${name} 的` : "本群的"),
     skip: "先跳过",
     /** Above the input when the card to fill now has talk after it; it
      * scrolls back up to the card. */
@@ -1549,7 +1434,6 @@ const zh = {
     /** The card's heading: whose and what. */
     title: {
       site_login: (who: string, site: string) => `${who} · ${site} 的登录`,
-      proxy: (who: string) => `${who} · 代理`,
       verification_code: (who: string, site: string) => `${who} · ${site} 的验证码`,
     },
     project: "本群",
@@ -1564,9 +1448,6 @@ const zh = {
         `${site} 有一步我自己试过了，过不去。弄好后回来点「我弄好了」，我接着干。`,
       unconfirmed: (site: string) =>
         `${site} 你说弄好了，我这边还没确认上登录。再看一眼桌面，弄好后再点一次「我弄好了」，或在对话里让我再看。`,
-      proxy: "这个号没有能用的代理。填一个代理地址，桌面会用上它。",
-      projectProxy:
-        "先给本群的桌面一个代理：没有代理，我不会拿你存的账号去登录任何网站（用机房 IP 登录容易被风控）。",
     },
     /** The one line that
      * says what the owner does on the desktop, by the status the AI recorded and never by the
@@ -1583,8 +1464,6 @@ const zh = {
     totpSeed: "两步验证密钥（可选，要密钥不要验证码）",
     cookies: "Cookie（可选，粘贴导出的 JSON）",
     more: "两步验证 / Cookie",
-    proxyUrl: "代理地址",
-    proxyPlaceholder: "http://用户名:密码@主机:端口",
     code: "验证码",
     save: "保存",
     saving: "正在保存…",
@@ -1601,13 +1480,11 @@ const zh = {
     typed: "已填入",
     withdrawn: "已不需要",
     savedLogin: "我这就去登录，结果会在这里告诉你。",
-    savedLoginNoProxy: "已存好。本群桌面还没设代理，设好代理后我才会用它去登录。",
     typedLookAgain: "我去看一眼，接着登录。",
     desktopDone: "你在桌面里弄好了，我去看一眼，接着往下做。",
     /** What the chat gets after a card is saved (the owner's message; never a value). */
     savedNote: {
       site_login: (who: string, site: string) => `（已在卡片里保存 ${who} 的 ${site} 登录）`,
-      proxy: (who: string) => `（已在卡片里保存 ${who} 的代理）`,
       verification_code: (who: string, site: string) =>
         `（已把 ${site} 的验证码填进 ${who} 桌面上的输入框）`,
     },
@@ -1650,7 +1527,6 @@ const zh = {
       pending: "待补",
       /** The project's own mailbox (发信、收询盘). */
       mailboxes: "发信邮箱",
-      proxies: "代理",
       logins: "站点登录",
       project: "本群用",
     },
@@ -1662,8 +1538,6 @@ const zh = {
     mailboxWhat: (address: string, reads: boolean) =>
       reads ? `${address} · 发信和收信` : `${address} · 只发信`,
     addForRequest: "去添加",
-    proxyWhat: (endpoint: string, auth: boolean) =>
-      auth ? `${endpoint} · 带用户名密码` : endpoint,
     loginWhat: (site: string, username: string | null) =>
       username ? `${site} · ${username}` : site,
     loginParts: (parts: string[]) => parts.join(" · "),
@@ -1689,9 +1563,6 @@ const zh = {
     clear: "清除",
     history: "记录",
     allHistory: "全部记录",
-    addProxy: "添加代理",
-    /** A space whose proxies the platform operator sets up. */
-    platformProxy: "代理由平台管理员配置，需要调整请联系管理员",
     addMailbox: "添加发信邮箱",
     addLogin: "添加站点登录",
     clearConfirm: "清除后这条凭据就没了，用它的账号要换一条。确定清除？",
@@ -1711,14 +1582,6 @@ const zh = {
       no_login: "缺登录",
       needs_owner: "要你接手",
       other: "其他情况",
-      unreachable: "连不上代理服务器",
-      auth_rejected: "代理拒绝用户名密码",
-      bad_setting: "代理地址无效",
-      handshake_failed: "握手失败",
-      missing: "桌面里没有代理设置",
-      site_refused: "经代理到不了站点",
-      solved: "验证码求解成功",
-      undelivered: "已求解并付费，页面没收下",
       failed: "没成功",
       not_typed: "没打进去",
       typing_uncertain: "可能已打进去，没确认",
@@ -1748,7 +1611,6 @@ const zh = {
       no_saved_login: "没有存这个登录",
     } as Readonly<Record<string, string>>,
     editor: {
-      newProxy: "新代理",
       newLogin: "新站点登录",
       newMailbox: "新发信邮箱",
       mailboxAddress: "邮箱地址",
@@ -1770,8 +1632,6 @@ const zh = {
       mailboxNeedsPassword: "要填密码或授权码。",
       replaceTitle: (name: string) => `更换 ${name}`,
       label: "名称（可选）",
-      proxyUrl: "代理地址",
-      proxyPlaceholder: "http://用户名:密码@主机:端口",
       usedBy: "用在",
       usedByProject: "本群默认桌面",
       usedByNone: "暂不使用",
@@ -1811,7 +1671,6 @@ const zh = {
         totp_code: "两步验证码",
         totp_seed: "两步验证密钥",
         cookies: "Cookie",
-        proxy_url: "代理地址",
         mailbox_password: "邮箱密码",
       } as Readonly<Record<string, string>>,
       purposes: {
@@ -1819,14 +1678,10 @@ const zh = {
         cookie_import: "导入 Cookie",
         /** A proven sign-in's cookies, saved by the server. */
         cookie_export: "登录成功后保存 Cookie",
-        sandbox_write: "写入桌面",
-        proxy_check: "检查代理",
         mail_send: "发信",
         mail_read: "收信",
       } as Readonly<Record<string, string>>,
       owner: "你",
-      /** The platform operator set up the space's environment. */
-      platform: "平台管理员",
       task: (title: string | null) => (title ? `任务「${title}」` : "任务"),
       chat: "对话",
       system: "系统",
@@ -1835,49 +1690,37 @@ const zh = {
       account: (name: string) => `账号 ${name}`,
     },
   },
-  /** A space whose environment the platform sets up: members pick an
-   * 出口 (a proxy the platform gave the space) by its name; never an address or a key. */
-  exits: {
-    title: "出口",
-    /** In a space the platform sets up: the header button and the accounts page are 账号. */
-    accounts: "账号",
-    editorHint: "选一个空闲出口（一个出口只给一个账号）。新账号先放在未分配。",
-    ok: "可用",
-    down: "连不上",
-    unchecked: "未检查",
-    option: (name: string, state: string) => `${name} · ${state}`,
-    line: (name: string, state: string) => `出口：${name} · ${state}`,
-    downNote: "出口连不上，已通知平台管理员",
-    none: "没有空闲出口",
-    apply: "向平台申请出口",
-    applied: "已申请，等平台管理员分配",
-    pick: "选一个出口",
-    loading: "正在读取出口…",
-    loadFailed: "出口读不出来，稍后再试",
-    required: "请选一个出口",
-    report: "报告出口问题",
-    reportPlaceholder: "哪里不对（选填，一句话）",
-    reportSend: "发送报告",
-    reported: "已报告 · 平台处理中",
-    recovered: (clock: string) => `已恢复（${clock}）`,
-    /** The account flag: an account of such a space without an exit. */
-    flag: "没有出口",
-    need: "没有出口，选一个出口",
-    focus: (who: string) => `${who}还没有出口`,
-    group: "没有出口",
-    startNeedsExit: "没有出口，桌面开不了。先在「编辑」里选一个出口。",
+  /** v1.5: a member's files on her card (docs/member-files.md). */
+  memberFiles: {
+    duties: "职责",
+    memory: "记住的事",
+    notes: "笔记",
+    open: "打开",
+    save: "保存",
+    cancel: "取消",
+    saving: "保存中…",
+    empty: "还没有内容。",
+    noNotes: "最近 7 天没有笔记。",
+    notesHint: "她每完成一轮任务或例行，会自动记一行。",
+    loadFailed: "文件还没读到",
+    saveFailed: "没有保存成功，再试一次",
+    tooLong: "文件太大了，最多 64 KB",
+    changed: (line: string) => (line ? `最后修改 ${line}` : ""),
+    editorTitle: (name: string, path: string) => `${name} · ${path}`,
+    pathNames: {
+      "AGENTS.md": "职责与做法",
+      "MEMORY.md": "长期记忆",
+    } as Record<string, string>,
+    hint: "这是一个 Markdown 文件。她每次干活前都会先读它。",
   },
   accountDetail: {
     shotEmpty: "桌面还没创建。启动后这里显示最近一次操作的截图。",
     shotStopped: "桌面已暂停，启动后显示最近一次操作的截图。",
     desktop: "桌面",
-    exit: "出口",
     project: "群",
     region: "地区",
     pace: "节奏",
     label: "标签",
-    /** Other accounts of the same project on this exit (never counts other projects). */
-    sameExit: (accounts: number) => `同出口还有 ${accounts} 个账号`,
     openDesktop: "打开桌面",
     /** 看看 pins the desktop beside the timeline (wide) or opens the desktop
      * sheet (narrow); 收起桌面 unpins it. */
@@ -1915,9 +1758,6 @@ const zh = {
     shotError: "桌面出错，暂时看不到截图。",
     shotLoading: "正在读取截图…",
     shotAlt: "桌面最近一次操作的截图",
-    sameExitNone: "这个出口没有别的账号",
-    noProxy: "没设代理",
-    proxyUnreadable: "代理读不出",
     localeUnreadable: "时区和语言读不出，在账号里重填",
     notSet: "没设",
     /** The detail's 地区 line (`regionLine`): neither set, or which one is missing. */
@@ -1928,7 +1768,6 @@ const zh = {
     otherProject: (project: string) =>
       `这个号在「${project}」。它的任务和汇报要切到那个群才看得到。`,
     switchTo: (project: string) => `切到 ${project}`,
-    startNeedsProxy: "没设代理，桌面开不了。先在「编辑」里填代理。",
     /** The account has no zone of its own: which zone 「当地」 is (the desktop template's). */
     pacingZoneTemplate: (zone: string) => `账号没设时区，「当地」按桌面模板的 ${zone}`,
     pacingZoneUnreadable: (zone: string) => `账号时区读不出，「当地」按桌面模板的 ${zone}`,
@@ -1958,7 +1797,7 @@ const zh = {
   join: {
     title: "加入未分配账号",
     add: "加入",
-    empty: "没有未分配账号。去「账号与代理」新建。",
+    empty: "没有未分配账号。去「账号」新建。",
     joined: (project: string) => `已加入 ${project}`,
     loading: "正在读取未分配账号…",
     joining: "正在加入…",
@@ -1966,11 +1805,7 @@ const zh = {
   accountEditor: {
     newTitle: "新账号",
     editTitle: (name: string) => `编辑 ${name}`,
-    hint: "代理可以不填：桌面启动时自动从代理池拿一条出口。新账号先放在未分配。",
-    /** The proxy is an entry of the credentials page: pick one, or add one. */
-    proxyPick: "用哪条代理",
-    proxyNewOption: "新代理",
-    entrySaved: (text: string) => `已保存：${text}`,
+    hint: "新账号先放在未分配。",
     /** Site logins (docs/account-login.md). */
     loginsTitle: "站点登录",
     loginsHint: "保存后系统会自己在这个号的桌面里登录这些站点。值保存后不再显示。",
@@ -2002,26 +1837,16 @@ const zh = {
     namePlaceholder: "例如 acct-2",
     label: "标签（只是备注）",
     labelPlaceholder: "例如 主号",
-    proxy: "代理（必填）",
-    proxyEdit: "代理",
-    proxyPlaceholder: "http://用户名:密码@主机:端口",
-    proxyHint: "保存后只显示遮罩，界面不回显密码。",
-    proxySaved: (preview: string) => `已保存：${preview}`,
     timezone: "时区",
-    timezoneHint: "时区要和出口所在地一致。",
     locale: "语言",
     clear: "清除",
     unreadable: "保存的时区和语言用服务器当前的密钥读不出，请重新填写这两项。",
     nameRequired: "名称必填",
-    proxyRequired: "代理必填",
     created: "账号已建好，放在未分配",
     saved: "已保存",
     loading: "正在读取账号设置…",
     notSaved: "没保存",
     secretUnreadable: "已保存，但读不出",
-    proxyKeep: "留空 = 不改。",
-    clearProxyConfirm: "清除代理后这个号的桌面开不了，任务也用不了它。确定清除？",
-    clearProxy: "清除代理",
     clearAll: "全部清除",
     cleared: "已清除",
     timezonePlaceholder: "America/Los_Angeles",
@@ -2034,18 +1859,9 @@ const zh = {
     unknownTimezone: (value: string) =>
       `不认识的时区「${value}」，请用 America/Los_Angeles 这样的写法`,
     unknownLocale: (value: string) => `不认识的语言「${value}」，请用 en-US 这样的写法`,
-    applyNextStart: "代理、时区、语言的改动在桌面下次启动时生效。",
-    createNote: "保存后系统会自己在这个号的桌面里登录这些站点。桌面在第一次启动时创建。",
+    applyNextStart: "时区、语言的改动在桌面下次启动时生效。",
     create: "建账号",
     gone: "这个账号已经不在了，刷新列表看看。",
-    /** The pacing inputs (labels and placeholders are in t.pacing). */
-    pacingWhole: (label: string) => `「${label}」要填 0 或正整数`,
-    pacingHoursBoth: "活动时段的起和止要一起填，或者都留空",
-    pacingHoursRange: "活动时段：起要在 0–23 之间，止要在 1–24 之间，并且起要早于止",
-    pacingKind: (kind: string) => `「${kind}」要写成 站点/动作，例如 example.com/post`,
-    pacingKindTwice: (kind: string) => `「${kind}」写了两次`,
-    /** The server accepted the save but did not keep pacing (it predates account pacing). */
-    pacingUnsupported: "服务器还不支持按账号设置节奏，这一项没有保存。",
     hoursSeparator: "–",
   },
   /** An account's desktop sheet (computer.tsx, computer-workspace.tsx, desktop-stream.tsx). */
@@ -2064,7 +1880,7 @@ const zh = {
     // current template; the two-step confirmation in the panel.
     rebuild: "重建桌面",
     rebuildConfirm:
-      "重建会销毁这台桌面：上面的浏览器资料和所有网站登录都会没掉。账号本身、它的代理、验证码和时区设置，以及服务器里保存的文件都还在。下次点「启动桌面」会按当前模板生成一台新桌面，网站要重新登录。",
+      "重建会销毁这台桌面：上面的浏览器资料和所有网站登录都会没掉。账号本身、它的时区和语言设置，以及服务器里保存的文件都还在。下次点「启动桌面」会按当前模板生成一台新桌面，网站要重新登录。",
     rebuildNow: "确认重建",
     notCreated: "还没创建 · 启动后按当前模板生成一台新桌面",
     retryConnection: "重新连接",
@@ -2155,29 +1971,6 @@ const zh = {
     previewOpen: "点开放大",
     accountSubtitle: (label: string | null) =>
       `这个账号自己的桌面${label ? `（${label}）` : ""}。需要时可以接管。`,
-    /** The default desktop's 代理与地区 form (computer-proxy.tsx ProxySettings). */
-    proxy: {
-      title: "代理与地区",
-      loadFailed: "读不到代理设置",
-      clearAllConfirm: "没有代理，桌面浏览器就开不了。四项已保存的设置都清除吗？",
-      clearAll: "全部清除",
-      clearProxyConfirm: "没有代理，桌面浏览器就开不了。确定清除吗？",
-      clearProxy: "清除代理",
-      timezone: "时区",
-      locale: "语言",
-      typedNotSaved: "已填写，还没保存",
-      current: (value: string) => `当前：${value}`,
-      unknownZone: (hasPicks: boolean) => `还不是有效的时区${hasPicks ? "，从下面选一个" : ""}。`,
-      savedAs: (value: string) => `会存成 ${value}`,
-      badLocale: "填语言和地区，例如 en-US。",
-      appliesNext: "改动在桌面下次启动时生效。",
-      notices: {
-        save: "已保存。",
-        proxy: "代理已清除。",
-        timezone: "时区已清除。",
-        locale: "语言已清除。",
-      },
-    },
   },
   /** The fold markers of 计划 / 任务规则 / 时间线. */
   fold: {
@@ -2271,7 +2064,7 @@ const zh = {
     runOnce: "留空就只跑一次",
     runOn: "在哪里跑",
     loadingAccounts: "正在读取本群的账号…",
-    usesAccount: "任务用这个号的桌面、代理和登录。",
+    usesAccount: "任务用这个号的桌面和登录。",
     noAccounts: "本群还没有账号，任务跑在默认桌面上。",
     runsOn: "跑在：",
     accountGone: "一个已不在本群的账号",
@@ -2321,6 +2114,24 @@ const zh = {
     proViewOn: "开",
     proViewOff: "关",
     title: "设置",
+    /** The panes (v1.5, R9): the list on the left, or above on a narrow screen. */
+    panes: { general: "通用", computer: "电脑", apps: "应用", skills: "技能" },
+    paneNav: "设置栏目",
+    /** 外观. */
+    appearance: "外观",
+    appearanceHint: "只影响这个浏览器。",
+    appearanceChoice: { system: "跟随系统", light: "浅色", dark: "深色" },
+    /** 时区: one for the account, used by routines' clock times. */
+    timeZone: "时区",
+    timeZoneHint: "例行的钟点按这个时区算。",
+    timeZoneUnset: (zone: string) => `还没设，先按这个浏览器的 ${zone}`,
+    timeZoneSave: "保存",
+    timeZoneSaved: "时区已保存。",
+    timeZoneBad: "请填一个有效的时区，例如 Asia/Shanghai。",
+    timeZoneFailed: (why: string) => `时区没保存上：${why}`,
+    timeZoneLoading: "读取中…",
+    /** The clock line of a routine: which zone its clock time is read in. */
+    clockZone: (zone: string) => `按 ${zone}`,
     /** 动作审查 and its two lists of sentences. */
     actionReview: "动作审查",
     actionReviewHint:
@@ -2647,7 +2458,6 @@ const zh = {
       "usedBy must be an account of this project or the project": "只能给本群的账号或本群用。",
       "usedBy must name accounts of this project": "只能给本群的账号用。",
       "This credential changed while saving. Try again.": "保存时这一项刚被改过，再试一次。",
-      "proxyUrl is required for a proxy": "代理要填地址。",
       "A site login is used by one account or by the project":
         "一份网站登录只能给一个账号或本群用。",
       // The mailbox form and sending through it.
@@ -2696,7 +2506,6 @@ const zh = {
       "Execution failed": "执行失败。",
       "Configure GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and TOKEN_ENCRYPTION_KEY to connect Google":
         "服务器还没配置 Google 连接，请联系运维。",
-      "A proxy entry needs its URL; delete it instead": "代理的地址不能清空；不要了就删除。",
       "This login was saved with another credential key and can't be read: enter its password and cookies again (or clear them), or delete it":
         "这份登录是用另一把凭据密钥存的，读不出来：重新填密码和 Cookie（或清除它们），或者删掉。",
       "A password needs the user name it belongs to": "有密码就要填它对应的用户名。",
@@ -2712,9 +2521,6 @@ const zh = {
       "kind and for are required without a guide": "这张卡缺少信息，刷新后再试。",
 
       "before must be a cursor from an earlier page": "记录翻页出错，刷新后再试。",
-      "proxyId must be a proxy saved in this project": "选的代理不在本群里。",
-      "A proxy is required (proxyId or proxyUrl): the account's desktop browser does not start without one":
-        "要填代理：没有代理，这个账号的桌面浏览器开不了。",
       "Computer settings changed while saving. Try again.": "保存时设置刚被改过，再试一次。",
       "Environment not found": "这个账号已经不在了。",
       "The founder belongs to the space, in no project: move this account to 未分组 first":
@@ -2742,8 +2548,6 @@ const zh = {
     sentences: {
       // The offline move refuses a target that already holds credentials.
       "The target credential scope is not empty": "目标项目里已经有凭据，不能把项目搬进去。",
-      "Proxy URL must be a socks5://, socks5h:// or http:// URL with a host and an explicit port, and no path, query or fragment (500 characters at most)":
-        "代理地址要写成 socks5://、socks5h:// 或 http:// 开头，带主机和端口，不带路径、参数或 #，最多 500 个字符",
       "The desktop took too long to start (tried twice); try again later.":
         "桌面启动超时（试了两次），稍后再试。",
       "The desktop did not answer in time; try again later.": "桌面没及时响应，稍后再试。",
@@ -2783,8 +2587,6 @@ const zh = {
     fieldsNotOfKind: "这些内容不属于这类凭据。",
     /** A schema refusal (zod) the server words in English: what was sent has the wrong shape. */
     invalidInput: "填的内容格式不对，检查后再试。",
-    proxyHostUnresolved: (host: string) =>
-      `代理主机 ${host} 解析不出地址，桌面没法放行它。检查代理地址后再启动。`,
     environmentExists: (name: string) => `已经有叫「${name}」的账号了。`,
     environmentsMax: (n: string) => `账号最多 ${n} 个。`,
     deleteBusy: (name: string) => `「${name}」的桌面正忙，或上次关闭还没确认，稍后再删。`,
@@ -2821,7 +2623,7 @@ const zh = {
     /** A wait in the timeline: 「等待到 13:12」 (fork, report line). */
     waitingUntil: (clock: string, pacing: boolean) => `等待到 ${clock}${pacing ? " · 节奏" : ""}`,
     resumesAt: (at: string) => `${at} 继续`,
-    /** Why a wait or a stopped run happened (「原因：代理连不上」). */
+    /** Why a wait or a stopped run happened (「原因：网络连不上」). */
     blockedBy: (what: string) => `原因：${what}`,
     /** A provider's answer that its balance, quota or billing needs the owner. */
     providerQuota:
@@ -2888,17 +2690,16 @@ const zh = {
     /** What keeps blocking a task, as the owner reads it. */
     stuckOn: (part: string) => `卡在：${part}`,
     kinds: {
-      proxy: "代理连不上",
       desktop: "桌面没响应",
       network: "网络连不上",
       model: "模型服务连不上",
       rate_limit: "平台暂时限流",
       sign_in: "遇到登录页",
     } as Readonly<Record<IncidentKind, string>>,
-    /** 「代理连不上（13:02 起）· 14:00 再试」; without a next time 「· 自己会再试」. */
+    /** 「网络连不上（13:02 起）· 14:00 再试」; without a next time 「· 自己会再试」. */
     line: (what: string, since: string, next: string) =>
       `${what}${since ? `（${since} 起）` : ""} · ${next ? `${next} 再试` : "自己会再试"}`,
-    /** The account row's flag: 「代理连不上 · 自己在重试」. */
+    /** The account row's flag: 「网络连不上 · 自己在重试」. */
     flag: (what: string) => `${what} · 自己在重试`,
     unknown: "出了点问题",
   },
@@ -2919,8 +2720,6 @@ const zh = {
     defaultProject: "默认项目",
     goneSpace: "（空间已不在）",
     noLine: "没有留下说明",
-    /** What a system incident kind reads. */
-    systemKinds: {} as Readonly<Record<string, string>>,
   },
   /** The project's jobs (「活」): the live panel's group, the
    * job detail, the account detail's 手上的活 and the chat's cards. */
@@ -3045,80 +2844,6 @@ const zh = {
     use: "用这一版",
     current: "当前",
   },
-  accountGoal: {
-    title: "长期目标",
-    empty: "没定长期目标。",
-    edit: "改",
-    clear: "清空",
-    clearHint: "清空后这个号只做派给它的活",
-    save: "保存",
-    cancel: "算了",
-    placeholder: "这个号长期要做成什么",
-    saved: "长期目标已保存",
-    cleared: "长期目标已清空",
-  },
-  accountPlan: {
-    title: "经营计划",
-    version: (version: number, clock: string) => `第 ${version} 版 · ${clock}`,
-    empty: "还没有计划，经营开始后第一轮会写。",
-    show: "展开",
-    hide: "收起",
-  },
-  accountJobs: {
-    title: "手上的活",
-    empty: "没有派给它的活。",
-  },
-  /** The store page: profile, products, the store manager. */
-  store: {
-    entry: "店铺",
-    title: "店铺",
-    profile: "品牌与网站",
-    brand: "品牌",
-    website: "店铺网站",
-    positioning: "定位（卖给谁、价位、风格）",
-    saveProfile: "保存",
-    products: "商品",
-    none: "还没有商品。可以自己加，也可以让店长去找候选品。",
-    status: { candidate: "候选", listed: "在售", delisted: "已下架" } as Record<string, string>,
-    noPrice: "未定价",
-    cost: (usd: number) => `成本 $${usd}`,
-    margin: (pct: number) => `毛利 ${pct}%`,
-    stock: (n: number) => `库存 ${n}`,
-    yours: "你定的",
-    list: "上架",
-    delist: "下架",
-    newPrice: "新售价（美元）",
-    setPrice: "改价",
-    addTitle: "加一个商品",
-    name: "商品名",
-    costInput: "成本（美元，选填）",
-    priceInput: "售价（美元，选填）",
-    add: "加入",
-    manager: "店长",
-    you: "你",
-    added: "加入店铺",
-    fields: {
-      name: "名称",
-      costUsd: "成本",
-      priceUsd: "售价",
-      stock: "库存",
-      status: "状态",
-      brand: "品牌",
-      website: "网站",
-      positioning: "定位",
-    },
-    changes: "最近改动",
-    managerTitle: "店长与出口物流",
-    managerHint:
-      "开始经营后两个角色一起上岗：店长每天自己选品、定价、推广，并在聊天里说明理由，你改过的地方它不会改回去；出口物流自己调研报关和货代，没有合作货代会先问你，对外询价每封都先进「等你审阅」。货由你自己发。",
-    startManager: "开始经营",
-    managerStarted: "店长和出口物流已经在岗了，进展会出现在聊天里。",
-    oneSentence: "在聊天里一句话也能改，比如「这个品别卖了」「价格改成 29.9」。",
-    emptyTitle: (name: string) => `${name} 还没开始`,
-    emptyBody:
-      "先在「店铺」里填好品牌、网站和商品，点「开始经营」：店长每天自己选品、定价、安排推广，并在这里说明理由。想改什么，直接在这里说。",
-    openStore: "打开店铺 ›",
-  },
   /** 设置 → 所有空间 → 安全, the operator's secrets check. */
   security: {
     title: "安全",
@@ -3166,12 +2891,6 @@ const zh = {
     /** A standing task of it runs without acting (`TaskPhase.behind`). */
     behind: (days: number) => `${days} 天没在网站上做事`,
     desktopOn: "桌面开着",
-    /** The 经营循环 line under an account (phase 2): 「每 10 分钟 · 上次 01:46 · 今天 3 件」. */
-    routine: {
-      every: (rhythm: string) => rhythm,
-      last: (clock: string) => `上次 ${clock}`,
-      today: (n: number) => `今天 ${n} 件`,
-    },
     stateWords: {
       needs: "要你",
       blocked: "卡住",
@@ -3214,65 +2933,6 @@ const zh = {
   },
   /** The space's founder: the 创始人 panel, the account
    * detail's 设为创始人, and the chat's speaker line. */
-  founder: {
-    entry: "创始人",
-    title: "创始人",
-    badge: "创始人",
-    loading: "正在读取创始人…",
-    now: (word: string) => `此刻 ${word}`,
-    next: (clock: string) => `下次 ${clock}`,
-    noNext: "未排",
-    loopUnknown: "未知",
-    noLoop: "还没开始经营。",
-    openAccount: "打开账号详情",
-    priorities: "群优先级",
-    prioritiesHint: "创始人按这个顺序接各群的活；在对话里说『这周 X 优先』也能改。",
-    up: (name: string) => `把 ${name} 往前挪`,
-    down: (name: string) => `把 ${name} 往后挪`,
-    upShort: "上移",
-    downShort: "下移",
-    showAllPriorities: (n: number) => `其余 ${n} 个群 ▸`,
-    hidePriorities: "收起 ▴",
-    stuckChip: (n: number) => `卡住 ${n}`,
-    /** A project where something acts (never 一切正常: nothing complaining
-     * is not the same as fine). */
-    working: "在做",
-    /** Nothing acts there (founder-core activityWhy says why under it). */
-    nobody: "没人在做",
-    nobodyWhy: "没有号在经营，也没有在跑的任务",
-    idleWhy: (names: string) => `${names} 没在经营`,
-    silentWhy: (days: number) => `在跑，但 ${days} 天没在网站上做事`,
-    neverActed: "在跑，但还没在网站上做过事",
-    quiet: (n: number) => `其余 ${n} 个群没人在做 ▸`,
-    quietHide: "收起没人在做的群 ▴",
-    /** The owner never set the order: the founder takes the projects by name. */
-    prioritiesUnset: "未设置（按名称）",
-    /** Her own loop, at the top of her section: 「经营 · 正在做」. */
-    loop: "经营",
-    openLoop: "打开日常运营",
-    unsetName: "未设定",
-    rowLabel: (name: string | null) => (name ? `创始人：${name}` : "创始人：未设定"),
-    switchedToDefault: "已切到未分组：创始人在这里",
-    noProjects: "还没有群。",
-    projects: "各群",
-    needsYou: (n: number) => `需要你 ${n}`,
-    running: (n: number) => `运行 ${n}`,
-    waiting: (n: number) => `等待 ${n}`,
-    actions7d: (n: number) => `近 7 天做了 ${n} 件`,
-    jobs: "派给创始人的活",
-    noJobs: "没有派给创始人的活。",
-    stuck: "卡住的任务",
-    switchTo: (name: string) => `切到 ${name}`,
-    empty: "还没有创始人。",
-    emptyWhy:
-      "创始人是空间里不属于任何群的一个号，有自己的人设和长期目标；每个群都能派活给它，它按你定的群顺序接活。",
-    emptyHint: "在『账号与代理』里打开一个未分组的号，点『设为创始人』。",
-    set: "设为创始人",
-    unset: "取消创始人",
-    setDone: "已设为创始人",
-    unsetDone: "已取消创始人",
-    onlyUnassigned: "只有未分组的号能当创始人。",
-  },
   /** What a task produced (the plan, comparison, report and finance cards in the
    * chat and the task detail). Their headings and keys come from the model and are humanized,
    * never shown raw (results/artifact-core.ts). */
@@ -3374,9 +3034,6 @@ const zh = {
     suspended: (who: string, site: string) => `${who}在 ${site} 的号被封了`,
     wrongPassword: (who: string, site: string) => `${who}的 ${site} 密码不对`,
     noLogin: (who: string, site: string) => `${who}还没有 ${site} 的登录`,
-    noProxy: (who: string) => `${who}还没有代理`,
-    proxyDown: (who: string) => `${who}的代理用不了`,
-    proxyUnreadable: (who: string) => `${who}的代理要重新填`,
     desktopError: (who: string) => `${who}的桌面出错了`,
     question: (title: string) => `「${title}」在等你回答`,
     review: (title: string) => `「${title}」等你审阅`,
@@ -3506,7 +3163,7 @@ function isoClock(value: string): string {
     ? clockLabel(value, Date.now(), phaseWords)
     : value;
 }
-/** The incident word of a kind the server sent (「代理连不上」). */
+/** The incident word of a kind the server sent (「网络连不上」). */
 export function incidentWord(kind: string): string {
   return Object.hasOwn(t.incidents.kinds, kind)
     ? t.incidents.kinds[kind as IncidentKind]

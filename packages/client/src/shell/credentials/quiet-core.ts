@@ -28,7 +28,7 @@ export function judgmentLine(entry: CredentialView): string {
   }`;
 }
 
-/** The quiet line under a row: where a proxy or key is used; how a login went the last time
+/** The quiet line under a row: where a mailbox is used; how a login went the last time
  * (its group already names the account). */
 export function quietLine(entry: CredentialView): string {
   if (entry.kind === "site_login")
@@ -44,11 +44,11 @@ export interface QuietGroup {
   entries: CredentialView[];
 }
 
-/** The quiet groups: 代理, then each account's logins (by name) and 本项目用;
+/** The quiet groups: 发信邮箱, then each account's logins (by name) and 本项目用;
  * entries that have a judgment card are not repeated here, and empty groups are left out. */
-export function quietGroups(list: CredentialList, platformEnv = false): QuietGroup[] {
+export function quietGroups(list: CredentialList): QuietGroup[] {
   const c = t.credentials;
-  return credentialSections(list, platformEnv)
+  return credentialSections(list)
     .map((section) => {
       const accountKey = section.key.startsWith("logins:account:");
       const prefix = `${c.groups.logins} · `;

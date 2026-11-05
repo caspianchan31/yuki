@@ -19,9 +19,9 @@ export interface ViewStorage {
   setItem(key: string, value: string): void;
 }
 
-/** Whether this space may show the pro view: internal spaces only (not a customer's store). */
-export function proViewAllowed(space: { store: boolean }): boolean {
-  return !space.store;
+/** Whether this space may show the pro view. v1.5: every space may (there are no stores). */
+export function proViewAllowed(): boolean {
+  return true;
 }
 
 /** The person's own choice on this device: true, false, or null (never chosen: the default). */

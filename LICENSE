@@ -1,21 +1,35 @@
-MIT License
+Yuki Community License 1.0
 
-Copyright (c) 2026 OpenMuse contributors
+Copyright (c) 2026 caspianchan31. All rights reserved except as granted below.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+1. Grant. Subject to this license, you may use, copy, modify and distribute the
+   Software, for any purpose other than a Competing Use.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+2. Competing Use. A Competing Use is making the Software, or any work based on it,
+   available to third parties as a hosted, managed or online service, or selling or
+   licensing it to third parties for their use, where that offering substitutes for
+   or competes with Yuki's own hosted service. Using the Software yourself, or inside
+   your organization for its own purposes, is not a Competing Use.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+3. Conditions. You must keep this license and all copyright notices with every copy
+   or substantial portion of the Software you distribute. Anyone who receives the
+   Software from you receives it under this license.
+
+4. Trademarks. This license grants no right to use the name "Yuki" or its logos,
+   except to truthfully describe where your copy came from.
+
+5. Change Date. Each version of the Software becomes available under the MIT License
+   two years after the date it was first published by us.
+
+6. Third-party code. Parts of the Software come from projects licensed by others,
+   including code originally published under the MIT License by its authors. Those
+   parts remain under their original licenses, whose notices are kept in the
+   Software (see THIRD_PARTY_NOTICES.md); this license covers our own work.
+
+7. Termination. If you breach this license, your rights under it end automatically.
+   They are restored if you cure the breach within 30 days of our notice, unless we
+   have notified you of a breach before.
+
+8. No warranty. The Software is provided "as is", without warranty of any kind. To the
+   extent the law allows, we are not liable for any claim, damages or other liability
+   arising from the Software or its use.

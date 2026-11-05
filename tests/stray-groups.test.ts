@@ -10,7 +10,7 @@ import type { BrowserService } from "../apps/server/src/browser.ts";
 import { ConversationAgent } from "../apps/server/src/engine/conversation.ts";
 import { ProjectService } from "../apps/server/src/projects.ts";
 import type { Project } from "../packages/domain/src/projects.ts";
-import { type Harness, harness, proxy } from "./helpers/sign-in-harness.ts";
+import { type Harness, harness } from "./helpers/sign-in-harness.ts";
 
 function projectsOf(h: Harness) {
   const projects = new ProjectService(
@@ -72,7 +72,7 @@ test("a stray group already made is not listed, unless someone is in it", async 
     (await projects.list(h.owner)).map((p) => p.name),
     ["运营组"],
   );
-  const ann = await h.environments.create(h.owner, { name: "Ann", proxyUrl: proxy });
+  const ann = await h.environments.create(h.owner, { name: "Ann" });
   await h.environments.move(h.owner, ann.id, null, emptyId);
   assert.deepEqual(
     (await projects.list(h.owner)).map((p) => p.name).sort(),

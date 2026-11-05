@@ -152,7 +152,7 @@ export function AppsSection({ notify }: { notify: (text: string) => void }) {
           void add();
         }}
       >
-        <KV k={s.addTitle}>{""}</KV>
+        <div className="tp-box-title">{s.addTitle}</div>
         <Field
           label={s.name}
           value={form.name}

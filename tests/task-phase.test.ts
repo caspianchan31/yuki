@@ -103,7 +103,7 @@ test("an open infrastructure incident is the line of the task, and never in éœ€è
     ...taskPhaseWordsZh,
     incident: (kind: string, since: string, next: string) => `${kind} ${since} ${next}`,
   };
-  const incident = { kind: "proxy", since: at(13, 2) };
+  const incident = { kind: "network", since: at(13, 2) };
   const stopped = taskPhase(
     task({ status: "scheduled", nextRunAt: at(14, 48), state: { incident } }),
     { now, words },
@@ -111,14 +111,14 @@ test("an open infrastructure incident is the line of the task, and never in éœ€è
   assert.equal(stopped.key, "sched");
   assert.equal(stopped.needsYou, false);
   assert.deepEqual(stopped.incident, incident);
-  assert.equal(stopped.sub, "proxy 13:02 14:48");
-  const wait = { minutes: 20, note: "proxy 407", since: at(14, 40), until: at(15, 0) };
+  assert.equal(stopped.sub, "network 13:02 14:48");
+  const wait = { minutes: 20, note: "network down", since: at(14, 40), until: at(15, 0) };
   const waiting = taskPhase(
     task({ status: "scheduled", nextRunAt: wait.until, state: { wait, incident } }),
     { now, words },
   );
   assert.equal(waiting.key, "wait");
-  assert.equal(waiting.sub, "proxy 13:02 15:00");
+  assert.equal(waiting.sub, "network 13:02 15:00");
   assert.equal(waiting.detail, "", "the wait note is never the person's");
   // Over (resolvedAt), it is no longer the task's line.
   const over = taskPhase(

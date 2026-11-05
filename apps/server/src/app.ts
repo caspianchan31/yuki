@@ -1,4 +1,3 @@
-import { founderRoutes } from "./accounts/founder-routes.ts";
 import "./config.ts";
 import { randomUUID } from "node:crypto";
 import { MessageSchema } from "@ag-ui/core";
@@ -13,6 +12,7 @@ import {
 } from "../../../packages/domain/src/index.ts";
 import { SPACE_HEADER } from "../../../packages/domain/src/me.ts";
 import { PROJECT_HEADER, realOwnerOf } from "../../../packages/domain/src/projects.ts";
+import { parseAccountSettings, readAccountZone, saveAccountZone } from "./account-settings.ts";
 import { ActionService } from "./actions.ts";
 import { agentConfigured, makeRuntime } from "./agent.ts";
 import { appRoutes } from "./apps/routes.ts";
@@ -31,8 +31,10 @@ import { credentialRoutes } from "./credentials/routes.ts";
 import { CredentialService } from "./credentials/service.ts";
 import { CredentialStore } from "./credentials/store.ts";
 import type { Store } from "./db.ts";
+import { desktopOf } from "./desktop-computer.ts";
+import type { UpgradeServer } from "./desktop-live.ts";
+import { attachDesktopLive, desktopLiveRoutes } from "./desktop-live.ts";
 import { chatReportRoutes } from "./engine/chat-reports.ts";
-import { touchPresence } from "./engine/owner-away.ts";
 import { agentRoutes } from "./engine/routes.ts";
 import { AgentService } from "./engine/service.ts";
 import { environmentRoutes } from "./environment-routes.ts";
@@ -42,6 +44,8 @@ import { Files } from "./files.ts";
 import { escapeHtml as escapePage, GoogleAuth, googleConnectedPage } from "./google-auth.ts";
 import { incidentRoutes } from "./incident-routes.ts";
 import { MailChannels } from "./mail/channels.ts";
+import { memberFileRoutes } from "./member-files/routes.ts";
+import { MemberFiles } from "./member-files/service.ts";
 import { desktopListingCache } from "./project-overview.ts";
 import { projectRoutes } from "./project-routes.ts";
 import { ProjectService } from "./projects.ts";
@@ -60,6 +64,7 @@ import {
   singleUserTenancy,
   type TenancyFactory,
 } from "./tenancy-port.ts";
+import { mountWeb } from "./web-static.ts";
 import { WorkspaceService } from "./workspace.ts";
 
 /** Routes served through a signed link (files, browser previews and consoles). */
@@ -151,8 +156,10 @@ export async function createApp(
     tenancy.plan,
     tenancy.extensions,
   );
-  // The per-project credential store, the AI's sign-in after a login is
-  // saved, and the one-time move of the old settings' secrets.
+  // Member files: on disk unless the tenancy layer keeps them elsewhere.
+  const memberStore = tenancy.memberFileStore?.(db);
+  if (memberStore) agent.memberFiles = new MemberFiles(memberStore, db);
+  // The per-project credential store and the AI's sign-in after a login is saved.
   agent.apps = apps;
   apps.onConnected = (event) => agent.routines.appConnected(event);
   const credentials = new CredentialService(db, credentialStore, environments, computer);
@@ -162,9 +169,6 @@ export async function createApp(
   environments.roomForSignIns = (owner, logins) => agent.assertRoomForSignIns(owner, logins);
   environments.onAccountMoved = (from, to, environmentId, sites, withdrawn) =>
     agent.accountMoved(from, to, environmentId, sites, withdrawn);
-  // An account's view says whether it has something to work on (the rule
-  // its standing loop follows), so the clients can show 没在经营 instead of a quiet 停着.
-  environments.hasWork = (owner, environmentId) => agent.loops.wanted(owner, environmentId);
   // Partitions of the workspace; the chat runtime resolves owners through it.
   const projects = new ProjectService(db, config, computer, environments, browser, agent);
   // The 营销总群's assistant makes the project a request names when there is none.
@@ -185,8 +189,6 @@ export async function createApp(
       request.headers.get(PROJECT_HEADER) ?? undefined,
     );
     assertInSpace(owner, space.key);
-    // A message in a conversation is the owner seen.
-    if (request.method !== "GET") void touchPresence(db, owner).catch(() => {});
     return { user, space, owner };
   };
   const resolveRequestOwner = async (request: Request) => (await resolveRequest(request)).owner;
@@ -296,7 +298,6 @@ export async function createApp(
       threadMigration: { status: (await readMarker(db))?.status ?? "pending" },
       // A deploy is waiting for the runs in progress; no new run starts.
       draining: agent.worker.draining,
-      ...(await tenancy.health()),
     }),
   );
   // Fork: username + password sign-in. The live workspace has one admin account, created on
@@ -385,6 +386,14 @@ export async function createApp(
   const core = { db, config, auth, agent, computer, environments, credentials, credentialStore };
   await tenancy.attach(core);
   tenancy.mountPublic(app, core);
+  // The members' computer's live view: its ticket in the path is the check (desktop-live.ts).
+  app.route(
+    "/api/computer/live",
+    desktopLiveRoutes(() => desktopOf(computer)),
+  );
+  // What listens to the HTTP server's websocket upgrades (see attachServer below).
+  const upgradeHooks: ((server: UpgradeServer) => void)[] = [];
+  upgradeHooks.push((server) => attachDesktopLive(server, () => desktopOf(computer), origins));
   app.use("/api/*", async (c, next) => {
     if (signedRequest(c)) {
       const url = new URL(c.req.url);
@@ -427,8 +436,6 @@ export async function createApp(
     const unscoped = tenancy.unscopedPath.test(c.req.path) || signed;
     if (!unscoped)
       c.set("owner", await projects.resolveOwner(c.get("owner"), c.req.header(PROJECT_HEADER)));
-    // The owner did something in the product.
-    if (c.req.method !== "GET") void touchPresence(db, c.get("owner")).catch(() => {});
     // Whatever owner the request acts as belongs to its space.
     const space = c.get("space");
     if (!signed && space) assertInSpace(c.get("owner"), space.key);
@@ -439,12 +446,6 @@ export async function createApp(
   // settings of every project; the computer is handed over for its saved settings and one
   // listing of desktop states (never a start or an attach), kept 15 s per owner (§8.2 N4).
   const overviewListing = desktopListingCache();
-  // A customer's store space has no projects; an internal space any number.
-  app.post("/api/projects", async (c, next) => {
-    const owner = c.get("owner");
-    await tenancy.plan.assertMayAddProject(owner);
-    await next();
-  });
   app.route(
     "/api/projects",
     projectRoutes(
@@ -455,7 +456,6 @@ export async function createApp(
         environments,
         computer,
         listing: overviewListing,
-        hasWork: (owner, environmentId) => agent.loops.wanted(owner, environmentId),
       },
       (owner, action, subject, detail) => tenancy.record(owner, action, subject, detail),
     ),
@@ -506,8 +506,6 @@ export async function createApp(
       },
     }),
   );
-  // The space's founder and the owner's view over every project.
-  app.route("/api/founder", founderRoutes(agent));
   // Background task reports of this project, by conversation thread or
   // task (UI redesign, N2).
   app.route(
@@ -529,6 +527,7 @@ export async function createApp(
         projectId ? ((await projects.find(owner, projectId))?.name ?? null) : null,
     ),
   );
+  app.route("/api/members", memberFileRoutes(agent));
   app.route(
     "/api/credentials",
     credentialRoutes(credentials, () => environments.assertAvailable()),
@@ -579,6 +578,15 @@ export async function createApp(
   );
   app.put("/api/review-settings", async (c) =>
     c.json(await saveReviewSettings(db, c.get("owner"), parseReviewSettings(await c.req.json()))),
+  );
+  // The account's time zone for routines' clock times.
+  app.get("/api/account-settings", async (c) =>
+    c.json({ timezone: await readAccountZone(db, c.get("owner")) }),
+  );
+  app.put("/api/account-settings", async (c) =>
+    c.json(
+      await saveAccountZone(db, c.get("owner"), parseAccountSettings(await c.req.json()).timezone),
+    ),
   );
   app.get("/api/drafts", async (c) => c.json(await db.list(c.get("owner"), "drafts")));
   app.post("/api/drafts", async (c) => {
@@ -704,11 +712,16 @@ export async function createApp(
     );
     return new Response(body, { status: response.status, headers: response.headers });
   });
+  if (config.webDir) mountWeb(app, config.webDir);
   app.get("/", (c) =>
     c.json({ name: "OpenMuse", app: "http://localhost:8081", health: "/api/health" }),
   );
   return {
     app,
+    /** Hooks the listening HTTP server: the websockets the API itself answers. */
+    attachServer: (server: UpgradeServer) => {
+      for (const hook of upgradeHooks) hook(server);
+    },
     auth,
     files,
     actions,

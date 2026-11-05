@@ -1,10 +1,9 @@
 /**
  * Phase C (docs/web.md): the history of one credential, or of every credential of the
  * current project, from packages/client/src/shell/credentials/CredentialHistory.tsx: what happened
- * (added, replaced, cleared, used to fill a field, cookies imported, written into a desktop, a
- * proxy check, moved in or out), by whom (你, another member, a task, a
- * conversation, the system, the platform), when and how it went. Never a value. Newest first,
- * one page at a time.
+ * (added, replaced, cleared, used to fill a field, cookies imported, moved in or out), by whom
+ * (你, another member, a task, a conversation, the system), when and how it went. Never a value.
+ * Newest first, one page at a time.
  */
 
 import { credentialErrorText } from "@m/shell/accounts/hooks";

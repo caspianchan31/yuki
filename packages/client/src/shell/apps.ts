@@ -26,6 +26,7 @@ export function appRows(entries: readonly AppEntry[]): AppRow[] {
     const bySetting = entry.connect === "elsewhere" || entry.type === "google";
     const parts = [
       connected && entry.account ? entry.account : "",
+      entry.state === "not_configured" && entry.note ? entry.note : "",
       !connected && entry.type === "mailbox" ? s.mailboxHint : "",
       entry.type === "google" ? s.googleHint : "",
       entry.type === "mcp" && entry.url ? entry.url : "",

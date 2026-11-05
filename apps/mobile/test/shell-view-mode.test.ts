@@ -19,13 +19,12 @@ const memory = () => {
   };
 };
 
-test("pro only in an internal space, and only after it is turned on", () => {
-  assert.equal(proViewAllowed({ store: true }), false);
-  assert.equal(proViewAllowed({ store: false }), true);
+test("pro view in every space (v1.5: no stores), and only after it is turned on", () => {
+  assert.equal(proViewAllowed(), true);
   assert.equal(proViewOn({ allowed: true, choice: null }), false);
   assert.equal(proViewOn({ allowed: true, choice: true }), true);
   assert.equal(proViewOn({ allowed: true, choice: false }), false);
-  assert.equal(proViewOn({ allowed: false, choice: true }), false, "a store never shows pro");
+  assert.equal(proViewOn({ allowed: false, choice: true }), false);
   const storage = memory();
   assert.equal(readProViewChoice(storage), null);
   writeProViewChoice(storage, false);
@@ -48,7 +47,6 @@ test("the pro view's columns by width; the simple view is one column everywhere"
     [false, false, false, false],
   );
   // The header's ▾ gives way to the project column; a store never switches.
-  assert.equal(canSwitchProject({ store: false, projectColumn: desk.projectColumn }), false);
-  assert.equal(canSwitchProject({ store: false, projectColumn: simple.projectColumn }), true);
-  assert.equal(canSwitchProject({ store: true }), false);
+  assert.equal(canSwitchProject({ projectColumn: desk.projectColumn }), false);
+  assert.equal(canSwitchProject({ projectColumn: simple.projectColumn }), true);
 });

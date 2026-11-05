@@ -1,10 +1,8 @@
 /**
- * Phase C (docs/web.md): 设置, from shell/task/SettingsSheet.tsx (and the change-password
- * flow of auth.tsx AccountSection, here with settings-core's Chinese checks). 账号 <name> [改密码]
- * [退出] (useAuth().changePassword / signOut; the password form only in a live workspace);
- * 成员 / 订阅 / 介绍人 / 所有空间 (panels drawn by the spaces and billing areas);
- * 谷歌 (Gmail and Calendar, shared by every project); 技能 (the space's, v1.4); 后台 ● 正常
- * · 最后心跳 / 已停 n 分 [刷新]; 版本; 高级 ▸ 项目默认桌面 (opens the existing computer sheet).
+ * 设置 in panes (docs/v1.5.md R9): 通用 (账号 <name> [改密码] [退出], 外观, 时区, 动作审查 and its
+ * two lists, 后台 heartbeat, 版本, 高级), 电脑 (the open build with a computer container only),
+ * 应用 (谷歌 and the connected apps) and 技能. The password form is the change-password flow of
+ * settings-core, only in a live workspace.
  */
 
 import { useAuth } from "@m/auth-state";
@@ -15,13 +13,18 @@ import { checkPassword, passwordErrorText, workerLine } from "@m/shell/task/sett
 import { versionLabel } from "@m/shell/version";
 import { useWorkspace } from "@m/workspace";
 import { useEffect, useRef, useState } from "react";
+import type { ComputerSnapshot } from "../../../../../packages/domain/src/computer";
+import { ContainerComputer } from "../../shell/ContainerComputer";
 import { useTenancyUi } from "../../tenancy-ui";
 import { Btn, cx, ErrorLine, Field, Sheet } from "../../ui/primitives";
 import type { PanelProps } from "../types";
 import { AppsSection } from "./AppsSection";
+import { AppearanceSection, TimeZoneSection } from "./GeneralSettings";
 import { errorText, Fold, KV } from "./parts";
 import { ReviewSettingsSection } from "./ReviewSettings";
 import { SkillsSection } from "./SkillsSection";
+
+type Pane = "general" | "computer" | "apps" | "skills";
 
 export function SettingsPanel({ onClose }: PanelProps<"settings">) {
   const nav = useShellNav();
@@ -37,6 +40,23 @@ export function SettingsPanel({ onClose }: PanelProps<"settings">) {
       mounted.current = false;
     };
   }, []);
+
+  // 电脑 appears only for the open build with a computer container.
+  const [hasComputer, setHasComputer] = useState(false);
+  useEffect(() => {
+    let gone = false;
+    api
+      .request<ComputerSnapshot>("/api/computer")
+      .then((snapshot) => !gone && setHasComputer(snapshot.provider === "desktop"))
+      .catch(() => undefined);
+    return () => {
+      gone = true;
+    };
+  }, [api]);
+  const panes: Pane[] = ["general", ...(hasComputer ? ["computer" as const] : [])];
+  if (live) panes.push("apps", "skills");
+  const [chosen, setChosen] = useState<Pane>("general");
+  const pane = panes.includes(chosen) ? chosen : "general";
 
   // 改密码
   const [form, setForm] = useState(false);
@@ -127,155 +147,187 @@ export function SettingsPanel({ onClose }: PanelProps<"settings">) {
   }
 
   return (
-    <Sheet title={t.settings.title} onClose={onClose}>
-      <div className="tp">
-        <div>
-          <KV
-            k={t.settings.admin}
-            right={
-              <>
-                {live && !form ? (
-                  <Btn
-                    className="sm"
-                    onClick={() => {
-                      setForm(true);
-                      setPasswordDone(false);
-                      setPasswordError("");
+    <Sheet title={t.settings.title} onClose={onClose} wide>
+      <div className="st">
+        <nav className="st-nav" aria-label={t.settings.paneNav}>
+          {panes.map((id) => (
+            <button
+              key={id}
+              type="button"
+              data-testid={`settings-pane-${id}`}
+              aria-current={id === pane ? "page" : undefined}
+              onClick={() => setChosen(id)}
+            >
+              {t.settings.panes[id]}
+            </button>
+          ))}
+        </nav>
+        <div className="st-pane">
+          {pane === "general" ? (
+            <div className="tp">
+              <div>
+                <KV
+                  k={t.settings.admin}
+                  right={
+                    <>
+                      {live && !form ? (
+                        <Btn
+                          className="sm"
+                          onClick={() => {
+                            setForm(true);
+                            setPasswordDone(false);
+                            setPasswordError("");
+                          }}
+                        >
+                          {t.settings.changePassword}
+                        </Btn>
+                      ) : null}
+                      <Btn className="sm ghost" onClick={() => void signOut()}>
+                        {t.settings.signOut}
+                      </Btn>
+                    </>
+                  }
+                >
+                  {session.username || t.settings.adminFallback}
+                </KV>
+                {passwordDone && !form ? (
+                  <p className="tp-small">{t.settings.passwordChanged}</p>
+                ) : null}
+                {form ? (
+                  <form
+                    className="tp-box"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      void savePassword();
                     }}
                   >
-                    {t.settings.changePassword}
-                  </Btn>
+                    <Field
+                      label={t.settings.currentPassword}
+                      type="password"
+                      value={current}
+                      onChange={(e) => setCurrent(e.target.value)}
+                      autoComplete="current-password"
+                      autoCapitalize="none"
+                    />
+                    <Field
+                      label={t.settings.newPassword}
+                      hint={t.settings.newPasswordHint}
+                      type="password"
+                      value={next}
+                      onChange={(e) => setNext(e.target.value)}
+                      autoComplete="new-password"
+                      autoCapitalize="none"
+                    />
+                    <Field
+                      label={t.settings.repeatPassword}
+                      type="password"
+                      value={repeat}
+                      onChange={(e) => setRepeat(e.target.value)}
+                      autoComplete="new-password"
+                      autoCapitalize="none"
+                    />
+                    <ErrorLine error={passwordError} />
+                    <div className="row">
+                      <Btn type="submit" variant="pri" className="sm" busy={passwordBusy}>
+                        {t.settings.savePassword}
+                      </Btn>
+                      <Btn className="sm ghost" disabled={passwordBusy} onClick={closeForm}>
+                        {t.common.cancel}
+                      </Btn>
+                    </div>
+                  </form>
                 ) : null}
-                <Btn className="sm ghost" onClick={() => void signOut()}>
-                  {t.settings.signOut}
-                </Btn>
-              </>
-            }
-          >
-            {session.username || t.settings.adminFallback}
-          </KV>
-          {passwordDone && !form ? <p className="tp-small">{t.settings.passwordChanged}</p> : null}
-          {form ? (
-            <form
-              className="tp-box"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void savePassword();
-              }}
-            >
-              <Field
-                label={t.settings.currentPassword}
-                type="password"
-                value={current}
-                onChange={(e) => setCurrent(e.target.value)}
-                autoComplete="current-password"
-                autoCapitalize="none"
-              />
-              <Field
-                label={t.settings.newPassword}
-                hint={t.settings.newPasswordHint}
-                type="password"
-                value={next}
-                onChange={(e) => setNext(e.target.value)}
-                autoComplete="new-password"
-                autoCapitalize="none"
-              />
-              <Field
-                label={t.settings.repeatPassword}
-                type="password"
-                value={repeat}
-                onChange={(e) => setRepeat(e.target.value)}
-                autoComplete="new-password"
-                autoCapitalize="none"
-              />
-              <ErrorLine error={passwordError} />
-              <div className="row">
-                <Btn type="submit" variant="pri" className="sm" busy={passwordBusy}>
-                  {t.settings.savePassword}
-                </Btn>
-                <Btn className="sm ghost" disabled={passwordBusy} onClick={closeForm}>
-                  {t.common.cancel}
-                </Btn>
-              </div>
-            </form>
-          ) : null}
 
-          <ui.SettingsSpace live={live} />
+                <ui.SettingsSpace live={live} />
 
-          {live ? (
-            <KV
-              k={t.settings.google}
-              right={
-                <>
-                  <Btn className="sm" busy={googleBusy} onClick={() => void connectGoogle()}>
-                    {googleOn ? t.settings.googleReconnect : t.settings.googleConnect}
-                  </Btn>
-                  {googleOn ? (
-                    <Btn
-                      className="sm ghost"
-                      disabled={googleBusy}
-                      onClick={() => void disconnectGoogle()}
-                    >
-                      {t.settings.googleDisconnect}
+                <AppearanceSection />
+                {live ? <TimeZoneSection /> : null}
+                {live ? <ReviewSettingsSection /> : null}
+                <KV
+                  k={t.settings.worker}
+                  right={
+                    <Btn className="sm" busy={refreshing} onClick={() => void refresh()}>
+                      {t.common.refresh}
                     </Btn>
-                  ) : null}
-                </>
-              }
-            >
-              {googleOn && google?.account
-                ? t.settings.googleConnected(google.account)
-                : t.settings.googleNone}
-            </KV>
+                  }
+                >
+                  <span className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
+                    <span
+                      className={cx(
+                        "tp-light",
+                        heartbeat.state === "ok" ? "" : heartbeat.state === "down" ? "red" : "grey",
+                      )}
+                      style={heartbeat.state === "ok" ? { background: "var(--accent)" } : undefined}
+                    />
+                    <span
+                      className={cx("tp-mono", heartbeat.state === "down" && "tp-red")}
+                      style={{ fontFamily: "inherit", minWidth: 0 }}
+                    >
+                      {heartbeat.text}
+                    </span>
+                  </span>
+                </KV>
+                <KV k={t.settings.version}>
+                  <span className="tp-small">{versionLabel()}</span>
+                </KV>
+              </div>
+
+              <Fold label={t.settings.advanced}>
+                <p className="tp-strong">{t.settings.defaultDesktop}</p>
+                <p className="muted">{t.settings.defaultDesktopHint}</p>
+                <Btn
+                  className="sm"
+                  style={{ alignSelf: "flex-start" }}
+                  onClick={() => nav.openPanel({ kind: "legacy", detail: { type: "computer" } })}
+                >
+                  {t.settings.openDefaultDesktop}
+                </Btn>
+              </Fold>
+            </div>
           ) : null}
-          <ErrorLine error={googleError} />
+          {pane === "computer" ? (
+            <div className="tp">
+              <ContainerComputer inSettings />
+            </div>
+          ) : null}
+          {pane === "apps" ? (
+            <div className="tp">
+              {live ? (
+                <KV
+                  k={t.settings.google}
+                  right={
+                    <>
+                      <Btn className="sm" busy={googleBusy} onClick={() => void connectGoogle()}>
+                        {googleOn ? t.settings.googleReconnect : t.settings.googleConnect}
+                      </Btn>
+                      {googleOn ? (
+                        <Btn
+                          className="sm ghost"
+                          disabled={googleBusy}
+                          onClick={() => void disconnectGoogle()}
+                        >
+                          {t.settings.googleDisconnect}
+                        </Btn>
+                      ) : null}
+                    </>
+                  }
+                >
+                  {googleOn && google?.account
+                    ? t.settings.googleConnected(google.account)
+                    : t.settings.googleNone}
+                </KV>
+              ) : null}
+              <ErrorLine error={googleError} />
 
-          {/* v1.4 (docs/apps.md): connected apps, shared by the space. */}
-          {live ? <AppsSection notify={notify} /> : null}
-          {/* v1.4 (docs/skills.md): the space's skills. */}
-          {live ? <SkillsSection /> : null}
-          {/* 动作审查 and its two lists. */}
-          {live ? <ReviewSettingsSection /> : null}
-
-          <KV
-            k={t.settings.worker}
-            right={
-              <Btn className="sm" busy={refreshing} onClick={() => void refresh()}>
-                {t.common.refresh}
-              </Btn>
-            }
-          >
-            <span className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
-              <span
-                className={cx(
-                  "tp-light",
-                  heartbeat.state === "ok" ? "" : heartbeat.state === "down" ? "red" : "grey",
-                )}
-                style={heartbeat.state === "ok" ? { background: "var(--accent)" } : undefined}
-              />
-              <span
-                className={cx("tp-mono", heartbeat.state === "down" && "tp-red")}
-                style={{ fontFamily: "inherit", minWidth: 0 }}
-              >
-                {heartbeat.text}
-              </span>
-            </span>
-          </KV>
-          <KV k={t.settings.version}>
-            <span className="tp-small">{versionLabel()}</span>
-          </KV>
+              <AppsSection notify={notify} />
+            </div>
+          ) : null}
+          {pane === "skills" ? (
+            <div className="tp">
+              <SkillsSection />
+            </div>
+          ) : null}
         </div>
-
-        <Fold label={t.settings.advanced}>
-          <p className="tp-strong">{t.settings.defaultDesktop}</p>
-          <p className="muted">{t.settings.defaultDesktopHint}</p>
-          <Btn
-            className="sm"
-            style={{ alignSelf: "flex-start" }}
-            onClick={() => nav.openPanel({ kind: "legacy", detail: { type: "computer" } })}
-          >
-            {t.settings.openDefaultDesktop}
-          </Btn>
-        </Fold>
       </div>
     </Sheet>
   );

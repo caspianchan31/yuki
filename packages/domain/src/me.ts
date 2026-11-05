@@ -17,13 +17,6 @@ export interface SpaceView {
   role: SpaceRole;
   /** How many members the space has (the user included). */
   members: number;
-  /** A customer's store (a subscription): no projects, no 营销总群. */
-  store?: boolean;
-  /** Proxies are set up by the platform operator, not by members. */
-  platformEnv?: boolean;
-  /** Another store of a customer, not opened yet by the operator
-   * (`pending`: 正在开通中) or refused by him (`rejected`). Absent once it is open. */
-  opening?: "pending" | "rejected";
 }
 
 /** The signed-in user and the spaces they belong to (GET /api/me). */

@@ -1,3 +1,4 @@
+import type { Server } from "node:http";
 import { CopilotKitIntelligence } from "@copilotkit/runtime/v2";
 import { serve } from "@hono/node-server";
 import { createApp } from "./app.ts";
@@ -18,13 +19,12 @@ const db = await createStore({
   databaseUrl: config.databaseUrl,
 });
 await db.recoverInterruptedActions();
-const { app, agent, chat } = await createApp(db, config, {
-  credentialKey,
-});
+const { app, agent, chat, attachServer } = await createApp(db, config, { credentialKey });
 if (config.taskWorkerEnabled) agent.start();
 const server = serve({ fetch: app.fetch, port: config.port, hostname: config.host }, () =>
   console.log(`OpenMuse ${config.mode} API ready at ${config.publicUrl}`),
 );
+attachServer(server as Server);
 // The conversations still in CopilotKit's cloud are
 // copied here once, in the background, while the chat already works. Only this API process does
 // it (a separate worker never does); once complete, the key is never used again.

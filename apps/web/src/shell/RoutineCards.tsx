@@ -9,7 +9,7 @@ import { useTaskActions } from "@m/shell/actions";
 import { useShellData } from "@m/shell/data";
 import {
   capReportTasks,
-  clockNeedsZone,
+  clockZoneNote,
   type DetailRoutine,
   loadedTaskReports,
   newestReportSentence,
@@ -25,23 +25,22 @@ import { phaseWords, reportLabel } from "@m/shell/strings";
 import { useRef, useState } from "react";
 import type { ChatReport } from "../../../../packages/domain/src/agent";
 import { clockLabel } from "../../../../packages/domain/src/task-phase";
+import { useAccountZone } from "../account-zone";
 import { RoutineEditor } from "./RoutineEditor";
 
 export function RoutineCards({
   routines,
   entries,
   projectId,
-  timezone,
 }: {
   routines: DetailRoutine[];
   /** The tasks behind them, for the status line. */
   entries: readonly TaskEntry[];
   /** The scope the routines are in (null = the space's own, the hall). */
   projectId: string | null;
-  /** A member's time zone; undefined for Yuki's own (no account, no zone line). */
-  timezone?: string | null;
 }) {
   const data = useShellData();
+  const { zone: timezone } = useAccountZone();
   const actions = useTaskActions();
   const apiFor = data.apiFor;
   const routineKey = routines.map((routine) => routine.id).join("\n");
@@ -83,10 +82,8 @@ export function RoutineCards({
           <div className="roster-line">
             {[routine.when, routine.on ? "开着" : "停着"].filter(Boolean).join(" · ")}
           </div>
-          {timezone !== undefined && clockNeedsZone(routine.when, timezone) ? (
-            <div className="roster-line">
-              {routine.routine ? "没填时区，先按北京时间" : "填了时区才按这个钟点"}
-            </div>
+          {clockZoneNote(routine.when, timezone) ? (
+            <div className="roster-line">{clockZoneNote(routine.when, timezone)}</div>
           ) : null}
           {routine.routine && editId === routine.id ? (
             <RoutineEditor

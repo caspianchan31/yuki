@@ -7,7 +7,6 @@
 import { normalizeReports } from "@m/chat-reports-core";
 import { useProjects } from "@m/projects-state";
 import { useOverview, useShellData } from "@m/shell/data";
-import { useFounderRef } from "@m/shell/founder/useFounder";
 import { useProjectRows } from "@m/shell/frame/useProjectRows";
 import { needsForMember } from "@m/shell/members/member-detail";
 import { accountMember } from "@m/shell/members/members-core";
@@ -52,7 +51,6 @@ export function Roster() {
   const { current, select } = useProjects();
   const nav = useShellNav();
   const frame = useFrame();
-  const founder = useFounderRef();
   const ui = useTenancyUi();
   const everyone = useEveryone();
   const [query, setQuery] = useState("");
@@ -111,12 +109,7 @@ export function Roster() {
 
   const members = useMemo(() => {
     const local: ListedMember[] = data.accounts.value.map((account) => {
-      const card = accountMember(
-        account,
-        data.now,
-        founder?.environmentId === account.id,
-        data.stalled,
-      );
+      const card = accountMember(account, data.now, data.stalled);
       const quiet = !card.line.trim() || card.line.trim() === t.members.idle;
       const latest = preview.get(account.id) ?? null;
       const line = rosterLine(card.line, latest?.text ?? null, quiet);
@@ -126,7 +119,6 @@ export function Roster() {
         line,
         clock: quiet && latest && line !== card.line.trim() ? clockLabel(latest.at, data.now) : "",
         bucket: taskRoutineBucket(account.tasks.map((entry) => entry.task)),
-        founder: card.founder,
         projectId: account.projectId,
         state: card.state,
         face: account.view.face,
@@ -141,13 +133,12 @@ export function Roster() {
         line: "",
         clock: "",
         bucket: remote.get(environment.id) ?? "none",
-        founder: founder?.environmentId === environment.id,
         projectId: environment.projectId,
         state: "idle",
         face: environment.face,
       }));
     return [...local, ...elsewhere];
-  }, [data.accounts.value, data.now, data.stalled, everyone, founder, preview, remote]);
+  }, [data.accounts.value, data.now, data.stalled, everyone, preview, remote]);
 
   // The open project's line counts only what stays in that group's chat. A member's own
   // need is on her conversation, so it is not counted here.
@@ -265,13 +256,7 @@ export function Roster() {
                   className={cx("sb-item", frame.peek === listed.id && "on")}
                   onClick={() => openMember(listed)}
                 >
-                  <MemberFace
-                    {...face}
-                    size={28}
-                    star={listed.founder}
-                    state={dotOf[listed.state]}
-                    label={listed.name}
-                  />
+                  <MemberFace {...face} size={28} state={dotOf[listed.state]} label={listed.name} />
                   <span className="roster-text">
                     <span className="roster-name">
                       <span className="lbl">{listed.name}</span>
@@ -302,10 +287,10 @@ export function Roster() {
       <div className="sb-bottom">
         <ui.RosterEntry
           on={!!frame.platform}
-          onOpen={(tab, waiting) => {
+          onOpen={(tab) => {
             nav.closePanel();
-            // Already open: stays on its tab unless something waits elsewhere.
-            setFrame({ platform: waiting ? tab : (frame.platform ?? tab), drawer: false });
+            // Already open: stays on its tab.
+            setFrame({ platform: frame.platform ?? tab, drawer: false });
           }}
         />
         <button

@@ -8,7 +8,7 @@ import { ChatStore } from "../apps/server/src/chat/chat-store.ts";
 import { chatRuntimeHooks } from "../apps/server/src/chat/runtime-hooks.ts";
 import { memberConversationId } from "../packages/domain/src/member-thread.ts";
 import { projectOwner } from "../packages/domain/src/projects.ts";
-import { type Harness, harness, proxy } from "./helpers/sign-in-harness.ts";
+import { type Harness, harness } from "./helpers/sign-in-harness.ts";
 
 async function group(h: Harness, name: string) {
   const id = randomUUID();
@@ -27,7 +27,7 @@ test("a member's conversation opens in the group she joined, and back out of it"
   const h = await harness(t);
   const store = await ChatStore.open(h.db);
   const g = await group(h, "运营组");
-  const ann = await h.environments.create(h.owner, { name: "Ann", proxyUrl: proxy });
+  const ann = await h.environments.create(h.owner, { name: "Ann" });
   const threadId = memberConversationId(ann.id);
   assert.equal(await store.ensureThread(h.owner, threadId, "default"), "ok");
   const other = await store.ensureThread("other-space", "another-thread", "default");
@@ -75,11 +75,8 @@ test("a conversation that stayed behind is adopted when the group's chat opens i
 
 test("a member being deleted no longer holds her name", async (t) => {
   const h = await harness(t);
-  const ann = await h.environments.create(h.owner, { name: "Ann", proxyUrl: proxy });
-  await assert.rejects(
-    () => h.environments.create(h.owner, { name: "ann", proxyUrl: proxy }),
-    /already exists/,
-  );
+  const ann = await h.environments.create(h.owner, { name: "Ann" });
+  await assert.rejects(() => h.environments.create(h.owner, { name: "ann" }), /already exists/);
   // A delete that could not finish (the desktop provider failed) leaves the record marked.
   await h.db.compareAndSwap(
     h.owner,
@@ -89,10 +86,7 @@ test("a member being deleted no longer holds her name", async (t) => {
     { deleting: true, updatedAt: new Date().toISOString() },
   );
   // Just marked: the delete may still be running, the name stays taken.
-  await assert.rejects(
-    () => h.environments.create(h.owner, { name: "Ann", proxyUrl: proxy }),
-    /already exists/,
-  );
+  await assert.rejects(() => h.environments.create(h.owner, { name: "Ann" }), /already exists/);
   await h.db.compareAndSwap(
     h.owner,
     "environments",
@@ -100,17 +94,17 @@ test("a member being deleted no longer holds her name", async (t) => {
     { deleting: true },
     { updatedAt: new Date(Date.now() - 10 * 60 * 1000).toISOString() },
   );
-  const again = await h.environments.create(h.owner, { name: "Ann", proxyUrl: proxy });
+  const again = await h.environments.create(h.owner, { name: "Ann" });
   assert.notEqual(again.id, ann.id);
 });
 
 test("with computers off, deleting a member completes and frees her name", async (t) => {
   const h = await harness(t);
-  const ann = await h.environments.create(h.owner, { name: "Ann", proxyUrl: proxy });
+  const ann = await h.environments.create(h.owner, { name: "Ann" });
   // The harness's computer is on; turn it off the way COMPUTER_ENABLED=false does (staging).
   (h.config as { computerEnabled: boolean }).computerEnabled = false;
   await h.environments.remove(h.owner, ann.id);
   assert.equal(await h.environments.find(h.owner, ann.id), null, "the record is gone, not stuck");
-  const again = await h.environments.create(h.owner, { name: "Ann", proxyUrl: proxy });
+  const again = await h.environments.create(h.owner, { name: "Ann" });
   assert.notEqual(again.id, ann.id);
 });

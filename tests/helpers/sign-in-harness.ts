@@ -30,8 +30,6 @@ import type { EnvironmentView } from "../../packages/domain/src/environments.ts"
 import { config as base } from "./computer.ts";
 import { modelFixture } from "./model.ts";
 
-/** A proxy address some older journeys still pass along; with no computer it is ignored. */
-const proxy = "socks5://proxyuser:pass@203.0.113.90:1080";
 type Call = { name: string; arguments: object };
 
 let owners = 0;
@@ -149,4 +147,4 @@ async function harness(t: TestContext, ownerArg?: string) {
   };
 }
 export type Harness = Awaited<ReturnType<typeof harness>>;
-export { harness, proxy };
+export { harness };

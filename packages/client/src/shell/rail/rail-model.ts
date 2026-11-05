@@ -74,8 +74,8 @@ export function nowLine(account: Pick<AccountModel, "now" | "name">): {
 }
 
 /** What the rail's account row shows (fork, the owner's trim): the name with its light, a
- * problem the owner must see (`accountRowFlags`), 此刻 and 下次. The exit, 共用, the region,
- * the pacing, the desktop state and the reports are in the account's detail. */
+ * problem the owner must see (`accountRowFlags`), 此刻 and 下次. The region, the pacing, the
+ * desktop state and the reports are in the account's detail. */
 export function railAccountRow(
   account: Pick<AccountModel, "name" | "flags" | "incident" | "now" | "next">,
 ): {
@@ -263,8 +263,8 @@ export interface AccountTableMins {
  * The table's column widths. `roomy` is the prototype's grid (.gacc from 900) for the page with
  * its actions column; beside the docked detail (no actions) the columns are `tight`, so the
  * table keeps every column, 地区 included, from 1100 with the detail open (design §3.6): long
- * names, titles and zones are cut short there, and the docked detail shows them whole. The exit
- * keeps its full width (an address is not cut). `padding` is the row's own side padding.
+ * names, titles and zones are cut short there, and the docked detail shows them whole.
+ * `padding` is the row's own side padding.
  */
 export const accountTableColumnWidths = {
   light: 10,

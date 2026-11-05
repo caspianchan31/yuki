@@ -50,13 +50,12 @@ export function orderIncidents(list: readonly IncidentView[]): IncidentView[] {
   return [...list].sort((a, b) => Number(b.system) - Number(a.system) || b.at.localeCompare(a.at));
 }
 
-/** What happened, in plain Chinese: a sign-in status, a system incident or a task incident. */
+/** What happened, in plain Chinese: a sign-in status or a task incident. */
 export function incidentKindLabel(kind: string): string {
-  const words = t.incidentShots.systemKinds[kind] ?? t.signIn.statuses[kind];
-  return words ?? incidentWord(kind);
+  return t.signIn.statuses[kind] ?? incidentWord(kind);
 }
 
-/** The row's line: a system outcome in Chinese, else the AI's own words. */
+/** The row's line: the AI's own words. */
 export function incidentLineText(view: Pick<IncidentView, "kind" | "line">): string {
   return view.line || t.incidentShots.noLine;
 }

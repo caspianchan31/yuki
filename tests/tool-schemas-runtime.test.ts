@@ -58,22 +58,18 @@ test("every tool schema a task run on an account sends to the model is valid JSO
   await h.account("Alice", [{ site: "example.com", username: "alice", password: "pw-not-real" }]);
   h.queue.push({ name: "finish_task", arguments: { summary: "Done." } });
   await h.agent.worker.tick();
-  // The account's standing loop (its plan tool) and the migration task's tools.
-  const alice = (await h.environments.records(h.owner))[0];
-  await h.agent.accounts.setGoal(h.owner, alice, "Grow the account", { userId: null });
-  h.queue.push({ name: "wait_until", arguments: { minutes: 60, note: "Next look" } });
-  await h.agent.worker.tick();
-  await h.agent.createTask(h.owner, { prompt: "Move personas", input: { migrationV06: true } });
+  // A task on no account too: the open build has no accounts, and its run sends the tools.
+  await h.agent.createTask(h.owner, { prompt: "Check the weather" });
   h.queue.push({ name: "finish_task", arguments: { summary: "Done." } });
   await h.agent.worker.tick();
   const tools = sentTools(h.requests);
   for (const name of [
-    "set_account_persona",
-    "set_account_goal",
-    "create_job",
-    "retire_task",
     "report_to_user",
     "finish_task",
+    // v1.5: a member's own files
+    "read_member_file",
+    "update_member_file",
+    "note_today",
   ])
     assert.ok(tools.has(name), `${name} reaches the model (got ${[...tools.keys()].join(", ")})`);
   assertValid(tools);
@@ -96,20 +92,12 @@ test("every tool schema a chat reply on an account sends to the model is valid J
     "set_account_persona",
     "set_account_goal",
     "read_account",
-    "create_job",
-    "assign_job",
-    "update_job",
-    "close_job",
-    "list_jobs",
+    // v1.5: a member's own files
+    "remember_fact",
+    "read_member_file",
+    "update_member_file",
+    "note_today",
   ])
     assert.ok(tools.has(name), `${name} reaches the model (got ${[...tools.keys()].join(", ")})`);
   assertValid(tools);
-});
-
-test("the account pacing hours still parse as one [start, end) pair", async () => {
-  const { accountPacingInputSchema } = await import("../packages/domain/src/agent.ts");
-  const parsed = accountPacingInputSchema.parse({ activeHours: [9, 23], reason: "r" });
-  assert.deepEqual(parsed.activeHours, [9, 23]);
-  for (const activeHours of [[9], [23, 9], [9, 9], [9, 10, 11]])
-    assert.equal(accountPacingInputSchema.safeParse({ activeHours, reason: "r" }).success, false);
 });

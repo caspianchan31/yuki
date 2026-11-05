@@ -16,6 +16,7 @@ import type { EnvironmentService } from "./environments.ts";
 import { AppError } from "./errors.ts";
 import type { AgentExtension } from "./extensions.ts";
 import { allowAllGate, type PlanGate, type SpaceScopes } from "./gate.ts";
+import type { MemberFileStore } from "./member-files/store.ts";
 
 /** The space a request acts in, and the member's role there. */
 export interface RequestSpace {
@@ -85,8 +86,6 @@ export interface Tenancy {
   provisionWith(provision: (key: string) => Promise<void>): void;
   /** What a refused sign-in of a sign-up not yet opened tells; undefined without sign-ups. */
   registrationStatus?(userId: string): Promise<unknown>;
-  /** Extra fields of /api/health. */
-  health(): Promise<Record<string, unknown>>;
   /** Wires its hooks into the core's services (once they exist). */
   attach(core: TenancyCore): Promise<void>;
   /** Routes that need no session. */
@@ -98,6 +97,8 @@ export interface Tenancy {
   /** The deployment is one owner's: connected apps may be on the owner's own machine or network
    * (an MCP server on localhost). A server many people share leaves this out. */
   readonly privateNetwork?: boolean;
+  /** Where member files are kept, when not the core's directory of .md files. */
+  memberFileStore?(db: Store): MemberFileStore;
 }
 
 export type TenancyFactory<T extends Tenancy = Tenancy> = (deps: {
@@ -139,7 +140,6 @@ export const singleUserTenancy: TenancyFactory = ({ config, auth }) => {
       if (config.mode === "live") await auth.migrateAdmin();
     },
     provisionWith: () => {},
-    health: async () => ({}),
     attach: async () => {},
     mountPublic: () => {},
     mountUser: () => {},

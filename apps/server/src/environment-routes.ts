@@ -2,7 +2,7 @@
 // ordinary computer API acting on the environment's derived owner; Files keep the real one.
 import { Hono } from "hono";
 import { z } from "zod";
-import { type ComputerService } from "./computer.ts";
+import type { ComputerService } from "./computer.ts";
 import { type ComputerRouteVariables, computerRoutes } from "./computer-routes.ts";
 import { type EnvironmentService, environmentRef, envOwner } from "./environments.ts";
 import type { Files } from "./files.ts";

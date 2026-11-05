@@ -2,6 +2,7 @@
 // the server cannot schedule), and one repeating task per routine that has an interval.
 
 import { repeatMinutesMax } from "./agent.ts";
+import { upsertSection } from "./member-files.ts";
 import type { MemberTemplate } from "./member-templates.ts";
 
 export function repeatMinutesOfWhen(when: string): number | null {
@@ -149,4 +150,21 @@ export function templateSetup(
     goal,
     tasks,
   };
+}
+
+/** The AGENTS.md a member made from a template starts with: her duties, her routines and the
+ * apps to connect. */
+export function templateAgents(template: MemberTemplate, name: string): string {
+  const title = name.trim() || template.name;
+  let text = `# ${title}\n`;
+  text = upsertSection(text, "职责", `${template.role}\n\n${template.persona}`);
+  text = upsertSection(
+    text,
+    "例行",
+    template.routines
+      .map((routine) => `- ${routine.when} ${routine.title}：${routine.instruction}`)
+      .join("\n"),
+  );
+  if (template.apps.length) text = upsertSection(text, "要连接的应用", template.apps.join("、"));
+  return text;
 }

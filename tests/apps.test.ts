@@ -107,7 +107,13 @@ async function fakeMcp(token: string | null = "secret-token", oauth = false) {
 
 async function setup(
   t: TestContext,
-  config: { slack?: boolean; encryptionKey?: boolean; fetch?: typeof fetch } = {},
+  config: {
+    slack?: boolean;
+    encryptionKey?: boolean;
+    fetch?: typeof fetch;
+    slackApiUrl?: string;
+    slackAuthorizeUrl?: string;
+  } = {},
 ) {
   const directory = await mkdtemp(join(tmpdir(), "openmuse-apps-"));
   const db = await createStore();
@@ -123,6 +129,8 @@ async function setup(
       ? {}
       : { encryptionKey: randomBytes(32).toString("base64") }),
     ...(config.slack ? { slackClientId: "slack-client", slackClientSecret: "slack-secret" } : {}),
+    slackApiUrl: config.slackApiUrl,
+    slackAuthorizeUrl: config.slackAuthorizeUrl,
     googleRedirectUri: "http://localhost:8787/api/google/callback",
     allowedOrigins: [],
   };
@@ -481,9 +489,11 @@ test("without Slack's config its tools are absent and it cannot be connected", a
 function fakeSlack() {
   const posted: unknown[] = [];
   const calls: string[] = [];
+  const urls: string[] = [];
   const fetcher: typeof fetch = async (input, init) => {
     const method = new URL(String(input)).pathname.split("/").pop() ?? "";
     calls.push(method);
+    urls.push(String(input));
     const json = (value: object) => Response.json({ ok: true, ...value });
     if (method === "oauth.v2.access")
       return json({ access_token: "xoxb-fake", team: { id: "T1", name: "Acme" } });
@@ -491,13 +501,29 @@ function fakeSlack() {
       return json({ channels: [{ id: "C1", name: "general", is_member: true }] });
     if (method === "conversations.history")
       return json({ messages: [{ ts: "1.1", user: "U1", text: "hello team" }] });
+    if (method === "conversations.replies")
+      return json({
+        messages: [
+          { ts: "1.1", user: "U1", text: "hello team" },
+          { ts: "1.2", user: "U2", text: "hi" },
+        ],
+      });
+    if (method === "users.info") {
+      const user = new URLSearchParams(String(init?.body)).get("user");
+      return json({
+        user: { name: user, profile: { display_name: user === "U1" ? "Ann" : "Bo" } },
+      });
+    }
+    if (method === "auth.test") return json({ url: "https://acme.slack.com/" });
+    if (method === "chat.getPermalink")
+      return json({ permalink: "https://acme.slack.com/archives/C1/p22" });
     if (method === "chat.postMessage") {
       posted.push(JSON.parse(String(init?.body)));
-      return json({ ts: "2.2" });
+      return json({ ts: "2.2", channel: "C1" });
     }
     return json({});
   };
-  return { fetcher, posted, calls };
+  return { fetcher, posted, calls, urls };
 }
 
 test("Slack: OAuth connects, slack_read reads, and a message is a draft sent on approval", async (t) => {
@@ -553,6 +579,95 @@ test("Slack: OAuth connects, slack_read reads, and a message is a draft sent on 
   assert.equal((await s.api("/api/apps/slack/disconnect", {})).status, 200);
   assert.equal(await s.db.get("local-user", "apps", "slack"), null);
   assert.ok(slack.calls.includes("auth.revoke"));
+});
+
+test("Slack without its app says why, and the addresses follow the config", async (t) => {
+  const bare = await setup(t);
+  const note = (await entry(bare, "slack"))?.note ?? "";
+  assert.ok(note, "the directory carries the reason");
+  const refused = await bare.api("/api/apps/slack/connect", {});
+  assert.equal(refused.status, 503);
+  assert.equal(((await refused.json()) as { error: string }).error, note);
+  const slack = fakeSlack();
+  const own = await setup(t, {
+    slack: true,
+    fetch: slack.fetcher,
+    slackApiUrl: "http://slack.test/api/",
+    slackAuthorizeUrl: "http://slack.test/authorize",
+  });
+  assert.equal((await entry(own, "slack"))?.note, undefined);
+  const started = (await (await own.api("/api/apps/slack/connect", {})).json()) as { url: string };
+  assert.equal(new URL(started.url).origin, "http://slack.test");
+  const state = new URL(started.url).searchParams.get("state") ?? "";
+  await own.server.app.request(`/api/slack/callback?state=${state}&code=abc`);
+  assert.ok(slack.urls.length > 0);
+  assert.ok(slack.urls.every((url) => url.startsWith("http://slack.test/api/")));
+});
+
+test("Slack: a thread is read, and a reply draft names the message and shows the link when sent", async (t) => {
+  const slack = fakeSlack();
+  const { requests } = await modelFixture(t, (index) =>
+    index === 0
+      ? { name: "slack_read", arguments: { channel: "general", threadTs: "1.1" } }
+      : index === 2
+        ? {
+            name: "prepare_slack_message",
+            arguments: { channel: "general", text: "Thanks!", threadTs: "1.1" },
+          }
+        : undefined,
+  );
+  const s = await setup(t, { slack: true, fetch: slack.fetcher });
+  await noReview(s);
+  const started = (await (await s.api("/api/apps/slack/connect", {})).json()) as { url: string };
+  const state = new URL(started.url).searchParams.get("state") ?? "";
+  await s.server.app.request(`/api/slack/callback?state=${state}&code=abc`);
+  const [read] = await chatTurn(s, say("what is in the thread"));
+  assert.equal(requests.length > 0, true);
+  assert.deepEqual(
+    read.messages.map((message: { from: string; text: string }) => [message.from, message.text]),
+    [
+      ["Ann", "hello team"],
+      ["Bo", "hi"],
+    ],
+  );
+  assert.match(read.messages[1].link, /\?thread_ts=1\.1&cid=C1$/);
+  const [draft] = await chatTurn(s, say("thank them"));
+  assert.equal(draft.status, "awaiting_review");
+  const action = await proposalOf(s);
+  assert.deepEqual(action.data, {
+    channel: "C1",
+    channelName: "general",
+    text: "Thanks!",
+    threadTs: "1.1",
+    threadPreview: "Ann：hello team",
+  });
+  assert.deepEqual(slack.posted, []);
+  const sent = await s.server.actions.decide("local-user", action.id, action.hash, "approve");
+  assert.equal(sent.status, "succeeded");
+  assert.deepEqual(slack.posted, [{ channel: "C1", text: "Thanks!", thread_ts: "1.1" }]);
+  assert.match(sent.result ?? "", /#general https:\/\/acme\.slack\.com\/archives\/C1\/p22$/);
+});
+
+test("Slack: a channel the app is not in is refused in words", async (t) => {
+  const slack = fakeSlack();
+  await modelFixture(t, (index) =>
+    index === 0 ? { name: "slack_read", arguments: { channel: "secret" } } : undefined,
+  );
+  const base = slack.fetcher;
+  const fetcher: typeof fetch = async (input, init) =>
+    String(input).endsWith("conversations.list")
+      ? Response.json({
+          ok: true,
+          channels: [{ id: "C9", name: "secret", is_member: false, is_private: true }],
+        })
+      : base(input, init);
+  const s = await setup(t, { slack: true, fetch: fetcher });
+  const started = (await (await s.api("/api/apps/slack/connect", {})).json()) as { url: string };
+  const state = new URL(started.url).searchParams.get("state") ?? "";
+  await s.server.app.request(`/api/slack/callback?state=${state}&code=abc`);
+  const [read] = await chatTurn(s, say("read secret"));
+  assert.match(read.error, /No permission to read #secret/);
+  assert.equal(slack.calls.includes("conversations.history"), false);
 });
 
 test("the review does not let a Slack draft through on its own judgment", async (t) => {

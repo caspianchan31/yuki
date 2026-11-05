@@ -155,6 +155,31 @@ export function validZone(zone: string): boolean {
   }
 }
 
+/** An IANA zone name in its canonical spelling ("asia/shanghai" -> "Asia/Shanghai"), or null for
+ * anything else: offsets ("+08:00"), abbreviations ("CST") and unknown names are refused. */
+export function canonicalZone(input: unknown): string | null {
+  if (typeof input !== "string") return null;
+  const text = input.trim();
+  if (text.length === 0 || text.length > 64) return null;
+  if (!/^[A-Za-z][A-Za-z0-9_+-]*(\/[A-Za-z0-9_+-]+)*$/.test(text)) return null;
+  if (!text.includes("/") && text.toLowerCase() !== "utc") return null;
+  try {
+    return new Intl.DateTimeFormat("en-US", { timeZone: text }).resolvedOptions().timeZone;
+  } catch {
+    return null;
+  }
+}
+
+/** The zone clock times use: the first usable of the account's own zone, then the member's
+ * computer zone, then the project's default computer zone; `defaultRoutineZone` when none is. */
+export function pickRoutineZone(...candidates: Array<string | null | undefined>): string {
+  for (const candidate of candidates) {
+    const zone = candidate?.trim();
+    if (zone) return zone;
+  }
+  return defaultRoutineZone;
+}
+
 /** The next time after `from` that `trigger` fires, in `zone`. Null for a mail trigger (it
  * fires on mail) and for a zone that is not a zone. */
 export function nextRoutineRun(

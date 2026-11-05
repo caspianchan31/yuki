@@ -1,9 +1,8 @@
 /**
  * Phase C (docs/web.md): one account, from shell/accounts/AccountDetail.tsx, as a sheet: its
  * face, the latest desktop screenshot (only while the desktop runs; never starts anything), 桌面
- * (state, 看看 → opens the computer sheet, 启动 / 暂停 on the person's click), 出口 (+ 同出口还有 n 个账号; in a platform-set-up space
- * the exit by name and 报告出口问题), 项目 (移到… / 分配到…), 地区, 登录, 节奏, 标签, 人设 ·
- * 长期目标 · 经营计划 · 手上的活, 这个号上的任务, 最近汇报, then 在聊天里派活…, 退回未分配, 编辑,
+ * (state, 看看 → opens the computer sheet, 启动 / 暂停 on the person's click), 项目 (移到… / 分配到…),
+ * 登录, 标签, its tasks, 最近汇报, then 在聊天里派活…, 退回未分配, 编辑,
  * 删除 (type the name). Tasks and reports are known for accounts of the project on screen; for
  * another project's account the detail offers to switch there.
  */
@@ -11,43 +10,19 @@
 import type { MuseApi } from "@m/api";
 import { scopeComputerPath } from "@m/environments";
 import { useProjects } from "@m/projects-state";
-import {
-  accountPlace,
-  accountReportLines,
-  deleteConfirmed,
-  joinsProjects,
-  pacingSettingsLine,
-  regionLine,
-  sameExitOthers,
-  topologyExit,
-} from "@m/shell/accounts/accounts-core";
-import {
-  accountErrorText,
-  useAccountLookup,
-  useAccountOps,
-  useAccountsDirectory,
-} from "@m/shell/accounts/hooks";
+import { accountReportLines, deleteConfirmed } from "@m/shell/accounts/accounts-core";
+import { accountErrorText, useAccountLookup, useAccountOps } from "@m/shell/accounts/hooks";
 import { personRow } from "@m/shell/accounts/people-core";
 import { desktopNeed } from "@m/shell/chat/guide-core";
 import { useShellData } from "@m/shell/data";
-import {
-  type AccountModel,
-  browserCheckLine,
-  factShot,
-  paceSite,
-  proxyCheckLine,
-  signInRows,
-} from "@m/shell/model";
+import { type AccountModel, factShot, signInRows } from "@m/shell/model";
 import { carryComposerAcrossSwitch, useShellNav } from "@m/shell/nav";
-import { phaseWords, serverText, t } from "@m/shell/strings";
-import { useExitsPort, usePlatformEnv } from "@m/tenancy-client";
-import { useWorkspace } from "@m/workspace";
-import { useEffect, useMemo, useState } from "react";
+import { phaseWords, t } from "@m/shell/strings";
+import { useMemo, useState } from "react";
 import { clockLabel } from "../../../../packages/domain/src/task-phase";
 import type { PanelProps } from "../panels/types";
-import { Btn, cx, ErrorLine, Field, Sheet, Skeleton } from "../ui/primitives";
-import { OperatingBlocks } from "./OperatingBlocks";
-import { AccountLight, Block, ConfirmBox, Face, KV, PhasePill, Tag } from "./parts";
+import { Btn, ErrorLine, Field, Sheet, Skeleton } from "../ui/primitives";
+import { AccountLight, Block, ConfirmBox, Face, KV, PhasePill } from "./parts";
 import { usePicture } from "./picture";
 import "./accounts.css";
 
@@ -98,38 +73,13 @@ function AccountDetailBody({
   const data = useShellData();
   const projects = useProjects();
   const ops = useAccountOps();
-  const { directory, version } = useAccountsDirectory();
   const d = t.accountDetail;
   const [busy, setBusy] = useState<Busy>("");
   const [error, setError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [typed, setTyped] = useState("");
   const api = useMemo(() => data.apiFor(account.projectId), [data.apiFor, account.projectId]);
-  const projectName = accountPlace(account, ops.projectName);
-
-  // 同出口还有 n 个账号: the other accounts of this account's own project on its exit (owner
-  // decision A: nothing about another project, not even a number).
-  const topologyValue = data.topology.value;
-  const refreshTopology = data.topology.refresh;
-  useEffect(() => {
-    if (!topologyValue && !directory.topology()) void refreshTopology();
-  }, [topologyValue, refreshTopology, directory]);
-  useEffect(() => {
-    if (topologyValue) directory.setTopology(topologyValue);
-  }, [topologyValue, directory]);
-  // `version` re-reads the directory.
-  const sameExit = useMemo(() => {
-    if (!isCurrent) return null;
-    const topology = topologyValue ?? directory.topology();
-    if (!topology) return null;
-    const all = topology.environments.map((item) => ({
-      id: item.id,
-      exit: topologyExit(item),
-      projectId: item.projectId,
-    }));
-    const exit = account.exit ?? all.find((item) => item.id === account.id)?.exit ?? null;
-    return sameExitOthers({ id: account.id, exit, projectId: account.projectId }, all);
-  }, [isCurrent, topologyValue, directory, version, account.exit, account.id, account.projectId]);
+  const projectName = ops.projectName(account.projectId);
 
   const entries = useMemo(
     () => (isCurrent ? data.entries.filter((entry) => entry.environmentId === account.id) : []),
@@ -147,12 +97,8 @@ function AccountDetailBody({
     [isCurrent, data.reports.value, entries, data.now],
   );
 
-  const canStart =
-    !account.flags.includes("noProxy") &&
-    !account.flags.includes("noExit") &&
-    !account.flags.includes("proxyUnreadable");
-  // The platform's exit by name; never an address.
-  const platformEnv = usePlatformEnv();
+  // v1.5: a desktop can always be started.
+  const canStart = true;
   const running = account.desktop === "running";
   async function act(kind: "start" | "stop" | "unassign" | "delete") {
     if (busy) return;
@@ -206,8 +152,6 @@ function AccountDetailBody({
     });
   }
   const clock = (iso: string) => clockLabel(iso, data.now, phaseWords);
-  const checkLine = proxyCheckLine(account.view, clock);
-  const browserLine = browserCheckLine(account.view, clock);
 
   return (
     <Sheet title={account.name} onClose={onClose}>
@@ -255,71 +199,23 @@ function AccountDetailBody({
           <AccountLight light={account.light} />
           {account.desktop === "stopped" ? t.desktop.stoppedKept : account.desktopWord}
         </span>
-        {!running && !canStart ? (
-          <span className="acc-small acc-redtext">
-            {platformEnv ? t.exits.startNeedsExit : d.startNeedsProxy}
-          </span>
-        ) : null}
-        {account.desktop === "error" && account.view.message ? (
-          <span className="acc-small acc-redtext">{serverText(account.view.message)}</span>
+        {account.desktopReason ? (
+          <span className="acc-small acc-redtext">{account.desktopReason}</span>
         ) : null}
       </KV>
-
-      {platformEnv ? (
-        <ExitBlock account={account} />
-      ) : (
-        <KV k={d.exit}>
-          {account.flags.includes("proxyUnreadable") ? (
-            <span>{d.proxyUnreadable}</span>
-          ) : account.flags.includes("noProxy") ? (
-            <span className="acc-redtext">{d.noProxy}</span>
-          ) : (
-            <span className="acc-mono">
-              {account.view.settings.proxy.preview ?? account.exit ?? ""}
-            </span>
-          )}
-          {checkLine ? (
-            <span className={cx("acc-small", account.flags.includes("proxyDown") && "acc-redtext")}>
-              {checkLine}
-            </span>
-          ) : null}
-          {browserLine ? (
-            <span
-              className={cx(
-                "acc-small",
-                account.view.browserCheck?.status === "attention" && "acc-redtext",
-              )}
-            >
-              {browserLine}
-            </span>
-          ) : null}
-          {sameExit !== null && account.exit ? (
-            <span className="acc-small">
-              {sameExit > 0 ? d.sameExit(sameExit) : d.sameExitNone}
-            </span>
-          ) : null}
-        </KV>
-      )}
 
       <KV
         k={d.project}
         right={
-          // The founder joins no project (docs/founder.md): nothing to assign it to.
-          joinsProjects(account.view) ? (
-            <Btn
-              className="sm"
-              onClick={() => nav.openPanel({ kind: "assign", environmentId: account.id })}
-            >
-              {assignLabel}
-            </Btn>
-          ) : undefined
+          <Btn
+            className="sm"
+            onClick={() => nav.openPanel({ kind: "assign", environmentId: account.id })}
+          >
+            {assignLabel}
+          </Btn>
         }
       >
         {projectName}
-      </KV>
-
-      <KV k={d.region}>
-        {account.view.settings.localeUnreadable ? d.localeUnreadable : regionLine(account)}
       </KV>
 
       {account.login ? (
@@ -347,21 +243,7 @@ function AccountDetailBody({
         </KV>
       ) : null}
 
-      <KV k={d.pace} right={account.paceMark ? <Tag>{account.paceMark}</Tag> : undefined}>
-        <span className="tn">{account.paceLine}</span>
-        {paceSite(account.pacing) ? (
-          <span className="acc-small">{t.pacing.site(paceSite(account.pacing) ?? "")}</span>
-        ) : null}
-        <span className="acc-small">{pacingSettingsLine(account.pacing)}</span>
-        {account.paceReason ? (
-          <span className="acc-small">{t.pacing.reason(account.paceReason)}</span>
-        ) : null}
-      </KV>
-
       {account.label ? <KV k={d.label}>{account.label}</KV> : null}
-
-      {/* the account's persona, long-term goal, plan and jobs. */}
-      <OperatingBlocks account={account} api={api} isCurrent={isCurrent} />
 
       <Block title={d.tasks}>
         {isCurrent ? (
@@ -501,90 +383,6 @@ function AccountDetailBody({
 }
 
 const withScheme = (link: string) => (/^[a-z][a-z0-9+.-]*:/i.test(link) ? link : `https://${link}`);
-
-/** 出口 in a platform-set-up space: 「出口：出口 1 · 可用」; when it does
- * not work, 「出口连不上，已通知平台管理员」; 报告出口问题 with an optional line, then 已报告 ·
- * 平台处理中 → 已恢复（时间）. No exit: 选一个出口. */
-function ExitBlock({ account }: { account: AccountModel }) {
-  const nav = useShellNav();
-  const data = useShellData();
-  const { notify } = useWorkspace();
-  const x = t.exits;
-  const { useExits, exitOfAccount, exitLines, canReport } = useExitsPort();
-  const exits = useExits(true);
-  const exit = exitOfAccount(exits.view, account.id, account.view.credentialIds?.proxy);
-  const [open, setOpen] = useState(false);
-  const [note, setNote] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const editor = () => nav.openPanel({ kind: "accountEditor", environmentId: account.id });
-  async function report() {
-    if (!exit || busy) return;
-    setBusy(true);
-    setError("");
-    try {
-      await exits.report(exit.id, note);
-      setOpen(false);
-      setNote("");
-      notify(x.reported);
-    } catch (err) {
-      setError(accountErrorText(err));
-    } finally {
-      setBusy(false);
-    }
-  }
-  if (account.flags.includes("noExit"))
-    return (
-      <KV
-        k={x.title}
-        right={
-          <Btn variant="pri" className="sm" onClick={editor}>
-            {x.pick}
-          </Btn>
-        }
-      >
-        <span className="acc-redtext">{x.flag}</span>
-      </KV>
-    );
-  const lines = exit ? exitLines(exit, (iso) => clockLabel(iso, data.now, phaseWords)) : null;
-  const down = lines?.down ?? (account.exitDown ? x.downNote : null);
-  return (
-    <KV
-      k={x.title}
-      right={
-        exit && canReport(exit) && !open ? (
-          <Btn className="sm" onClick={() => setOpen(true)}>
-            {x.report}
-          </Btn>
-        ) : null
-      }
-    >
-      <span>{lines?.line ?? (exits.error ? x.loadFailed : exits.view ? x.title : x.loading)}</span>
-      {down ? <span className="acc-small acc-redtext">{down}</span> : null}
-      {lines?.report ? <span className="acc-small">{lines.report}</span> : null}
-      {open ? (
-        <div className="acc-stack">
-          <Field
-            label={x.report}
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder={x.reportPlaceholder}
-            disabled={busy}
-          />
-          <div className="row">
-            <Btn variant="pri" className="sm" busy={busy} onClick={() => void report()}>
-              {x.reportSend}
-            </Btn>
-            <Btn className="sm" disabled={busy} onClick={() => setOpen(false)}>
-              {t.common.cancel}
-            </Btn>
-          </div>
-        </div>
-      ) : null}
-      <ErrorLine error={error} />
-    </KV>
-  );
-}
 
 /**
  * 最近截图: the desktop's latest screenshot (GET …/computer/desktop/screenshot with the

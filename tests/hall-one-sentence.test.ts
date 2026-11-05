@@ -25,7 +25,7 @@ import type { AgentTask } from "../packages/domain/src/agent.ts";
 import { memberConversationId } from "../packages/domain/src/member-thread.ts";
 import type { Project } from "../packages/domain/src/projects.ts";
 import { projectOwner } from "../packages/domain/src/projects.ts";
-import { type Harness, harness, proxy } from "./helpers/sign-in-harness.ts";
+import { type Harness, harness } from "./helpers/sign-in-harness.ts";
 
 const body = (h: Harness, at: number) =>
   JSON.parse(h.requests[at]?.body ?? "{}") as {
@@ -96,7 +96,7 @@ test("a request for a project that does not exist: the hall makes it and hands t
   const second = body(h, 1);
   assert.equal(second.tool_choice ?? "auto", "auto");
   const names = second.tools?.map((tool) => tool.name) ?? [];
-  assert.ok(names.includes("delegate_task") && names.includes("create_job"), names.join());
+  assert.ok(names.includes("delegate_task"), names.join());
   for (const doing of ["browse_web", "use_desktop", "agent_status", "set_account_goal"])
     assert.ok(!names.includes(doing), doing);
   // A skill is the space's, not the project's: keeping or reading one stays open when routed to a project.
@@ -130,7 +130,7 @@ test("the hall names a project's account: the task runs on it, an account of ano
   const projects = withProjects(h);
   const alpha = await projects.create(h.owner, { name: "alpha" });
   const beta = await projects.create(h.owner, { name: "beta" });
-  const bob = await h.environments.create(h.owner, { name: "Bob", proxyUrl: proxy });
+  const bob = await h.environments.create(h.owner, { name: "Bob" });
   await h.environments.move(h.owner, bob.id, null, alpha.id);
   h.queue.push(
     { name: "route_request", arguments: { project: "alpha", why: "Bob 在 alpha" } },
@@ -181,15 +181,12 @@ test("a project already there is kept; a project's own conversation has no creat
   );
 });
 
-test("a store's own conversation is no hall: no hall line, and create_project makes nothing", async (t) => {
+test("v1.5: there are no store spaces: a space's own conversation is always the hall", async (t) => {
   const h = await harness(t);
   withProjects(h);
-  h.billing.scopeKind = async () => "store"; // the core only knows the kind, not the plan
-  h.queue.push({ name: "create_project", arguments: { name: "acmegame" } });
-  await chat(h, h.owner, "建一个 acmegame 项目");
-  assert.ok(!body(h, 0).instructions.includes(hallChatLine));
-  assert.match(String(outputs(h).at(-1)?.error), /only in the 营销总群/);
-  assert.equal(await projectNamed(h, "acmegame"), undefined);
+  h.billing.scopeKind = async () => "store"; // even a plan that says so makes no store (v1.5)
+  await chat(h, h.owner, "你好");
+  assert.ok(body(h, 0).instructions.includes(hallChatLine));
 });
 
 test("tools kept when a reply is routed to a project: hand-over, skills and a connected app's tools", () => {

@@ -15,9 +15,6 @@ export const incidentSignInStatuses = [
   "wrong_password",
 ] as const;
 
-/** The system incident kinds the server records by itself (besides a task's incident kind). */
-export const systemIncidentKinds = [] as const;
-
 /** How long an incident and its picture are kept. */
 export const incidentRetentionDays = 30;
 

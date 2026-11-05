@@ -20,7 +20,6 @@ export interface GroupMember {
   id: string;
   name: string;
   projectId: string | null;
-  founder: boolean;
   /** The face she was made with; absent: the one her name picks. */
   face?: unknown;
 }
@@ -29,7 +28,6 @@ export interface GroupMember {
 export function allMembers(input: {
   accounts: readonly { id: string; name: string; projectId: string | null; face?: unknown }[];
   environments: readonly { id: string; name: string; projectId: string | null; face?: unknown }[];
-  founderId: string | null;
 }): GroupMember[] {
   const seen = new Set<string>();
   const list: GroupMember[] = [];
@@ -40,7 +38,6 @@ export function allMembers(input: {
       id: item.id,
       name: item.name,
       projectId: item.projectId ?? null,
-      founder: input.founderId === item.id,
       face: item.face,
     });
   }
@@ -52,13 +49,12 @@ export interface GroupChoice extends GroupMember {
   group: string | null;
 }
 
-/** The members a group can take: not the founder, those in no group first, then by name. */
+/** The members a group can take: those in no group first, then by name. */
 export function groupChoices(
   members: readonly GroupMember[],
   groupName: (projectId: string) => string,
 ): GroupChoice[] {
   return members
-    .filter((member) => !member.founder)
     .map((member) => ({
       ...member,
       group: member.projectId === null ? null : groupName(member.projectId),

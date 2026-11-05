@@ -9,9 +9,11 @@ import {
   routineDraftBody,
   routineDraftOf,
 } from "@m/shell/members/member-detail";
+import { t } from "@m/shell/strings";
 import { useState } from "react";
 import type { AgentTask } from "../../../../packages/domain/src/agent";
 import type { Routine } from "../../../../packages/domain/src/routines";
+import { useAccountZone } from "../account-zone";
 import { Btn, ErrorLine, Field, TextArea } from "../ui/primitives";
 
 const weekdays = ["日", "一", "二", "三", "四", "五", "六"];
@@ -33,6 +35,7 @@ export function RoutineEditor({
 }) {
   const { refresh } = useAgentWorkspace();
   const original = routineDraftOf(task);
+  const { zone } = useAccountZone();
   const [draft, setDraft] = useState<RoutineDraft>(original);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -90,7 +93,7 @@ export function RoutineEditor({
       ) : null}
       {draft.type === "daily" || draft.type === "weekly" ? (
         <Field
-          label="时间（按成员的时区）"
+          label={`时间（${zone ? t.settings.clockZone(zone) : "按账号的时区"}）`}
           placeholder="09:00"
           value={draft.at}
           onChange={(e) => set({ at: e.target.value })}

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import { groupMembersMax, projectOwner } from "../packages/domain/src/projects.ts";
-import { type Harness, harness, proxy } from "./helpers/sign-in-harness.ts";
+import { type Harness, harness } from "./helpers/sign-in-harness.ts";
 
 async function group(h: Harness, name: string) {
   const id = randomUUID();
@@ -18,8 +18,7 @@ async function group(h: Harness, name: string) {
   });
   return { id, owner: projectOwner(h.owner, id) };
 }
-const member = (h: Harness, name: string) =>
-  h.environments.create(h.owner, { name, proxyUrl: proxy });
+const member = (h: Harness, name: string) => h.environments.create(h.owner, { name });
 
 test("a full group refuses a new member with the Chinese limit message", async (t) => {
   const h = await harness(t);

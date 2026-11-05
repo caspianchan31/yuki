@@ -37,7 +37,7 @@ export function memberScreen(
   account: Pick<AccountModel, "id" | "name" | "desktop"> | null,
   entries: readonly Pick<TaskEntry, "task" | "phase" | "environmentId">[],
 ): DesktopPreview | null {
-  if (!account || account.desktop !== "running") return null;
+  if (account?.desktop !== "running") return null;
   const run = entries
     .filter(
       (entry) =>

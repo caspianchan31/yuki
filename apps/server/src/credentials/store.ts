@@ -1,8 +1,8 @@
 /**
  * The credential store, an isolated subsystem.
  *
- * Every secret the system holds (mailboxes, proxies, site logins: password, two-factor seed,
- * cookies) is an entry of exactly one scope: the owner string of the project it belongs to
+ * Every secret the system holds (mailboxes, site logins: password, two-factor seed, cookies)
+ * is an entry of exactly one scope: the owner string of the project it belongs to
  * (`local-user` for the default project, `local-user/proj:<id>` for a project). The store keeps
  * its own tables (credential_entries, credential_audit, credential_requests, credential_meta) on
  * the same database as the records table, encrypts every secret with its own key (never
@@ -11,6 +11,11 @@
  * method lists, counts or touches more than one scope (except moving an account, which names
  * both), and an entry of another scope is simply absent. The rest of the server reads metadata
  * and hands a sink to `use`, the one door a plaintext passes through, which records every use.
+ *
+ * v1.5: only site logins and mailboxes are credentials. Entries of the kinds saved before (a
+ * proxy and the like) stay in the table untouched: nothing lists, reads, uses, changes or deletes them (`liveKinds`), and
+ * only what carries a scope or an account whole (moving them, counting and checking a scope,
+ * deleting a project) still takes them along, so no row is lost or left behind.
  */
 import { randomUUID } from "node:crypto";
 import type {
@@ -27,7 +32,6 @@ import type {
   CredentialUsedBy,
   CredentialView,
   MailboxParts,
-  ProxyParts,
   SiteLoginParts,
 } from "../../../../packages/domain/src/credentials.ts";
 import { connectionOf, type Store, type StoreConnection, type StoreQuery } from "../db.ts";
@@ -35,22 +39,17 @@ import { AppError } from "../errors.ts";
 import {
   type CredentialKey,
   isProcessCredentialKey,
-  keyedTag,
   keyFingerprint,
   seal,
   unseal,
 } from "./crypto.ts";
 import { base32Bytes, type TotpParameters, totp } from "./totp.ts";
 import {
-  canonicalProxy,
-  proxyExitIdentity,
-  proxyMeta,
   type SiteCookie,
   validateCookies,
   validateLabel,
   validateMailbox,
   validatePassword,
-  validateProxyUrl,
   validateSite,
   validateTotpSeed,
   validateUsername,
@@ -58,10 +57,14 @@ import {
 
 /** What an entry's ciphertext holds. */
 type Secret =
-  | { proxyUrl: string }
   | { password?: string; totpSeed?: string; cookies?: SiteCookie[] }
   /** A mailbox's password (or app password). */
   | { mailboxPassword: string };
+/** The kinds the store reads; a row of any other kind (a proxy, or another kind saved before
+ * v1.5) is left in the table as it is. */
+const liveKinds: readonly CredentialKind[] = ["site_login", "mailbox"];
+const live = (row: { kind: string }) => (liveKinds as readonly string[]).includes(row.kind);
+const liveKindsSql = `kind IN (${liveKinds.map((kind) => `'${kind}'`).join(",")})`;
 interface EntryRow {
   scope: string;
   id: string;
@@ -94,7 +97,6 @@ export interface CredentialInput {
   kind: CredentialKind;
   label?: string | null;
   usedBy?: CredentialUsedBy[];
-  proxyUrl?: string | null;
   site?: string | null;
   username?: string | null;
   password?: string | null;
@@ -107,18 +109,6 @@ export interface CredentialInput {
   smtpSecure?: boolean | null;
   imapHost?: string | null;
   imapPort?: number | null;
-}
-/** The kinds of entry a platform sets up for a space it runs (they outlive the accounts they
- * serve), and an account uses one of at most. */
-type PlatformKind = "proxy";
-const platformKinds: ReadonlySet<string> = new Set<PlatformKind>(["proxy"]);
-const isPlatformKind = (kind: CredentialKind): kind is PlatformKind => platformKinds.has(kind);
-/** A change to such an entry, as the platform guard is asked. */
-export interface PlatformChange {
-  kind: PlatformKind;
-  action: "create" | "replace" | "remove" | "link";
-  /** create: whom it would serve; link: whom it serves now. */
-  usedBy?: CredentialUsedBy[];
 }
 /** What replacing parts of an entry takes: left out keeps a part, null clears it. */
 export type CredentialPatch = Omit<CredentialInput, "kind" | "site" | "usedBy">;
@@ -173,11 +163,10 @@ function checkUsedBy(list: CredentialUsedBy[]) {
 function entryName(row: Pick<EntryRow, "kind" | "site" | "username" | "meta">) {
   if (row.kind === "site_login")
     return `${row.site ?? ""}${row.username ? ` · ${row.username}` : ""}`;
-  if (row.kind === "proxy") {
-    const meta = row.meta as ProxyParts;
-    return `${meta.scheme}://${meta.host}:${meta.port}`;
-  }
-  return (row.meta as MailboxParts).address;
+  if (row.kind === "mailbox") return (row.meta as MailboxParts).address;
+  // A row the store no longer reads (a proxy, or another kind saved before v1.5), carried by a
+  // move: its history line names its kind only.
+  return row.kind;
 }
 /** Every spelling of a value that could show up in text (as typed, percent-encoded, decoded, and
  * form-encoded as a login form sent by GET puts it in an address: a space is `+`, `!` is `%21`). */
@@ -214,24 +203,6 @@ export class CredentialStore {
   nameAccountsWith(lookup: (scope: string, environmentId: string) => Promise<string | null>) {
     this.accountName = lookup;
   }
-  /** Throws when `actor` may not make `change` in
-   * `scope` (a space whose platform entries the platform operator sets up; its members
-   * only point an account at a free proxy, `link`, whose `usedBy` the entry serves now). Set by
-   * the app; nothing is refused by default. */
-  platformGuard: (scope: string, actor: CredentialActor, change: PlatformChange) => Promise<void> =
-    async () => {};
-  /** Whether `scope` belongs to a space whose platform entries the
-   * platform sets up (they outlive the accounts they serve). Set by the app. */
-  platformScope?: (scope: string) => Promise<boolean>;
-  /** Told every result recorded on an entry (a proxy check, a solve, a
-   * sign-in), after it is written. Set by the app. */
-  onResult?: (
-    scope: string,
-    entry: CredentialView,
-    result: CredentialResult,
-    purpose: CredentialPurpose | undefined,
-    actor: CredentialActor,
-  ) => Promise<void>;
   /** Creates the tables and checks the key against the data, once per process. Startup awaits it
    * so a key that does not belong to the data refuses the start. */
   open() {
@@ -344,16 +315,23 @@ export class CredentialStore {
   }
 
   // ---- reading -------------------------------------------------------------------------
+  /** One entry of a kind the store reads; null for any other row (`liveKinds`). */
   private async row(scope: string, id: string, via?: StoreQuery): Promise<EntryRow | null> {
     assertScope(scope);
     const [row] = await this.rows<EntryRow>(
-      "SELECT to_jsonb(e) AS data FROM credential_entries e WHERE scope=$1 AND id=$2",
+      `SELECT to_jsonb(e) AS data FROM credential_entries e WHERE scope=$1 AND id=$2 AND ${liveKindsSql}`,
       [scope, id],
       via,
     );
     return row ?? null;
   }
+  /** The scope's entries of the kinds the store reads (`liveKinds`). */
   private async scopeRows(scope: string, via?: StoreQuery): Promise<EntryRow[]> {
+    return (await this.allScopeRows(scope, via)).filter(live);
+  }
+  /** Every row of the scope, whatever its kind: for what carries a scope or an account whole
+   * (moves and checks), so a row the store no longer reads is never lost or left behind. */
+  private async allScopeRows(scope: string, via?: StoreQuery): Promise<EntryRow[]> {
     assertScope(scope);
     return this.rows<EntryRow>(
       "SELECT to_jsonb(e) AS data FROM credential_entries e WHERE scope=$1 ORDER BY kind,site NULLS FIRST,username NULLS FIRST,created_at,id",
@@ -422,54 +400,6 @@ export class CredentialStore {
       if (row.kind === "site_login" && row.username?.toLowerCase() === wanted)
         for (const item of row.used_by) if (item.type === "account") ids.add(item.environmentId);
     return [...ids];
-  }
-
-  /** A keyed fingerprint of a proxy's exit (`proxyExitIdentity`: scheme,
-   * user name, host and port, never the password) under a subkey of this store's own key
-   * (`keyedTag`), so the platform's pool can tell an exit it already holds from the tag it kept
-   * when the proxy was added, without unsealing any entry. Kept beside the pool's record; it says
-   * nothing of the address without the key. null for a value that is not a proxy address. */
-  proxyExitTag(proxyUrl: string): string | null {
-    let identity: string;
-    try {
-      identity = proxyExitIdentity(proxyUrl);
-    } catch {
-      return null;
-    }
-    return keyedTag(this.key, "proxy-exit", identity);
-  }
-
-  /** The exit tag (`proxyExitTag`) of a proxy entry already saved, read inside the store like
-   * `entryHolding`: never the value, no use recorded (nothing leaves the store but the tag). null
-   * for an entry that is missing, not a proxy, or cannot be read. So the pool can refuse to adopt
-   * an exit it holds before it reads the value to copy it. */
-  async proxyEntryTag(scope: string, id: string): Promise<string | null> {
-    const row = await this.row(scope, id);
-    if (row?.kind !== "proxy") return null;
-    const secret = this.open_(row);
-    return secret && "proxyUrl" in secret ? this.proxyExitTag(secret.proxyUrl) : null;
-  }
-
-  /** The id of an entry of the scope holding `value` (a proxy URL, compared in its canonical
-   * spelling), so the same value is not entered twice; never the value. */
-  async entryHolding(scope: string, kind: PlatformKind, value: string): Promise<string | null> {
-    const canonical = (text: string) => {
-      try {
-        return kind === "proxy" ? canonicalProxy(text) : text;
-      } catch {
-        return undefined;
-      }
-    };
-    const wanted = canonical(value);
-    if (wanted === undefined) return null;
-    for (const row of await this.scopeRows(scope)) {
-      if (row.kind !== kind) continue;
-      const secret = this.open_(row);
-      let held: string | undefined;
-      if (secret && "proxyUrl" in secret) held = secret.proxyUrl;
-      if (held !== undefined && canonical(held) === wanted) return row.id;
-    }
-    return null;
   }
 
   // ---- writing -------------------------------------------------------------------------
@@ -610,8 +540,8 @@ export class CredentialStore {
   }
   /** A new entry of the scope. Checks every value; a site login needs a password or cookies, a
    * password needs a user name and a two-factor seed needs a password. A site login is used by
-   * at most one account (or the project), and only once per site; an account uses exactly one
-   * entry of each platform kind, so linking one unlinks the account's previous one. */
+   * at most one account (or the project), and only once per site; an account uses one mailbox
+   * at most, so linking one unlinks the account's previous one. */
   async create(
     scope: string,
     input: CredentialInput,
@@ -630,15 +560,7 @@ export class CredentialStore {
     const id = randomUUID();
     const at = now();
     let row: EntryRow;
-    if (isPlatformKind(input.kind))
-      await this.platformGuard(scope, actor, { kind: input.kind, action: "create", usedBy });
-    if (input.kind === "proxy") {
-      const proxyUrl = validateProxyUrl(input.proxyUrl);
-      if (!proxyUrl) throw new AppError("proxyUrl is required for a proxy", 400);
-      row = this.newRow(scope, id, "proxy", label, null, null, proxyMeta(proxyUrl), usedBy, at, {
-        proxyUrl,
-      });
-    } else if (input.kind === "site_login") {
+    if (input.kind === "site_login") {
       const site = validateSite(input.site);
       if (usedBy.length > 1)
         throw new AppError("A site login is used by one account or by the project", 400);
@@ -747,8 +669,8 @@ export class CredentialStore {
       updated_at: at,
     };
   }
-  /** One entry of a kind per account or project: `row` now serves `user`,
-   * so every other entry of its kind stops serving it. */
+  /** One mailbox per account or project: `row` now serves `user`, so every other entry of its
+   * kind stops serving it. */
   private async serveOnly(
     scope: string,
     row: EntryRow,
@@ -782,8 +704,6 @@ export class CredentialStore {
   ) {
     const before = await this.row(scope, id);
     if (!before) throw notFound();
-    if (isPlatformKind(before.kind))
-      await this.platformGuard(scope, actor, { kind: before.kind, action: "replace" });
     const account = await this.named(scope, this.accountOf(before));
     return this.exclusively(`scope:${scope}`, async (via) => {
       const row = await this.row(scope, id, via);
@@ -797,17 +717,7 @@ export class CredentialStore {
       const parts: CredentialPart[] = [];
       // A mailbox's servers changed (metadata; recorded as a replacement too).
       let serversChanged = false;
-      if (row.kind === "proxy" && patch.proxyUrl !== undefined) {
-        const proxyUrl = validateProxyUrl(patch.proxyUrl);
-        if (!proxyUrl) throw new AppError("A proxy entry needs its URL; delete it instead", 400);
-        next = {
-          ...next,
-          meta: proxyMeta(proxyUrl),
-          secret: seal(this.key, scope, id, JSON.stringify({ proxyUrl })),
-          replaced_at: at,
-        };
-        parts.push("proxy_url");
-      } else if (row.kind === "mailbox") {
+      if (row.kind === "mailbox") {
         // The servers change without the password; the password alone changes too.
         const meta = row.meta as MailboxParts;
         const fields = ["address", "smtpHost", "smtpPort", "smtpSecure", "imapHost", "imapPort"];
@@ -930,8 +840,6 @@ export class CredentialStore {
   async remove(scope: string, id: string, actor: CredentialActor) {
     const before = await this.row(scope, id);
     if (!before) throw notFound();
-    if (isPlatformKind(before.kind))
-      await this.platformGuard(scope, actor, { kind: before.kind, action: "remove" });
     const account = await this.named(scope, this.accountOf(before));
     await this.exclusively(`scope:${scope}`, async (via) => {
       const row = await this.row(scope, id, via);
@@ -955,22 +863,11 @@ export class CredentialStore {
       scope,
       usedBy.type === "account" ? usedBy.environmentId : null,
     );
-    const before = await this.row(scope, id);
-    const seen = before?.used_by ?? [];
-    if (before?.kind === "proxy" && !before.used_by.some((item) => sameUsedBy(item, usedBy)))
-      await this.platformGuard(scope, actor, {
-        kind: "proxy",
-        action: "link",
-        usedBy: seen.map((item) => ({ ...item })),
-      });
     return this.exclusively(`scope:${scope}`, async (via) => {
       await options.check?.(via);
       const row = await this.row(scope, id, via);
       if (!row) throw notFound();
       if (row.used_by.some((item) => sameUsedBy(item, usedBy))) return this.view(row);
-      // Checked again under the lock: what the guard was shown is what the entry serves.
-      if (row.kind === "proxy" && JSON.stringify(row.used_by) !== JSON.stringify(seen))
-        throw new AppError("这个出口刚刚被占用了，请重新选择", 409);
       if (row.kind === "site_login") {
         const clash = (await this.scopeRows(scope, via)).find(
           (other) =>
@@ -1037,8 +934,7 @@ export class CredentialStore {
     else {
       const secret = this.open_(row);
       if (!secret) throw new CredentialUseError("unreadable");
-      if (ref.part === "proxy_url" && "proxyUrl" in secret) value = canonicalProxy(secret.proxyUrl);
-      else if (ref.part === "mailbox_password" && "mailboxPassword" in secret)
+      if (ref.part === "mailbox_password" && "mailboxPassword" in secret)
         value = secret.mailboxPassword;
       else if (row.kind === "site_login") {
         const login = secret as { password?: string; totpSeed?: string; cookies?: SiteCookie[] };
@@ -1080,7 +976,7 @@ export class CredentialStore {
     await record(options.outcome?.(result) ?? { ok: true, reason: null });
     return result;
   }
-  /** How an entry went the last time it was used (a sign-in, a proxy check, a solve). */
+  /** How an entry went the last time it was used (a sign-in). */
   async recordResult(
     scope: string,
     id: string,
@@ -1101,17 +997,10 @@ export class CredentialStore {
       outcome: { ok: saved.ok, reason: saved.ok ? null : saved.status },
       at: saved.at,
     });
-    if (this.onResult) {
-      const after = await this.row(scope, id);
-      if (after)
-        await this.onResult(scope, this.view(after), saved, options.purpose, actor).catch((error) =>
-          console.warn(`[OpenMuse] result hook failed: ${(error as Error).message}`),
-        );
-    }
   }
   /**
    * `text` with every saved secret of `usedBy` (its logins' passwords, seeds and cookie values,
-   * its proxy URL with its user name and password, its mailbox password) replaced by `***`; null
+   * its mailbox password) replaced by `***`; null
    * when one of those entries cannot be read, so the caller withholds the text whole. `cut`:
    * the text was cut short, so a secret may end it half-written; a tail that is the beginning of
    * one is masked too.
@@ -1139,17 +1028,7 @@ export class CredentialStore {
     for (const row of held) {
       const secret = this.open_(row);
       if (!secret) return null;
-      if ("proxyUrl" in secret) {
-        secrets.add(secret.proxyUrl);
-        try {
-          const url = new URL(secret.proxyUrl);
-          for (const part of [url.username, url.password])
-            for (const s of spellings(part)) secrets.add(s);
-          if (url.username) secrets.add(`${url.username}:${url.password}`);
-        } catch {
-          // Saved under older rules; the whole URL is still masked.
-        }
-      } else if ("mailboxPassword" in secret) {
+      if ("mailboxPassword" in secret) {
         for (const s of spellings(secret.mailboxPassword)) secrets.add(s);
       } else {
         const login = secret as { password?: string; totpSeed?: string; cookies?: SiteCookie[] };
@@ -1178,13 +1057,14 @@ export class CredentialStore {
 
   // ---- accounts moving between projects --------------------------------------------------
   /**
-   * An account moves from one project to another (the owner's own action): its site logins,
-   * and the platform entries only it uses, move with it (sealed again for the new scope);
-   * a proxy or key other accounts of the old project still use is copied (a new entry with the
-   * same value in the new project) and the old one stops serving it. Its open requests are
-   * withdrawn in the old project (returned, so whoever asked can be told) and opened afresh,
-   * with no source, in the new one. Both projects' histories record it. All in one transaction,
-   * with `inside` (the caller's own part of the move) last.
+   * An account moves from one project to another (the owner's own action): its site logins, and
+   * the other entries only it uses, move with it (sealed again for the new scope); a mailbox
+   * other accounts of the old project still use is copied (a new entry with the same value in
+   * the new project) and the old one stops serving it. Rows the store no longer reads (a proxy, or
+   * another kind from before v1.5) move the same way, as they are, so none is left behind. Its
+   * open requests are withdrawn in the old project (returned, so whoever asked can be told) and
+   * opened afresh, with no source, in the new one. Both projects' histories record it. All in one
+   * transaction, with `inside` (the caller's own part of the move) last.
    */
   async moveAccount(
     from: string,
@@ -1208,7 +1088,7 @@ export class CredentialStore {
       ]);
       await via("SELECT pg_advisory_xact_lock(hashtext($1))", [`openmuse:credentials:scope:${to}`]);
       const at = now();
-      for (const row of await this.scopeRows(from, via)) {
+      for (const row of await this.allScopeRows(from, via)) {
         if (!row.used_by.some((item) => sameUsedBy(item, user))) continue;
         const plain = unseal(this.key, from, row.id, row.secret);
         const shared = row.kind !== "site_login" && row.used_by.length > 1;
@@ -1275,18 +1155,14 @@ export class CredentialStore {
     });
   }
   /** An account is deleted: the entries only it used go, shared ones stop serving it, its open
-   * requests are withdrawn. */
+   * requests are withdrawn. A row the store no longer reads is left as it is. */
   async removeAccount(scope: string, environmentId: string, actor: CredentialActor) {
     const user = accountUser(environmentId);
     const account = await this.named(scope, environmentId);
-    // In a space the platform sets up, its platform entries are the
-    // platform's, not the account's: the account going only frees them.
-    const platform = (await this.platformScope?.(scope)) ?? false;
     await this.exclusively(`scope:${scope}`, async (via) => {
       for (const row of await this.scopeRows(scope, via)) {
         if (!row.used_by.some((item) => sameUsedBy(item, user))) continue;
-        const kept = platform && isPlatformKind(row.kind);
-        if (!kept && (row.kind === "site_login" || row.used_by.length === 1)) {
+        if (row.kind === "site_login" || row.used_by.length === 1) {
           await via("DELETE FROM credential_entries WHERE scope=$1 AND id=$2", [scope, row.id]);
           await this.audit(scope, row, "removed", actor, { account }, via);
         } else {
@@ -1348,7 +1224,7 @@ export class CredentialStore {
     via?: StoreQuery,
     usedBy?: CredentialUsedBy,
   ): Promise<{ entries: number; unreadable: string[] }> {
-    const rows = (await this.scopeRows(scope, via)).filter(
+    const rows = (await this.allScopeRows(scope, via)).filter(
       (row) => !usedBy || row.used_by.some((item) => sameUsedBy(item, usedBy)),
     );
     return {
@@ -1389,7 +1265,7 @@ export class CredentialStore {
     if (target.entries || target.audit || target.requests || target.retired)
       throw new AppError("The target credential scope is not empty", 409);
     let entries = 0;
-    for (const row of await this.scopeRows(from, via)) {
+    for (const row of await this.allScopeRows(from, via)) {
       const plain = unseal(this.key, from, row.id, row.secret);
       if (plain === undefined)
         throw new AppError(`Credential entry ${row.id} does not open with this key`, 409);
@@ -1443,7 +1319,8 @@ export class CredentialStore {
   }
 
   // ---- history -------------------------------------------------------------------------
-  /** The scope's history, newest first, one page at a time; `entry` narrows it to one entry. */
+  /** The scope's history, newest first, one page at a time; `entry` narrows it to one entry.
+   * Lines about an entry of a kind the store no longer reads (`liveKinds`) are left out. */
   async history(
     scope: string,
     query: { entry?: string; before?: string; limit?: number } = {},
@@ -1451,7 +1328,7 @@ export class CredentialStore {
     assertScope(scope);
     const limit = Math.min(Math.max(query.limit ?? 50, 1), 200);
     const params: unknown[] = [scope];
-    let filter = "";
+    let filter = ` AND entry_${liveKindsSql}`;
     if (query.entry) {
       params.push(query.entry);
       filter += ` AND entry_id=$${params.length}`;

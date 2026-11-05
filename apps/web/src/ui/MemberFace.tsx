@@ -120,7 +120,7 @@ export function MemberFace({
           />
         </svg>
       ) : null}
-      {state ? <span className={"mface-st " + state} /> : null}
+      {state ? <span className={`mface-st ${state}`} /> : null}
     </span>
   );
 }

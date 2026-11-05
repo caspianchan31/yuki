@@ -2,7 +2,7 @@
  * The web side of the tenancy port (client logic: packages/client/src/tenancy-client.tsx): the
  * slots the shell reads to show what a multi-tenant deployment adds. The core default is a single
  * user: the gate passes through, there are no public routes (the core shows its own sign-in), no
- * space crumb, no operator page, no store opening, no extra palette items, no billing banners.
+ * space crumb, no operator page, no extra palette items, no billing banners.
  * The multi-tenant layer fills every slot (tenancy/web); apps/web/src/main.tsx is the one place
  * the web imports it, and hands it to TenancyUiProvider. Nothing else in the core imports tenancy/.
  */
@@ -44,21 +44,13 @@ export interface TenancyUi extends ClientTenancy {
   /** Commands and space switches the palette adds. */
   usePaletteItems: () => { commands: PaletteItem[]; spaces: PaletteItem[] };
   /** The roster footer's entry above 设置 (the operator's 平台管理). */
-  RosterEntry: ComponentType<{
-    on: boolean;
-    onOpen: (tab: string, waiting: boolean) => void;
-  }>;
+  RosterEntry: ComponentType<{ on: boolean; onOpen: (tab: string) => void }>;
   /** The 设置 sheet's row for the space (members, plan, referrer). */
   SettingsSpace: ComponentType<{ live: boolean }>;
   /** 「空间：名字 ▾」 in the projects panel. */
   SpaceSwitch: ComponentType;
   /** The page behind the frame's `platform` tab (the operator's 平台管理). */
   PlatformPage: ComponentType<{ tab: string }>;
-  /** A store the operator has not opened shows only its notice (this page). */
-  StoreOpening: ComponentType;
-  useStoreOpening: () => boolean;
-  /** What waits on the operator's page, counted in the browser tab's title. */
-  usePlatformNeeds: () => number;
   /** Banners the tenancy layer adds: a read-only space, a trial ending. */
   useBanners: () => { readOnly: BannerItem | null; ending: BannerItem | null };
   /** The panels of the space and business area (成员, 订阅, 店铺, 介绍人, 平台). */
@@ -85,9 +77,6 @@ export const singleUserUi: TenancyUi = {
   SettingsSpace: nothing,
   SpaceSwitch: nothing,
   PlatformPage: nothing,
-  StoreOpening: nothing,
-  useStoreOpening: () => false,
-  usePlatformNeeds: () => 0,
   useBanners: () => noBanners,
   loadPanels: async () => ({}),
   RegistrationCard: nothing,

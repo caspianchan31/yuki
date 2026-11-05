@@ -4,22 +4,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { normalizeEnvironment } from "../../../packages/client/src/environments.ts";
-import {
-  groupByExit,
-  groupByProject,
-} from "../../../packages/client/src/shell/accounts/accounts-core.ts";
-import {
-  judgmentCards,
-  personRow,
-  plainGroupTitle,
-} from "../../../packages/client/src/shell/accounts/people-core.ts";
+import { personRow } from "../../../packages/client/src/shell/accounts/people-core.ts";
 import { normalizeCredentials } from "../../../packages/client/src/shell/credentials/credentials-core.ts";
-import { spokenLabel } from "../../../packages/client/src/shell/members/members-core.ts";
 import {
-  type AccountView,
-  buildAccountModels,
-  normalizePacing,
-} from "../../../packages/client/src/shell/model.ts";
+  judgedEntries,
+  judgmentLine,
+  needsJudgment,
+  quietGroups,
+  quietLine,
+} from "../../../packages/client/src/shell/credentials/quiet-core.ts";
+import { spokenLabel } from "../../../packages/client/src/shell/members/members-core.ts";
+import { type AccountView, buildAccountModels } from "../../../packages/client/src/shell/model.ts";
 
 const now = Date.parse("2026-10-17T02:00:00Z");
 
@@ -35,74 +30,31 @@ function view(
       name,
       projectId,
       status: "running",
-      proxyConfigured: true,
       settings: {
-        proxy: { configured: true, preview: "http://•••@203.0.113.7:8080" },
         timezone: null,
         locale: null,
         updatedAt: null,
-        unreadable: false,
       },
       ...over,
     }),
-    pacing: normalizePacing({ status: { usedToday: { "x/post": 2 }, lastActionAt: null } }),
   };
 }
 const models = (views: AccountView[]) => buildAccountModels({ accounts: views, entries: [], now });
 
-test("each account is a person: face, state, line, 经营循环; another project's says where to look", () => {
-  const [alpha] = models([view("a1", "alpha", "p1", { founder: true })]);
+test("each account is a person: face, state, line; another project's says where to look", () => {
+  const [alpha] = models([view("a1", "alpha", "p1", {})]);
   assert.deepEqual(personRow(alpha, now, { stalled: false }), {
     id: "a1",
     name: "alpha",
     label: null,
     initial: "A",
-    founder: true,
     state: "idle",
     line: "停着",
-    routine: "今天 2 件",
     desktopOn: true,
   });
   const other = personRow(alpha, now, { unknown: true, stalled: false });
   assert.equal(other.line, "切到所在群才看得到");
   assert.equal(other.state, "idle");
-});
-
-test("only an account with something the owner must judge gets a card, in words", () => {
-  const list = models([
-    view("a1", "beta", "p1", { proxyConfigured: false, settings: undefined }),
-    view("a2", "alpha", "p1"),
-  ]);
-  const flagged = list.filter((account) => account.flags.length);
-  assert.ok(flagged.length >= 1);
-  const cards = judgmentCards(list);
-  assert.deepEqual(
-    cards.map((card) => card.id),
-    flagged.map((account) => account.id),
-  );
-  assert.ok(cards.every((card) => card.text.length > 0 && !/\d+ 个/.test(card.text)));
-  // A flagged account of another project still reads as one that needs the owner.
-  assert.equal(personRow(flagged[0], now, { unknown: true, stalled: false }).state, "needs");
-});
-
-test("group headings name the group, never count it", () => {
-  const list = models([view("a1", "alpha", "p1"), view("a2", "beta", null)]);
-  const names = {
-    projectName: (id: string | null) => (id === "p1" ? "acmeskills" : "未分配"),
-    exitLabel: (exit: string) => exit,
-  };
-  const byProject = groupByProject(list, [{ id: "p1", name: "acmeskills" }], "p1");
-  assert.deepEqual(
-    byProject.map((group) => plainGroupTitle(group, names)),
-    ["acmeskills", "未分配"],
-  );
-  const byExit = groupByExit(list, {
-    exitOf: (account) => account.exit,
-    labels: new Map(),
-    projectName: names.projectName,
-  });
-  for (const group of byExit) assert.doesNotMatch(plainGroupTitle(group, names), /\d+ 个|\(\d+\)/);
-  assert.equal(plainGroupTitle(byExit[0], names), "203.0.113.7:8080 · acmeskills");
 });
 
 const credentials = normalizeCredentials({
@@ -128,14 +80,56 @@ const credentials = normalizeCredentials({
       createdAt: "2026-10-10T01:00:00Z",
     },
     {
-      id: "e-proxy",
-      kind: "proxy",
-      parts: { scheme: "socks5", host: "203.0.113.7", port: 1080, auth: true },
-      usedBy: [{ type: "account", environmentId: "a1", name: "alpha" }],
+      id: "e-mail",
+      kind: "mailbox",
+      parts: {
+        address: "sales@example.com",
+        smtpHost: "smtp.example.com",
+        smtpPort: 465,
+        smtpSecure: true,
+        imapHost: null,
+        imapPort: null,
+        password: true,
+      },
+      usedBy: [{ type: "project" }],
       createdAt: "2026-10-10T01:00:00Z",
+    },
+    {
+      id: "e-key",
+      kind: "site_login",
+      site: "example.net",
+      username: "carol",
+      parts: { password: true, totp: null, cookies: null },
+      usedBy: [],
+      createdAt: "2026-10-10T01:00:00Z",
+      unreadable: true,
     },
   ],
   requests: [],
+});
+
+test("credentials: a card only for a failed or unreadable one; the rest quiet, grouped, no empties", () => {
+  assert.deepEqual(
+    credentials.entries.filter(needsJudgment).map((entry) => entry.id),
+    ["e-bad", "e-key"],
+  );
+  assert.deepEqual(
+    judgedEntries(credentials).map((entry) => entry.id),
+    ["e-key", "e-bad"],
+  );
+  assert.equal(judgmentLine(judgedEntries(credentials)[1]), "example.org · bob · 上次：密码不对");
+  const groups = quietGroups(credentials);
+  // The unused login is a card, and so is beta's only login: their groups are left out.
+  assert.deepEqual(
+    groups.map((group) => [group.title, group.account?.initial ?? null, group.entries.length]),
+    [
+      ["发信邮箱", null, 1],
+      ["alpha", "A", 1],
+    ],
+  );
+  const ok = groups[1].entries[0];
+  assert.equal(quietLine(ok), "上次：已登录");
+  assert.equal(quietLine(groups[0].entries[0]), "用在：本群");
 });
 
 test("a member's spoken label says each part once", () => {

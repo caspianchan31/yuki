@@ -12,6 +12,8 @@ export interface AppEntry {
   state: AppState;
   /** An MCP server from the built-in list of presets (its address is known), not a custom one. */
   preset: boolean;
+  /** Why it cannot be connected from here (state `not_configured`), in words. */
+  note?: string;
   /** What members can do with it. */
   abilities: string[];
   /** The address of an MCP server. */

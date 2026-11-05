@@ -45,7 +45,6 @@ export interface RosterMember {
   name: string;
   line: string;
   bucket: RoutineBucket;
-  founder: boolean;
   projectId: string | null;
 }
 

@@ -1,6 +1,6 @@
 /**
  * The shell's navigation state, one place for every surface.
- *   view     "work" (the project workbench, default) or "accounts" (全局账号与代理)
+ *   view     "work" (the project workbench, default) or "accounts" (全局账号)
  *   panel    the one panel open at a time (task detail, account detail, settings, …); old detail
  *            sheets that still exist (computer, review, browser, file, mail) open as "legacy"
  *   drawer   the live rail drawer on phone (and which section to scroll to)
@@ -29,12 +29,7 @@ export type RailSection = "needs" | "accounts" | "tasks" | "reports" | "notes";
 
 export type ShellPanel =
   | { kind: "task"; taskId: string }
-  /** One of the project's jobs (「活」). */
-  | { kind: "job"; jobId: string }
   | { kind: "account"; environmentId: string }
-  /** The space's founder, its order of the projects and what
-   * each project gave it. */
-  | { kind: "founder" }
   | { kind: "notes" }
   | { kind: "assign"; environmentId: string }
   | { kind: "join" }
@@ -58,7 +53,7 @@ export type ShellPanel =
       kind: "credentialEditor";
       entryId?: string;
       preset?: {
-        kind: "proxy" | "site_login" | "mailbox";
+        kind: "site_login" | "mailbox";
         site?: string;
         environmentId?: string | null;
       };

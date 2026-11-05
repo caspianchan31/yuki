@@ -31,7 +31,7 @@ import { splitToolCalls } from "@m/shell/chat/reply-core";
 import { useShellData } from "@m/shell/data";
 import {
   appsToConnect,
-  clockNeedsZone,
+  clockZoneNote,
   dropGuidedAccountNeeds,
   goalRoutines,
   memberRoutines,
@@ -47,6 +47,7 @@ import { useWorkspace } from "@m/workspace";
 import { ArrowDown, RotateCcw } from "lucide-react";
 import { Fragment, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { clockLabel } from "../../../../packages/domain/src/task-phase";
+import { useAccountZone } from "../account-zone";
 import { useFrame } from "../shell/state";
 import { Markdown } from "../ui/Markdown";
 import { Btn, ErrorLine, Skeleton } from "../ui/primitives";
@@ -245,17 +246,20 @@ function Conversation({
       window.clearTimeout(usageTimer);
     };
   }, [apiFor, member?.projectId, openMemberId]);
+  const { zone: accountZone } = useAccountZone();
   const routineLines =
     memberName && frame.peek
       ? memberRoutines(member?.tasks.map((entry) => entry.task) ?? [])
           .filter((routine) => routine.when.length > 0)
           .map((routine) => {
             const task = member?.tasks.find((entry) => entry.task.id === routine.id)?.task;
-            const wake = task ? queuedClockWake(task, member?.timezone, new Date(now)) : null;
+            const wake = task ? queuedClockWake(task, accountZone, new Date(now)) : null;
             return {
               id: routine.id,
               text: `${routineCreatedLine(memberName, routine.when, routine.title)}${
-                clockNeedsZone(routine.when, member?.timezone) ? "（填了时区才按这个钟点）" : ""
+                clockZoneNote(routine.when, accountZone)
+                  ? `（${clockZoneNote(routine.when, accountZone)}）`
+                  : ""
               }${wake ? ` · 下次 ${clockLabel(wake, now, phaseWords)}` : ""}`,
               result: newestReportSentence(routineReports, routine.id),
             };

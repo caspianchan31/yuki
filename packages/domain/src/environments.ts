@@ -1,10 +1,10 @@
 /**
- * Isolation environments (fork feature): one account = one identity, an isolated cloud desktop
- * with its own proxy, time zone, language and browser profile, signed in to any number of sites
- * (its site logins are credentials of its project, docs/credentials.md). Pure types and
- * helpers shared by the server and the mobile app; no runtime dependencies beyond Intl.
+ * Members (environments, fork feature): one member may have a desktop of her own, with its own
+ * time zone, language and browser profile, signed in to any number of sites (its site logins
+ * are credentials of its project, docs/credentials.md). Pure types and helpers shared by the
+ * server and the mobile app; no runtime dependencies beyond Intl.
  */
-import type { BrowserCheck, ProxyCheck, SiteLoginView, SiteSignInFact } from "./credentials.ts";
+import type { SiteLoginView, SiteSignInFact } from "./credentials.ts";
 import type { MemberFace } from "./member-face.ts";
 export type EnvironmentStatus = "missing" | "stopped" | "running" | "error";
 
@@ -28,15 +28,11 @@ export interface Environment {
   updatedAt: string;
 }
 
-/** Mirrors the server's ComputerSettingsView; secrets are only ever masked previews. */
+/** Mirrors the server's ComputerSettingsView: the desktop's time zone and language. */
 export interface EnvironmentSettingsView {
-  proxy: { configured: boolean; preview: string | null };
   timezone: string | null;
   locale: string | null;
   updatedAt: string | null;
-  /** The proxy can't be used as saved (its entry can't be read, or the settings row still holds
-   * one that never reached the credential store): the owner enters it again. */
-  unreadable: boolean;
   /** The time zone and language can't be read: the owner enters them again. */
   localeUnreadable?: boolean;
 }
@@ -117,23 +113,14 @@ export interface SiteProfile {
   facts: Record<string, string | number | boolean>;
   recordedAt: string;
 }
-/** The other accounts of this project whose desktops leave through the same proxy exit as this
- * one: the exit is host:port only, never credentials; each account is its name and the time of
- * its last reported action. `exit` null: this account has no readable proxy. */
-export interface SameExitAccounts {
-  exit: string | null;
-  exitUnreadable: boolean;
-  accounts: { name: string; lastActionAt: string | null }[];
-}
 /** Another live account of the same project, as the facts
  * show it: the user names it is known by (`site` null: its name or account label, any site),
- * whether a run is on it now, whether it leaves through the same exit, and what it did over the
- * same window as `usedLast7Days` (addresses and times only, never what it wrote). */
+ * whether a run is on it now, and what it did over the same window as `usedLast7Days` (addresses
+ * and times only, never what it wrote). */
 export interface SiblingAccount {
   name: string;
   identities: { site: string | null; username: string }[];
   runningNow: boolean;
-  sameExit: boolean;
   lastActionAt: string | null;
   recent: {
     site: string | null;
@@ -146,9 +133,9 @@ export interface SiblingAccount {
 }
 /** The facts the server puts in front of a run of a task bound to the account, computed at one
  * moment: also returned by report_to_user and shown on the account card. Nothing in it is
- * advice: the account's recorded facts per site, its recent actions by kind, the accounts on the
- * same exit, what is set (by whom and why), the local time, and what the set fields say about
- * now. A kind is `<site>/<action>`; `*` stands for any kind without a cap of its own. */
+ * advice: the account's recorded facts per site, its recent actions by kind, what is set (by
+ * whom and why), the local time, and what the set fields say about now. A kind is
+ * `<site>/<action>`; `*` stands for any kind without a cap of its own. */
 export interface PacingStatus {
   timezone: string;
   /** The account's own zone, or the desktop template's zone when the account sets none. */
@@ -165,7 +152,6 @@ export interface PacingStatus {
   usedToday: Record<ActionKind, number>;
   usedLast7Days: Record<ActionKind, number>;
   lastActionAt: string | null;
-  sameExit: SameExitAccounts;
   /** The project's other accounts and what they did recently. */
   siblings: SiblingAccount[];
   /** What is in force, field by field (null = unset), with its source and reason. */
@@ -195,25 +181,16 @@ export interface EnvironmentView extends Environment {
   status: EnvironmentStatus;
   /** Present when status is "error". */
   message?: string;
-  /** proxy.configured && !unreadable: the desktop may be started. */
-  proxyConfigured: boolean;
   /** False when the server has no computer connected (未接电脑): the member has no desktop, and
-   * nothing about one (its state, exit, settings) is shown. Absent from older servers. */
+   * nothing about one (its state, settings) is shown. Absent from older servers. */
   computer?: boolean;
   settings: EnvironmentSettingsView;
   /** Always sent by the server; optional only for views a client builds itself. */
   pacing?: EnvironmentPacing;
-  /** The account's site logins (never a value), the sign-in facts the AI
-   * recorded per site, the proxy's last self-check, and which credential entries of the
-   * project it uses. Always sent by the server; optional for views a client builds itself. */
+  /** The account's site logins (never a value) and the sign-in facts the AI recorded per site.
+   * Always sent by the server; optional for views a client builds itself. */
   siteLogins?: SiteLoginView[];
   signIns?: SiteSignInFact[];
-  proxyCheck?: ProxyCheck | null;
-  /** What the run last read on the bot-detection check page. */
-  browserCheck?: BrowserCheck | null;
-  credentialIds?: {
-    proxy: string | null;
-  };
   /** Whether the account has something to work on: a long-term goal, or a
    * job given to it that is not over (AccountLoops.wanted, the rule its standing loop follows).
    * False: nothing makes it act; an account of a project (or the founder) with no live task then

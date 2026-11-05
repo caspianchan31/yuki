@@ -1,17 +1,15 @@
 /**
  * Phase C (docs/web.md): 加入未分配账号, from shell/accounts/JoinPanel.tsx — the unassigned
  * accounts (GET /api/environments/unassigned, loaded when the panel opens), each a compact row
- * (light, name, label, 「桌面 X · exit」) with 加入 (PATCH /api/environments/:id { projectId:
+ * (light, name, label, 「桌面 X」) with 加入 (PATCH /api/environments/:id { projectId:
  * current } with this project's header). After a join the lists refresh and the panel closes.
  */
 import { useProjects } from "@m/projects-state";
-import { joinsProjects } from "@m/shell/accounts/accounts-core";
 import { useAccountOps } from "@m/shell/accounts/hooks";
 import { useShellData } from "@m/shell/data";
 import { buildAccountModels } from "@m/shell/model";
 import { useShellNav } from "@m/shell/nav";
 import { t } from "@m/shell/strings";
-import { usePlatformEnv } from "@m/tenancy-client";
 import { useEffect, useMemo, useState } from "react";
 import type { PanelProps } from "../panels/types";
 import { Btn, ErrorLine, Sheet, Skeleton } from "../ui/primitives";
@@ -19,7 +17,6 @@ import { AccountLight } from "./parts";
 import "./accounts.css";
 
 export function JoinPanel({ onClose }: PanelProps<"join">) {
-  const platformEnv = usePlatformEnv();
   const nav = useShellNav();
   const { unassigned, now } = useShellData();
   const { current } = useProjects();
@@ -41,13 +38,11 @@ export function JoinPanel({ onClose }: PanelProps<"join">) {
   const accounts = useMemo(
     () =>
       buildAccountModels({
-        // The founder joins no project (docs/founder.md); the server leaves it out too.
-        accounts: unassigned.value.filter(joinsProjects),
+        accounts: unassigned.value,
         entries: [],
         now,
-        platformEnv,
       }),
-    [unassigned.value, now, platformEnv],
+    [unassigned.value, now],
   );
 
   async function join(id: string) {
@@ -88,9 +83,7 @@ export function JoinPanel({ onClose }: PanelProps<"join">) {
               ) : null}
             </span>
             <span className="acc-small acc-ellipsis">
-              {[t.accountsRail.desktop(account.desktopWord), account.exit]
-                .filter(Boolean)
-                .join(t.common.sep)}
+              {t.accountsRail.desktop(account.desktopWord)}
             </span>
           </button>
           <Btn

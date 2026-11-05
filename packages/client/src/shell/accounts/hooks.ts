@@ -11,7 +11,6 @@ import { settingsError } from "../../computer-settings";
 import { scopeComputerPath } from "../../environments";
 import { noContent } from "../../projects-core";
 import { useProjects } from "../../projects-state";
-import { usePlatformEnv } from "../../tenancy-client";
 import { normalizeTopology } from "../../topology-core";
 import { useWorkspace } from "../../workspace";
 import { normalizeAccountViews, useShellData } from "../data";
@@ -86,7 +85,6 @@ export interface AccountLookup {
  */
 export function useAccountLookup(environmentId: string): AccountLookup {
   const data = useShellData();
-  const platformEnv = usePlatformEnv();
   const { current } = useProjects();
   const { directory, version } = useAccountsDirectory();
   const local = data.accountById.get(environmentId) ?? null;
@@ -158,11 +156,9 @@ export function useAccountLookup(environmentId: string): AccountLookup {
         accounts: [view],
         entries: mine ? data.entries : [],
         now,
-        platformEnv,
-        tasksKnown: mine,
       })[0] ?? null
     );
-  }, [removed, local, cached, current, data.entries, data.reports.value, now, platformEnv]);
+  }, [removed, local, cached, current, data.entries, data.reports.value, now]);
   return {
     model,
     isCurrent: !!model && (model.projectId ?? null) === (current ?? null),

@@ -1,6 +1,6 @@
-# Contributing to OpenMuse
+# Contributing to Yuki
 
-OpenMuse is an MIT-licensed alpha. Contributions should make delegated work reliable and visible, with honest connector status and useful native interactions.
+Yuki is a source-available alpha. Contributions should make delegated work reliable and visible, with honest connector status and useful native interactions.
 
 ## Local development
 
@@ -40,4 +40,4 @@ Open an issue for substantial architecture or connector changes so contributors 
 
 Describe the problem, resulting behavior, and verification. Include a screenshot or short recording for UI changes and note any untested provider/platform path. Do not paste private account data or tokens in logs. Security reports follow [SECURITY.md](SECURITY.md).
 
-Contributions are accepted under the [MIT license](LICENSE).
+Contributions are accepted under the [Yuki Community License](LICENSE). By contributing, you agree that the maintainers may also publish your contribution under other licenses, including the MIT License each version moves to after two years.

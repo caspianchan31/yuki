@@ -1,4 +1,4 @@
-# Mail through the project's own mailbox (fork)
+# Mail through the project's own mailbox
 
 Until now email went only through a Google connection (Gmail API): the server had no Google client configured, the shell had no button to connect it, and the customers this is for (a factory with its own sales mailbox on its own domain) have no Gmail. A run asked to send outreach ended with drafts. Now a project's own mailbox is the channel, and Google stays the other one.
 

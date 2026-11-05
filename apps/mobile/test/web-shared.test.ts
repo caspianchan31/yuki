@@ -14,13 +14,10 @@ const src = path.resolve(import.meta.dirname, "../../../packages/client/src");
 const tenancySrc = path.resolve(import.meta.dirname, "../../../tenancy/client");
 const tenancyNamed = [
   "spaces-state",
-  "store-opening-state",
   "billing-state",
   "signup-status-state",
   "signup-admin-state",
   "password-reset-state",
-  "useExits.ts",
-  "store-state.ts",
   "port.ts",
 ];
 const overlaid = new Set([path.join(src, "platform-env.ts")]);
@@ -51,7 +48,6 @@ const named = [
   "environments-screen-state",
   "shell/accounts/hooks.ts",
   "shell/credentials/useCredentials.ts",
-  "shell/founder/useFounder.ts",
   "thread-environment.tsx",
   "last-seen-store.ts",
   "platform-env.ts",

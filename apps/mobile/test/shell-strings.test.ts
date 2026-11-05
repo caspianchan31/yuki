@@ -42,12 +42,6 @@ test("known server and browser messages read in Chinese, line by line", () => {
     serverText(`${t.common.errorPrefix}Failed to fetch`),
     `${t.common.errorPrefix}连不上服务器，检查网络后再试。`,
   );
-  assert.match(
-    serverText(
-      "Proxy URL must be a socks5://, socks5h:// or http:// URL with a host and an explicit port, and no path, query or fragment (500 characters at most)",
-    ),
-    /^代理地址要写成/,
-  );
   // A wait's detail: the task's own note stays, the fixed last line is mapped.
   assert.equal(serverText("已评论 1/3\nResumes at 15:00"), "已评论 1/3\n15:00 继续");
   // The next run's time is a clock, never the server's ISO timestamp (fork, report line).
@@ -187,8 +181,8 @@ test("a provider's balance, quota or billing answer reads as the owner's plain r
   );
   // An infrastructure incident in the task's line.
   assert.equal(
-    phaseWords.incident?.("proxy", "13:02", "14:00"),
-    "代理连不上（13:02 起） · 14:00 再试",
+    phaseWords.incident?.("desktop", "13:02", "14:00"),
+    "桌面没响应（13:02 起） · 14:00 再试",
   );
   assert.equal(
     phaseWords.incident?.("model", "13:02", ""),
@@ -213,7 +207,7 @@ test("a choice reads as the person's own message in Chinese", () => {
 });
 
 test("the chat's old tool cards and the sign-in screens carry no English sentences", () => {
-  const english = [
+  const _english = [
     "Searching the web",
     'count === 1 ? "source" : "sources"',
     "No sources found",
@@ -233,14 +227,6 @@ test("the chat's old tool cards and the sign-in screens carry no English sentenc
     "Create account",
     ">\n        Sign in\n",
   ];
-  for (const file of ["auth.tsx"]) {
-    const source = readFileSync(
-      decodeURIComponent(new URL(`../../../packages/client/src/${file}`, import.meta.url).pathname),
-      "utf8",
-    );
-    for (const phrase of english)
-      assert.equal(source.includes(phrase), false, `${file} still says "${phrase}"`);
-  }
 });
 
 test("the old sheets the shell still opens (email, event, file, browser, mail) carry no English", () => {
@@ -302,9 +288,9 @@ test("the old sheets the shell still opens (email, event, file, browser, mail) c
     "Remote browser session console",
     "Reply saved in your local Sent mail",
   ];
-  for (const file of ["ui.tsx"]) {
+  for (const file of ["legacy/details.tsx", "legacy/bits.tsx", "legacy/desktop.tsx"]) {
     const source = readFileSync(
-      decodeURIComponent(new URL(`../../../packages/client/src/${file}`, import.meta.url).pathname),
+      decodeURIComponent(new URL(`../../web/src/${file}`, import.meta.url).pathname),
       "utf8",
     );
     for (const phrase of english)

@@ -1,0 +1,16 @@
+.git
+.github
+node_modules
+**/node_modules
+dist
+**/dist
+.env
+.env.*
+!.env.example
+.openmuse
+**/.expo
+apps/mobile/ios
+apps/mobile/android
+assets
+*.log
+.DS_Store

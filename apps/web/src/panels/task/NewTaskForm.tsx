@@ -34,7 +34,7 @@ export function NewTaskPanel({ panel, onClose }: PanelProps<"newTask">) {
   const { accounts, accountsUnavailable } = useShellData();
   const nav = useShellNav();
   // 未分组 (the default project) holds only unassigned accounts: none of them is "this
-  // project's", so the form points to 账号与代理 instead.
+  // project's", so the form points to 账号 instead.
   const inDefault = api.projectId === null;
   const list = useMemo(() => (inDefault ? [] : accounts.value), [inDefault, accounts.value]);
   const ids = useMemo(() => list.map((account) => account.id), [list]);

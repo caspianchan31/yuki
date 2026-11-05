@@ -6,33 +6,25 @@
  * server records and decides is unchanged.
  */
 import type { ChatReport } from "../../../../../packages/domain/src/agent.ts";
-import { speakerInitial } from "../founder/founder-core.ts";
-import {
-  type FounderRef,
-  isFounder,
-  type JobToolName,
-  type JobToolView,
-} from "../jobs/jobs-core.ts";
 import { t } from "../strings.ts";
+import { speakerInitial } from "./report-core.ts";
 
 export type GroupSpeaker =
   | { kind: "owner" }
   | { kind: "ops"; name: string }
-  | { kind: "account"; name: string; initial: string; founder: boolean; environmentId?: string }
+  | { kind: "account"; name: string; initial: string; environmentId?: string }
   | { kind: "silent" };
 
-/** An account as the chat knows it: its name and whether it is the space's founder. */
+/** An account as the chat knows it. */
 export interface SpeakerAccount {
   id?: string | null;
   name: string;
-  view?: { founder?: boolean };
 }
 
 export interface SpeakerLookup {
   ops: string;
   /** The account a task runs on, when this project has the task and it is bound to one. */
   accountOfTask: (taskId: string) => SpeakerAccount | null;
-  founder: FounderRef | null;
 }
 
 type Item =
@@ -46,13 +38,11 @@ type Item =
 
 const accountSpeaker = (
   name: string,
-  founder: boolean,
   environmentId?: string | null,
 ): Extract<GroupSpeaker, { kind: "account" }> => ({
   kind: "account",
   name,
   initial: speakerInitial(name),
-  founder,
   ...(environmentId ? { environmentId } : {}),
 });
 
@@ -61,14 +51,9 @@ const accountSpeaker = (
 export function reportSpeakerIn(report: ChatReport, lookup: SpeakerLookup): GroupSpeaker {
   const account = lookup.accountOfTask(report.taskId);
   const name = account?.name.trim();
-  if (account && name)
-    return accountSpeaker(
-      name,
-      account.view?.founder === true || isFounder(lookup.founder, name, account.id ?? null),
-      account.id,
-    );
+  if (account && name) return accountSpeaker(name, account.id);
   const own = report.speaker?.name?.trim();
-  if (own) return accountSpeaker(own, report.speaker?.founder === true);
+  if (own) return accountSpeaker(own);
   return { kind: "ops", name: lookup.ops };
 }
 
@@ -87,22 +72,8 @@ export function itemSpeaker(item: Item, lookup: SpeakerLookup): GroupSpeaker {
     return latest ? reportSpeakerIn(latest, lookup) : { kind: "ops", name: lookup.ops };
   }
   if (item.type === "need") return reportSpeakerIn(item.report, lookup);
-  const notice = item.report.notice;
-  const account = notice?.account?.trim();
-  if ((notice?.kind === "job_taken" || notice?.kind === "job_declined") && account)
-    return accountSpeaker(
-      account,
-      isFounder(lookup.founder, account, notice.environmentId ?? null),
-      notice.environmentId,
-    );
-  // In the hall a project's request is said by that project's 运营专员;
-  // in a project the line pointing to the hall is the founder's.
-  if (notice?.kind === "founder_request" && notice.project)
-    return { kind: "ops", name: t.group.ops(notice.project) };
-  if (notice?.kind === "in_hall" && account) return accountSpeaker(account, true);
-  // The founder asks a project's 运营专员 to carry its work on.
-  if (notice?.kind === "project_request" && account) return accountSpeaker(account, true);
-  if (notice?.kind === "owner_away" && account) return accountSpeaker(account, true);
+  const account = item.report.notice?.account?.trim();
+  if (account) return accountSpeaker(account, item.report.notice?.environmentId);
   return { kind: "ops", name: lookup.ops };
 }
 
@@ -144,127 +115,19 @@ export function groupTurns(speakers: readonly GroupSpeaker[]): GroupTurn[] {
   });
 }
 
-/** A job tool in the 运营专员's words: the accounts it asks (「创始人 Ann」 for the founder,
- * 「所有号」 for everyone) and what it asks for. */
-export function opsRequest(
-  name: JobToolName,
-  view: Pick<JobToolView, "title" | "names" | "everyone" | "insisted"> & {
-    project?: string | null;
-  },
-  founder: FounderRef | null,
-): { mentions: string[]; text: string } {
-  const words = t.group;
-  const said = (names: readonly string[]) =>
-    names.map((item) => (isFounder(founder, item) ? `${t.group.founderTag} ${item}` : item));
-  switch (name) {
-    case "create_job":
-    case "assign_job": {
-      const names = name === "assign_job" && view.insisted.length ? view.insisted : view.names;
-      const mentions = view.everyone && name === "create_job" ? [words.everyone] : said(names);
-      // A job made in the hall names the project it is for.
-      return {
-        mentions,
-        text: view.project ? words.requestFor(view.title, view.project) : words.request(view.title),
-      };
-    }
-    case "update_job":
-      return { mentions: said(view.names), text: words.updated(view.title) };
-    case "close_job":
-      return { mentions: [], text: words.closed(view.title) };
-  }
-}
-
-/** A job notice in the voice of who says it: the account that took or declined it, the
- * 运营专员 for a job done. Null for a notice this does not word (a persona change). */
-export function noticeSays(report: Pick<ChatReport, "text" | "notice">): string | null {
+/** What a notice card (a report with `notice`) says: an account's persona change in the owner's
+ * words; any other notice (older conversations) says the words recorded with it. */
+export function noticeText(report: Pick<ChatReport, "text" | "notice">): string {
   const notice = report.notice;
-  if (!notice) return null;
-  const title = notice.jobTitle ?? "";
-  switch (notice.kind) {
-    case "job_taken":
-      return t.group.taken(title);
-    case "job_declined":
-      return t.group.declined(title, notice.reason || report.text);
-    case "job_done":
-      return t.group.done(title);
-    case "in_hall":
-      return t.group.inHall(title);
-    default:
-      return null;
-  }
-}
-
-export interface GroupMember {
-  key: string;
-  name: string;
-  initial: string;
-  kind: "ops" | "account";
-  founder: boolean;
-  /** The account's id, to open its detail; none for the 运营专员. */
-  environmentId?: string;
-}
-/** The hall's members: its assistant, the founder, each project's 运营专员. */
-export function hallMembers(
-  founder: FounderRef | null,
-  projects: readonly { id: string; name: string }[],
-): GroupMember[] {
-  return [
-    { key: "ops", name: t.group.hallOps, initial: "", kind: "ops", founder: false },
-    ...(founder
-      ? [
-          {
-            key: `founder:${founder.environmentId ?? founder.name}`,
-            name: founder.name,
-            initial: speakerInitial(founder.name),
-            kind: "account" as const,
-            founder: true,
-            ...(founder.environmentId ? { environmentId: founder.environmentId } : {}),
-          },
-        ]
-      : []),
-    ...projects.map((project) => ({
-      key: `project:${project.id}`,
-      name: t.group.ops(project.name),
-      initial: "",
-      kind: "ops" as const,
-      founder: false,
-    })),
-  ];
-}
-/** The members bar: the 运营专员 first, then the founder, then the project's accounts. */
-export function groupMembers(
-  ops: string,
-  accounts: readonly { id: string; name: string; view?: { founder?: boolean } }[],
-  founder: FounderRef | null,
-): GroupMember[] {
-  const own = accounts.map((account) => ({
-    key: `account:${account.id}`,
-    name: account.name,
-    initial: speakerInitial(account.name),
-    kind: "account" as const,
-    founder: account.view?.founder === true || isFounder(founder, account.name, account.id),
-    environmentId: account.id,
-  }));
-  const founderHere = own.some((member) => member.founder);
-  const founderMember: GroupMember[] =
-    founder && !founderHere
-      ? [
-          {
-            key: `founder:${founder.environmentId ?? founder.name}`,
-            name: founder.name,
-            initial: speakerInitial(founder.name),
-            kind: "account",
-            founder: true,
-            ...(founder.environmentId ? { environmentId: founder.environmentId } : {}),
-          },
-        ]
-      : [];
-  const ordered = [...own.filter((m) => m.founder), ...own.filter((m) => !m.founder)];
-  return [
-    { key: "ops", name: ops, initial: "", kind: "ops", founder: false },
-    ...founderMember,
-    ...ordered,
-  ];
+  if (notice?.kind !== "persona") return report.text;
+  return t.jobs.cards.persona(
+    notice.account ?? "",
+    notice.version ?? 0,
+    (notice.changed ?? [])
+      .map((part) => t.persona.fields[part as keyof typeof t.persona.fields] ?? part)
+      .join(t.jobs.nameSep),
+    notice.reason ?? "",
+  );
 }
 
 /** What the hall's tool result says it handed to a project
@@ -324,7 +187,6 @@ export function memberVoice(
     kind: "account",
     name,
     initial: name.slice(0, 1),
-    founder: false,
     environmentId: member.id,
   };
 }

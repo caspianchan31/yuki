@@ -1,6 +1,6 @@
 # Conversations on our own server (v0.5)
 
-Since v0.5 OpenMuse keeps every conversation in its own database. CopilotKit's cloud
+Since v0.5 Yuki keeps every conversation in its own database. CopilotKit's cloud
 (Intelligence) is no longer used for chat; the CopilotKit libraries and the chat interface are
 unchanged. Design: `design-20261012-v05.md` §A. Code: `apps/server/src/chat/` (ported from the
 open-source standalone build, `docs/STANDALONE-THREADS.md` there).

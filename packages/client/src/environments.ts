@@ -1,7 +1,7 @@
 /**
- * Isolation environments (fork feature): pure logic for the mobile app. One account is one
- * identity: an isolated cloud desktop with its own proxy, time zone, language and browser
- * profile, signed in to any number of sites with its saved logins (credentials).
+ * Members (environments, fork feature): pure logic for the mobile app. A member may have a desktop
+ * of her own, with its own time zone, language and browser profile, signed in to any number of
+ * sites with its saved logins (credentials).
  * This file must stay free of react-native so the node:test suite can import it.
  *
  * HTTP contract (all under /api/environments, same auth as the rest of /api):
@@ -18,13 +18,10 @@
  *   *      /api/environments/:id/computer/*          the whole /api/computer route set, scoped
  */
 
-import {
-  type BrowserCheck,
-  browserCheckStatuses,
-  type CredentialResult,
-  type ProxyCheck,
-  type SiteLoginView,
-  type SiteSignInFact,
+import type {
+  CredentialResult,
+  SiteLoginView,
+  SiteSignInFact,
 } from "../../../packages/domain/src/credentials.ts";
 import {
   canonicalLocale,
@@ -62,13 +59,10 @@ export interface SiteLoginBody {
   totpSeed?: string;
   cookies?: string;
 }
-/** POST /api/environments. The proxy is one of the project's or a new one; without either, the
- * account's desktop takes an exit from the platform's pool when it first starts (v1.1, exits). */
+/** POST /api/environments. */
 export interface CreateEnvironmentBody {
   name: string;
   accountLabel?: string;
-  proxyUrl?: string;
-  proxyId?: string;
   timezone?: string;
   locale?: string;
   siteLogins?: SiteLoginBody[];
@@ -82,26 +76,20 @@ export interface EnvironmentPatch {
   name?: string;
   accountLabel?: string | null;
   projectId?: string | null;
-  /** Which of the project's entries the account uses. */
-  proxyId?: string;
 }
 /** PUT /api/environments/:id/computer/settings: omitted = unchanged, null = clear, string = set. */
 export interface EnvironmentSettingsUpdate {
-  proxyUrl?: string | null;
   timezone?: string | null;
   locale?: string | null;
 }
 /**
  * What the editor holds. Creating: a string per field (blank = not given). Editing: `undefined`
  * leaves the saved value alone, `null` clears it, a string replaces it; a blank string is
- * treated as untouched, so secret inputs that start empty never clear a saved secret.
+ * treated as untouched.
  */
 export interface EnvironmentForm {
   name?: string | null;
   accountLabel?: string | null;
-  proxyUrl?: string | null;
-  /** One of the project's proxies instead of a new URL. */
-  proxyId?: string | null;
   siteLogins?: SiteLoginBody[];
   timezone?: string | null;
   locale?: string | null;
@@ -126,24 +114,19 @@ export const QUICK_TIMEZONES = [
 ] as const;
 export const TIMEZONE_HINT = "An IANA name such as America/Los_Angeles; the browser follows it.";
 export const LOCALE_HINT = "Language and region such as en-US; the browser reports it.";
-export const NO_PROXY_WARNING = "No proxy set. Add one before starting this desktop.";
 export const DELETE_WARNING =
   "Deleting destroys this environment's desktop, its browser profile and every sign-in on it.";
 export const DESTROY_WARNING =
   "Destroying the sandbox closes every app and drops the browser's sign-ins. Settings are kept.";
 export const DELETED_SELECTION_NOTICE = "Environment deleted — pick one";
 export const UNREADABLE_ENVIRONMENT_NOTICE =
-  "Saved values can't be read with the server's current key. Enter the proxy, time zone and language again to replace them.";
+  "Saved values can't be read with the server's current key. Enter the time zone and language again to replace them.";
 export const ENVIRONMENTS_UNAVAILABLE = "Members are not available on this server.";
 
 const record = (value: unknown) =>
   value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 const text = (value: unknown) => (typeof value === "string" ? value : "");
 const textOrNull = (value: unknown) => (typeof value === "string" && value ? value : null);
-function secret(value: unknown) {
-  const { configured, preview } = record(value);
-  return { configured: configured === true, preview: textOrNull(preview) };
-}
 const statuses: readonly EnvironmentStatus[] = ["missing", "stopped", "running", "error"];
 /** How an entry went the last time, or null. */
 export function normalizeResult(value: unknown): CredentialResult | null {
@@ -219,45 +202,6 @@ export function normalizeSignInFact(value: unknown): SiteSignInFact | null {
       : {}),
   };
 }
-const proxyStatuses = [
-  "ok",
-  "unreachable",
-  "auth_rejected",
-  "bad_setting",
-  "handshake_failed",
-  "missing",
-  "pending",
-] as const;
-/** What the run last read on the bot-detection check page, or null. */
-export function normalizeBrowserCheck(value: unknown): BrowserCheck | null {
-  const item = record(value);
-  const status = browserCheckStatuses.find((word) => word === item.status);
-  if (!status || typeof item.at !== "string") return null;
-  return {
-    at: item.at,
-    status,
-    result: typeof item.result === "string" ? item.result : "",
-    // The page's words the record quotes, and where.
-    ...(typeof item.seen === "string" ? { seen: item.seen } : {}),
-    ...(typeof item.url === "string" ? { url: item.url } : {}),
-  };
-}
-/** The proxy's last self-check, or null. */
-export function normalizeProxyCheck(value: unknown): ProxyCheck | null {
-  const item = record(value);
-  const proxy = proxyStatuses.find((word) => word === item.proxy);
-  if (!proxy || typeof item.at !== "string") return null;
-  const sites: Record<string, "ok" | "refused"> = {};
-  for (const [site, state] of Object.entries(record(item.sites)))
-    sites[site] = state === "ok" ? "ok" : "refused";
-  return {
-    at: item.at,
-    proxy,
-    sites,
-    ...(item.pendingRestart === true ? { pendingRestart: true } : {}),
-  };
-}
-
 /** Read an EnvironmentView defensively; an unknown status reads as an error with a message. */
 export function normalizeEnvironment(value: unknown): EnvironmentView {
   const item = record(value);
@@ -278,14 +222,11 @@ export function normalizeEnvironment(value: unknown): EnvironmentView {
     updatedAt: text(item.updatedAt),
     status: status ?? "error",
     ...(message ? { message } : {}),
-    proxyConfigured: item.proxyConfigured === true,
     ...(item.computer === false ? { computer: false } : {}),
     settings: {
-      proxy: secret(settings.proxy),
       timezone: textOrNull(settings.timezone),
       locale: textOrNull(settings.locale),
       updatedAt: textOrNull(settings.updatedAt),
-      unreadable: settings.unreadable === true,
       localeUnreadable: settings.localeUnreadable === true,
     },
     // Absent when the server did not say (nothing is claimed).
@@ -301,15 +242,6 @@ export function normalizeEnvironment(value: unknown): EnvironmentView {
           signIns: item.signIns
             .map(normalizeSignInFact)
             .filter((fact): fact is SiteSignInFact => fact !== null),
-        }
-      : {}),
-    ...("proxyCheck" in item ? { proxyCheck: normalizeProxyCheck(item.proxyCheck) } : {}),
-    ...("browserCheck" in item ? { browserCheck: normalizeBrowserCheck(item.browserCheck) } : {}),
-    ...(item.credentialIds && typeof item.credentialIds === "object"
-      ? {
-          credentialIds: {
-            proxy: textOrNull(record(item.credentialIds).proxy),
-          },
         }
       : {}),
     // Whether it has something to work on; absent when the server did not
@@ -371,17 +303,13 @@ export function environmentTitle(environment: EnvironmentRef | null | undefined)
 export function desktopLabel(environment: EnvironmentRef | null | undefined): string {
   return `Desktop: ${environment ? environment.name : "Default"}`;
 }
-/** One line under an environment's name: account, time zone, language and proxy state. */
+/** One line under an environment's name: account, time zone and language. */
 export function environmentSummary(environment: EnvironmentView): string {
   const parts = [
     environment.accountLabel,
     environment.settings.timezone,
     environment.settings.locale,
-    environment.settings.unreadable
-      ? "settings unreadable"
-      : environment.proxyConfigured
-        ? "proxy set"
-        : "no proxy",
+    environment.settings.localeUnreadable ? "settings unreadable" : null,
   ];
   return parts.filter((part): part is string => !!part).join(" · ");
 }
@@ -468,8 +396,8 @@ const given = (value: string | null | undefined) =>
 
 /**
  * Build the request bodies for the environment editor.
- * - "create": name and proxy URL are required; blank optional fields are omitted; time zone
- *   and language are canonicalised (america/los_angeles -> America/Los_Angeles, en-us -> en-US).
+ * - "create": the name is required; blank optional fields are omitted; time zone and language
+ *   are canonicalised (america/los_angeles -> America/Los_Angeles, en-us -> en-US).
  * - "edit": per field, undefined or blank = unchanged, null = clear, string = set. The name and
  *   account label go to PATCH /api/environments/:id, the rest to PUT .../computer/settings.
  *   The name can't be cleared.
@@ -489,10 +417,7 @@ export function environmentPayload(
   if (mode === "create") {
     const name = validName(form.name ?? "");
     if (failed(name)) return name;
-    const proxyUrl = given(form.proxyUrl)?.trim();
-    const proxyId = given(form.proxyId)?.trim();
-    if (!proxyUrl && !proxyId) return { error: "Proxy URL is required" };
-    const create: CreateEnvironmentBody = proxyId ? { name, proxyId } : { name, proxyUrl };
+    const create: CreateEnvironmentBody = { name };
     const label = validLabel(form.accountLabel ?? "");
     if (failed(label)) return label;
     if (label) create.accountLabel = label;
@@ -525,11 +450,6 @@ export function environmentPayload(
     if (failed(label)) return label;
     patch.accountLabel = label;
   }
-  // Which entries the account uses (null: none).
-  if (given(form.proxyId)) patch.proxyId = form.proxyId as string;
-  const proxyUrl = given(form.proxyUrl);
-  if (form.proxyUrl === null) settings.proxyUrl = null;
-  else if (proxyUrl) settings.proxyUrl = proxyUrl.trim();
   const timezone = given(form.timezone);
   if (form.timezone === null) settings.timezone = null;
   else if (timezone) {
@@ -666,7 +586,7 @@ export function resolveThreadEnvironment({
 
 /**
  * The feature-off 503 from /api/environments (a server whose computer provider has no
- * environments). Any other 503, such as a proxy page while the API restarts,
+ * environments). Any other 503, such as a gateway page while the API restarts,
  * is an ordinary failure: the feature is not hidden and the thread is not resolved to the
  * default desktop on its account.
  */

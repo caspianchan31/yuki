@@ -1,14 +1,6 @@
-# OpenMuse mobile
+# Yuki mobile
 
 A shared React Native workspace for iOS, Android, and the web preview. The client uses native primitives and the CopilotKit headless hooks; the web preview renders those same screens through React Native Web.
-
-## Demos
-
-[![OpenMuse on iPhone — watch the 38-second demo]]
-
-[iPhone · 38 seconds] · [Desktop web · 42 seconds] · [Recording setup](../../docs/DEMO.md)
-
-Meet OpenMuse's capybara in two different journeys: Hacker News and CopilotKit on iPhone; reading a school-trip email and researching aquarium exhibits on desktop. Results appear inline in chat, with **Take control** opening the same browser session. Send and Stop share the input pill's primary control.
 
 ## Run
 
@@ -39,7 +31,7 @@ The `build:ios` and `build:android` commands validate and export platform JavaSc
 ## Behavior
 
 - Chat, Activity, Ideas, Goals and Apps are the primary navigation. Tasks, timelines and notifications refresh from the durable server state. Apps contains Mail, Calendar, Browser, Files and Connections.
-- Drafts are saved in OpenMuse and can be reopened from Mail. Mail attachments import into Files before reading.
+- Drafts are saved in Yuki and can be reopened from Mail. Mail attachments import into Files before reading.
 - Calendar edits preserve named time zones. Date entry rejects nonexistent times at daylight-saving transitions.
 - Sending mail and creating, changing, or deleting events require a stored proposal and an explicit review decision. Editing a proposal declines the previous version, then opens a new draft.
 - Chat restores/saves AG-UI conversation messages, renders frontend tool cards, and supports interruption, retry, and document references.

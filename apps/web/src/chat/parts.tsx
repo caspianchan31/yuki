@@ -50,11 +50,7 @@ export function SpeakerAvatar({ speaker }: { speaker: GroupSpeaker }) {
     );
     return (
       <span className="bav face" aria-hidden="true">
-        <MemberFace
-          {...faceOf({ name: speaker.name, face: known?.view.face })}
-          size={24}
-          star={speaker.founder}
-        />
+        <MemberFace {...faceOf({ name: speaker.name, face: known?.view.face })} size={24} />
       </span>
     );
   }
@@ -133,9 +129,6 @@ export function Block({
         {head && name ? (
           <div className="head">
             <span className="who">{name}</span>
-            {speaker.kind === "account" && speaker.founder ? (
-              <span className="tag f">{t.group.founderTag}</span>
-            ) : null}
             {tag}
             {time ? <span className="tm">{time}</span> : null}
           </div>

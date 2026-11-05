@@ -12,6 +12,7 @@ import {
 import { isStandingTask } from "../../../../../packages/domain/src/standing.ts";
 import { rhythmLabel, taskEnvironmentId } from "../../../../../packages/domain/src/task-phase.ts";
 import { nextClockRun } from "../../../../../packages/domain/src/template-setup.ts";
+import { t } from "../strings.ts";
 
 const ended = new Set(["succeeded", "cancelled"]);
 
@@ -222,11 +223,15 @@ export function queuedClockWake(
   return nextClockRun(when, zone, new Date(now.getTime() + 60_000));
 }
 
-/** A written clock is not a schedule until the account has a time zone. */
-export function clockNeedsZone(when: string, timezone: string | null | undefined): boolean {
-  if (timezone?.trim()) return false;
+/** Which zone a written clock is read in: 「按 Asia/Shanghai」 for 「每天 7:30」 or 「每周一 9:00」,
+ * empty for anything else (an interval has no clock) or when there is no zone to name. */
+export function clockZoneNote(when: string, timezone: string | null | undefined): string {
+  const zone = timezone?.trim();
+  if (!zone) return "";
   const text = when.trim();
-  return /^每天\s*\d{1,2}:\d{2}/.test(text) || /^每周[一二三四五六日]\s*\d{1,2}:\d{2}/.test(text);
+  const clock =
+    /^每天\s*\d{1,2}:\d{2}/.test(text) || /^每周[一二三四五六日]\s*\d{1,2}:\d{2}/.test(text);
+  return clock ? t.settings.clockZone(zone) : "";
 }
 
 /** The day a usage total was counted (`YYYY-MM-DD` from the server), as a short date. */

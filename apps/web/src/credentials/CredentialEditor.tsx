@@ -2,8 +2,7 @@
  * Phase C (docs/web.md): add a credential to the current project, or replace parts of one,
  * from packages/client/src/shell/credentials/CredentialEditor.tsx. A site login: 站点, 用户名, 密码,
  * 两步验证密钥 (the key, not a code), Cookie (a pasted export), used by one account or by the
- * project's default desktop; a proxy, used by any of the project's accounts; a
- * mailbox (SMTP, and IMAP when given). Saved values are never shown back: a saved part reads
+ * project's default desktop; a mailbox (SMTP, and IMAP when given). Saved values are never shown back: a saved part reads
  * 「已保存」 and its input stays empty (typing replaces it); secrets are password inputs. Saving a
  * login makes the AI sign the account in by itself (a task per site).
  */
@@ -26,7 +25,6 @@ import { credentialsChanged, useCredentials } from "@m/shell/credentials/useCred
 import { useShellData } from "@m/shell/data";
 import { useShellNav } from "@m/shell/nav";
 import { t } from "@m/shell/strings";
-import { useExitsPort, usePlatformEnv } from "@m/tenancy-client";
 import { useWorkspace } from "@m/workspace";
 import { ArrowLeft } from "lucide-react";
 import { type FormEvent, useId, useMemo, useState } from "react";
@@ -65,18 +63,11 @@ export function CredentialEditor({ panel, onClose }: PanelProps<"credentialEdito
   const a = t.accountEditor;
   const formId = useId();
   const cookiesId = useId();
-  const platformEnv = usePlatformEnv();
-  const { platformKind } = useExitsPort();
   const entry = entryId ? (list?.entries.find((item) => item.id === entryId) ?? null) : null;
   const [kind, setKind] = useState<CredentialKind>(
-    preset && !platformKind(preset.kind, platformEnv)
-      ? preset.kind
-      : computer
-        ? "site_login"
-        : "mailbox",
+    preset ? preset.kind : computer ? "site_login" : "mailbox",
   );
   const [label, setLabel] = useState("");
-  const [proxyUrl, setProxyUrl] = useState("");
   const [login, setLogin] = useState<LoginDraft>({ ...emptyLogin, site: preset?.site ?? "" });
   // A mailbox's address, password and servers.
   const [mailbox, setMailbox] = useState<MailboxDraft>(emptyMailbox);
@@ -152,7 +143,6 @@ export function CredentialEditor({ panel, onClose }: PanelProps<"credentialEdito
     if (entry) {
       body = {};
       if (label.trim() !== (entry.label ?? "")) body.label = label.trim() || null;
-      if (entry.kind === "proxy" && proxyUrl.trim()) body.proxyUrl = proxyUrl.trim();
       if (entry.kind === "mailbox") {
         const made = mailboxBody(mailbox, "replace");
         if ("error" in made) {
@@ -183,8 +173,7 @@ export function CredentialEditor({ panel, onClose }: PanelProps<"credentialEdito
       }
     } else {
       body = { kind, ...(label.trim() ? { label: label.trim() } : {}), usedBy: usedBy(chosen) };
-      if (kind === "proxy") body.proxyUrl = proxyUrl.trim();
-      else if (kind === "mailbox") {
+      if (kind === "mailbox") {
         const made = mailboxBody(mailbox, "create");
         if ("error" in made) {
           setError(made.error as string);
@@ -247,7 +236,6 @@ export function CredentialEditor({ panel, onClose }: PanelProps<"credentialEdito
       </Sheet>
     );
   const newTitles: Partial<Record<CredentialKind, string>> = {
-    proxy: e.newProxy,
     mailbox: e.newMailbox,
   };
   const title = entry ? e.replaceTitle(entryWhat(entry)) : (newTitles[kind] ?? e.newLogin);
@@ -276,8 +264,6 @@ export function CredentialEditor({ panel, onClose }: PanelProps<"credentialEdito
   const kindOptions: { value: CredentialKind; label: string }[] = [
     // With no computer connected a mailbox is the only credential.
     ...(computer ? [{ value: "site_login" as const, label: c.addLogin }] : []),
-    // No proxy where the platform sets them up.
-    ...(platformEnv || !computer ? [] : [{ value: "proxy" as const, label: c.addProxy }]),
     { value: "mailbox", label: c.addMailbox },
   ];
   const submit = (event: FormEvent) => {
@@ -322,17 +308,6 @@ export function CredentialEditor({ panel, onClose }: PanelProps<"credentialEdito
           onChange={(ev) => setLabel(ev.target.value)}
           disabled={busy}
         />
-        {shownKind === "proxy" ? (
-          <Field
-            {...secretProps}
-            label={e.proxyUrl}
-            placeholder={e.proxyPlaceholder}
-            hint={saved(true) ?? a.proxyHint}
-            value={proxyUrl}
-            onChange={(ev) => setProxyUrl(ev.target.value)}
-            disabled={busy}
-          />
-        ) : null}
         {shownKind === "mailbox" ? (
           <>
             <Field

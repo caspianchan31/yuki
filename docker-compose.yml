@@ -1,0 +1,90 @@
+# Yuki with its own computer: two containers (docs/computer-container.md).
+#   yuki      the service: the web app and the API, on the one published port
+#   computer  the members' computer: a Linux desktop with a browser, a terminal and files
+# Members work only in `computer`, never on your machine. You watch its screen live, take it
+# over and hand it back from a member's card. Settings come from .env (see .env.example).
+#   docker compose up -d --build
+name: yuki
+
+services:
+  yuki:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # The address your browser opens Yuki at; it is built into the web app.
+        PUBLIC_API_URL: ${YUKI_PUBLIC_URL:-http://localhost:${YUKI_PORT:-8787}}
+    init: true
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      WORKSPACE_MODE: live
+      HOST: 0.0.0.0
+      PORT: "8787"
+      DATA_DIR: /data
+      WEB_DIR: /app/web
+      PUBLIC_API_URL: ${YUKI_PUBLIC_URL:-http://localhost:${YUKI_PORT:-8787}}
+      ALLOWED_ORIGINS: ${YUKI_PUBLIC_URL:-http://localhost:${YUKI_PORT:-8787}}
+      DESKTOP_URL: http://computer:7070
+      DESKTOP_TOKEN_FILE: /computer-secrets/token
+      DESKTOP_IDLE_MINUTES: ${DESKTOP_IDLE_MINUTES:-15}
+    ports:
+      # Only the service is published, and only on this machine unless YUKI_BIND says otherwise.
+      - "${YUKI_BIND:-127.0.0.1}:${YUKI_PORT:-8787}:8787"
+    volumes:
+      - yuki-data:/data
+      - yuki-keys:/keys
+      - computer-secrets:/computer-secrets:ro
+    depends_on:
+      computer:
+        condition: service_healthy
+    networks:
+      - link
+      - edge
+    mem_limit: ${YUKI_MEMORY:-1g}
+    pids_limit: 512
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  computer:
+    build:
+      context: ./apps/desktop
+    init: true
+    restart: unless-stopped
+    environment:
+      DESKTOP_TOKEN_FILE: /secrets/token
+      DESKTOP_SIZE: ${DESKTOP_SIZE:-1280x800}
+      TZ: ${TZ:-UTC}
+    volumes:
+      # The members' files, shared by all of them. The token is made here on the first start.
+      - computer-workspace:/workspace
+      - computer-secrets:/secrets
+    networks:
+      - link
+      - outside
+    mem_limit: ${COMPUTER_MEMORY:-2g}
+    shm_size: 512m
+    pids_limit: 1024
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  # The service and the computer talk here and nowhere else: no way in from the host, no way out.
+  link:
+    internal: true
+  # The service's way to the model provider and to the published port.
+  edge: {}
+  # The computer's way to the internet (its browser).
+  outside: {}
+
+volumes:
+  yuki-data:
+  yuki-keys:
+  computer-workspace:
+  computer-secrets:

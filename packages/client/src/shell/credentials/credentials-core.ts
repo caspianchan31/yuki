@@ -1,7 +1,7 @@
 /**
  * The pure logic of the credentials page and of the
  * account editor's site logins: reading GET /api/credentials and its history defensively, the
- * page's groups (待补, 发信邮箱, 代理, 站点登录 by account then 本项目用), each row's lines, the
+ * page's groups (待补, 发信邮箱, 站点登录 by account then 本项目用), each row's lines, the
  * history lines, and what a login form may send (never a value back). No react-native, no fetch:
  * node:test pins it (apps/mobile/test/shell-credentials.test.ts).
  */
@@ -14,7 +14,6 @@ import type {
   CredentialUsedBy,
   CredentialView,
   MailboxParts,
-  ProxyParts,
   SiteLoginParts,
 } from "../../../../../packages/domain/src/credentials.ts";
 import { mailboxRequestSite } from "../../../../../packages/domain/src/credentials.ts";
@@ -27,7 +26,8 @@ const record = (value: unknown): Record<string, unknown> =>
     ? (value as Record<string, unknown>)
     : {};
 const text = (value: unknown) => (typeof value === "string" && value ? value : null);
-const kinds: readonly CredentialKind[] = ["proxy", "site_login", "mailbox"];
+// v1.5: only site logins and mailboxes are credentials; the server lists no other kind.
+const kinds: readonly CredentialKind[] = ["site_login", "mailbox"];
 
 export interface CredentialList {
   entries: CredentialView[];
@@ -48,13 +48,6 @@ function usedByOf(value: unknown): NamedUser[] {
 }
 function partsOf(kind: CredentialKind, value: unknown) {
   const parts = record(value);
-  if (kind === "proxy")
-    return {
-      scheme: text(parts.scheme) ?? "",
-      host: text(parts.host) ?? "",
-      port: typeof parts.port === "number" ? parts.port : 0,
-      auth: parts.auth === true,
-    } satisfies ProxyParts;
   if (kind === "mailbox")
     return {
       address: text(parts.address) ?? "",
@@ -146,9 +139,6 @@ const actorOf = (value: unknown): CredentialActor => {
     return { type: "system", what: (text(actor.what) ?? "desktop_start") as "desktop_start" };
   // The member who did it, when the server named one.
   const userId = text(actor.userId);
-  // The platform operator set up the space's environment.
-  if (actor.platform === true)
-    return { type: "owner", ...(userId ? { userId } : {}), platform: true };
   return userId ? { type: "owner", userId } : { type: "owner" };
 };
 /** GET /api/credentials/audit, read defensively. */
@@ -188,13 +178,9 @@ export function normalizeAudit(payload: unknown): CredentialAuditPage {
 
 // ───────────────────────────── the page ─────────────────────────────
 
-/** What an entry is, in one line: 「example.com · alice」, 「socks5://h:1 · 带用户名密码」. */
+/** What an entry is, in one line: 「example.com · alice」, a mailbox's address. */
 export function entryWhat(entry: CredentialView): string {
   const c = t.credentials;
-  if (entry.kind === "proxy") {
-    const parts = entry.parts as ProxyParts;
-    return c.proxyWhat(`${parts.scheme}://${parts.host}:${parts.port}`, parts.auth);
-  }
   if (entry.kind === "mailbox") {
     const parts = entry.parts as MailboxParts;
     return c.mailboxWhat(parts.address, !!parts.imapHost);
@@ -254,12 +240,10 @@ export interface CredentialSection {
   title: string;
   entries: CredentialView[];
 }
-/** The page's groups: 代理, then 站点登录 by account (by name) and 本项目用. */
-export function credentialSections(list: CredentialList, platformEnv = false): CredentialSection[] {
+/** The page's groups: 发信邮箱, then 站点登录 by account (by name) and 本项目用. */
+export function credentialSections(list: CredentialList): CredentialSection[] {
   const c = t.credentials;
   const byKind = (kind: CredentialKind) => list.entries.filter((entry) => entry.kind === kind);
-  // The platform's own entries have no section there.
-  const platform = (key: string) => platformEnv && key === "proxy";
   const logins = byKind("site_login");
   const owners = new Map<string, { title: string; entries: CredentialView[] }>();
   for (const entry of logins) {
@@ -286,25 +270,15 @@ export function credentialSections(list: CredentialList, platformEnv = false): C
     [...entries].sort((a, b) => (a.site ?? "").localeCompare(b.site ?? ""));
   return [
     { key: "mailbox", title: c.groups.mailboxes, entries: byKind("mailbox") },
-    { key: "proxy", title: c.groups.proxies, entries: byKind("proxy") },
     ...[...accountGroups, ...rest].map(([key, group]) => ({
       key: `logins:${key}`,
       title: `${c.groups.logins} · ${group.title}`,
       entries: sortLogins(group.entries),
     })),
-  ].filter((section) => !platform(section.key));
-}
-/** The list a member of a platform-set-up space works with: no proxy and
- * no platform entries (the server no longer lists them; an older answer is filtered here too). */
-export function memberCredentials(list: CredentialList, platformEnv: boolean): CredentialList {
-  if (!platformEnv) return list;
-  return {
-    ...list,
-    entries: list.entries.filter((entry) => entry.kind !== "proxy"),
-  };
+  ];
 }
 /** With no computer connected (未接电脑) the project's only credentials are its mailboxes: no
- * site login, proxy or request for one is shown. */
+ * site login or request for one is shown. */
 export function withoutComputer(list: CredentialList): CredentialList {
   return {
     ...list,
@@ -409,11 +383,9 @@ export function auditLine(
   const actor = row.actor;
   const who =
     actor.type === "owner"
-      ? actor.platform
-        ? log.platform
-        : actor.userId && actor.userId !== options.me
-          ? (options.members?.get(actor.userId) ?? log.owner)
-          : log.owner
+      ? actor.userId && actor.userId !== options.me
+        ? (options.members?.get(actor.userId) ?? log.owner)
+        : log.owner
       : actor.type === "task"
         ? log.task(actor.title)
         : actor.type === "chat"

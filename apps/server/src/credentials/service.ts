@@ -1,8 +1,8 @@
 // The credential store as the owner and the rest of
 // the server use it, per project. Every call takes the request's (or task's, or conversation's)
 // project owner and acts on that project's scope only; an account named in `usedBy` must be one of
-// that project's live accounts. What follows a save (the AI signs in, a running desktop takes a new
-// proxy, a task that asked for a login is woken) starts here.
+// that project's live accounts. What follows a save (the AI signs in, a task that asked for a login
+// is woken) starts here.
 import { z } from "zod";
 import {
   type CredentialRequestView,
@@ -17,7 +17,7 @@ import type { Store, StoreQuery } from "../db.ts";
 import { type EnvironmentService, envOwner, scopeOfOwner } from "../environments.ts";
 import { AppError } from "../errors.ts";
 import { ownerActor } from "../request-actor.ts";
-import { readProxyCheck, readSignIns, removeSignIn, writeSignIn } from "./facts.ts";
+import { readSignIns, removeSignIn, writeSignIn } from "./facts.ts";
 import { siteOf } from "./site.ts";
 import type { CredentialPatch, CredentialStore } from "./store.ts";
 
@@ -38,8 +38,6 @@ export interface SignInStarter {
   ): Promise<void>;
   /** The AI looks again at a site that needed a code; false when there was nothing to look at. */
   recheckSignIn(owner: string, usedBy: CredentialUsedBy, site: string): Promise<boolean>;
-  /** Something the project's default desktop needed was saved: its operating goal goes on. */
-  projectCredentialSaved(owner: string, text: string): Promise<void>;
   /** Tells the task that asked for something that it is there (and so wakes it);
    * a task waiting on the person's answer is left alone. */
   tellAsker(owner: string, taskId: string, text: string): Promise<void>;
@@ -52,14 +50,13 @@ const usedBySchema = z.union([
 const text = z.string().max(250_000).nullable().optional();
 const createSchema = z
   .object({
-    kind: z.enum(["proxy", "site_login", "mailbox"]),
+    kind: z.enum(["site_login", "mailbox"]),
     label: z.string().max(200).nullable().optional(),
     site: z.string().max(2048).nullable().optional(),
     username: text,
     password: text,
     totpSeed: text,
     cookies: text,
-    proxyUrl: text,
     // A mailbox's address and servers (its password is `password`).
     address: text,
     smtpHost: text,
@@ -86,15 +83,6 @@ const notFound = () => new AppError("Credential not found", 404);
 export class CredentialService {
   /** Set by the app: the agent service. */
   agent?: SignInStarter;
-  /** True when the request's member may not see `owner`'s platform entries
-   * (a space the platform sets up: they see its exits at /api/exits instead). */
-  systemHidden?: (owner: string) => Promise<boolean>;
-  private async hidden(owner: string) {
-    return (await this.systemHidden?.(owner)) ?? false;
-  }
-  private static system(kind: string) {
-    return kind === "proxy";
-  }
   constructor(
     private readonly db: Store,
     readonly store: CredentialStore,
@@ -133,30 +121,25 @@ export class CredentialService {
   async list(owner: string) {
     const scope = scopeOfOwner(owner);
     const names = await this.names(owner);
-    const hidden = await this.hidden(owner);
-    const entries = (await this.store.list(scope))
-      .filter((entry) => !hidden || !CredentialService.system(entry.kind))
-      .map(
-        (entry): CredentialView => ({
-          ...entry,
-          usedBy: entry.usedBy.map((user) => this.named(names, user)),
-        }),
-      );
+    const entries = (await this.store.list(scope)).map(
+      (entry): CredentialView => ({
+        ...entry,
+        usedBy: entry.usedBy.map((user) => this.named(names, user)),
+      }),
+    );
     const requests = (await this.store.requests(scope)).map((request) => ({
       ...request,
       for: this.named(names, request.for),
     }));
     return { entries, requests };
   }
-  /** The project's own sign-in facts (the logins its default desktop uses) and its default
-   * desktop's proxy check, read in the request's scope only: the client's 需要你 builds its
-   * project item from them, by the same rule the project overview counts it (factsNeedYou). */
+  /** The project's own sign-in facts (the logins its default desktop uses), read in the
+   * request's scope only: the client's 需要你 builds its project item from them, by the same
+   * rule the project overview counts it (factsNeedYou). */
   async projectSignIns(owner: string) {
     const scope = scopeOfOwner(owner);
     return {
       signIns: await readSignIns(this.db, scope),
-      proxyCheck: await readProxyCheck(this.db, scope),
-      proxyConfigured: false,
     };
   }
   /** The owner acted on the desktop of an account (or the project's default desktop) for a site
@@ -178,7 +161,6 @@ export class CredentialService {
   async get(owner: string, id: string) {
     const entry = await this.store.get(scopeOfOwner(owner), id);
     if (!entry) throw notFound();
-    if (CredentialService.system(entry.kind) && (await this.hidden(owner))) throw notFound();
     const names = await this.names(owner);
     return { ...entry, usedBy: entry.usedBy.map((user) => this.named(names, user)) };
   }
@@ -191,10 +173,7 @@ export class CredentialService {
     const view = await this.store.create(scopeOfOwner(owner), input, ownerActor(), {
       check: this.memberChecks(owner, usedBy),
     });
-    await this.afterSave(owner, view, {
-      login: view.kind === "site_login",
-      filesFor: view.kind === "site_login" || view.kind === "mailbox" ? [] : view.usedBy,
-    });
+    await this.afterSave(owner, view, view.kind === "site_login");
     if (view.kind === "mailbox") await this.mailboxSaved(owner, view);
     return this.get(owner, view.id);
   }
@@ -251,12 +230,7 @@ export class CredentialService {
     // Any change to what a login signs in with (or where it is used) means signing in again.
     const loginChanged =
       login && after.usedBy.length > 0 && (changed.length > 0 || added.length > 0);
-    // A proxy now serving an account (or no longer serving it) reaches its running desktop.
-    const filesFor =
-      login || after.kind === "mailbox"
-        ? []
-        : [...(changed.length > 0 ? after.usedBy : added), ...removed];
-    await this.afterSave(owner, after, { login: loginChanged, filesFor });
+    await this.afterSave(owner, after, loginChanged);
     if (after.kind === "mailbox" && (changed.length > 0 || added.length > 0))
       await this.mailboxSaved(owner, after);
     return this.get(owner, id);
@@ -266,12 +240,9 @@ export class CredentialService {
     const entry = await this.store.get(scope, id);
     if (!entry) throw notFound();
     await this.store.remove(scope, id, ownerActor());
-    // The accounts a removed proxy served are left without one: their running
-    // desktops too. A removed site login no longer serves its account: its sign-in fact for the
-    // site goes (it named a login that is gone) and so do the open requests it answered.
-    if (entry.kind !== "site_login")
-      await this.afterSave(owner, entry, { login: false, filesFor: entry.usedBy });
-    else if (entry.site)
+    // A removed site login no longer serves its account: its sign-in fact for the site goes (it
+    // named a login that is gone) and so do the open requests it answered.
+    if (entry.kind === "site_login" && entry.site)
       for (const user of entry.usedBy) {
         await removeSignIn(this.db, this.factOwner(owner, user), entry.site);
         await this.store.closeRequests(scope, { site: entry.site, for: user }, "withdrawn");
@@ -295,13 +266,6 @@ export class CredentialService {
     const scope = scopeOfOwner(owner);
     if (query.entry && !(await this.store.get(scope, query.entry))) throw notFound();
     const page = await this.store.history(scope, query);
-    if (await this.hidden(owner)) {
-      if (query.entry) {
-        const entry = await this.store.get(scope, query.entry);
-        if (entry && CredentialService.system(entry.kind)) throw notFound();
-      }
-      page.rows = page.rows.filter((row) => !CredentialService.system(row.entryKind));
-    }
     // A line the owner wrote before members existed names nobody. Only the
     // first space has such lines, and only its first user used the workspace then: they are his,
     // so another member never reads them as 「你」.
@@ -316,7 +280,7 @@ export class CredentialService {
     };
   }
   /** A mailbox was saved: the requests for one close (the
-   * project's and its accounts'), and the project's operating task is told so it sends. */
+   * project's and its accounts'), and the tasks that asked for it are told so they send. */
   private async mailboxSaved(owner: string, view: CredentialView) {
     const scope = scopeOfOwner(owner);
     const users: CredentialUsedBy[] = [{ type: "project" }, ...view.usedBy];
@@ -329,20 +293,13 @@ export class CredentialService {
       ))
         if (request.by.taskId) asked.add(request.by.taskId);
     const text = "本项目的发信邮箱已设好，可以发邮件了。";
-    // The tasks that asked for it are told (and so woken), whatever kind they are; a role without
-    // an operating plan (the store's logistics) would otherwise wait out its own wait.
+    // The tasks that asked for it are told (and so woken), whatever kind they are.
     for (const taskId of asked) await this.agent?.tellAsker(owner, taskId, text);
-    await this.agent?.projectCredentialSaved(owner, text);
   }
   /** What follows a save: a saved or replaced login is marked pending and the AI signs in (or the
-   * task that asked for it is woken); with a computer, an entry now serving (or no longer
-   * serving) an account reaches its desktop. */
-  private async afterSave(
-    owner: string,
-    view: CredentialView,
-    changed: { login: boolean; filesFor: CredentialUsedBy[] },
-  ) {
-    if (changed.login && view.site)
+   * task that asked for it is woken). */
+  private async afterSave(owner: string, view: CredentialView, login: boolean) {
+    if (login && view.site)
       for (const user of view.usedBy) await this.loginSaved(owner, user, view.site);
   }
   /** A login of `site` was saved for `usedBy`: the sign-in fact turns to `pending` ("saved,

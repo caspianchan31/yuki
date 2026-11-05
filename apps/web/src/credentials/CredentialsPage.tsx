@@ -1,13 +1,12 @@
 /**
  * Phase C (docs/web.md): the 凭据 page, from packages/client/src/shell/credentials/CredentialsPage.tsx.
- * The one place the owner manages every credential of the current project: 发信邮箱, 代理,
+ * The one place the owner manages every credential of the current project: 发信邮箱,
  * each account's site logins and 本项目用. Values are never shown back. Read when
  * opened and after each change; never polled.
  *
  * Quiet-core manner: a card only for what the owner has to judge (待补, a credential whose last
  * use failed or that cannot be read), then quiet groups (empty ones left out), a row opening to
- * its times and actions. Platform-set-up spaces (邀请码注册 P0 ①): no proxy, no
- * section and no 添加 for them (memberCredentials, credentialSections, quietGroups).
+ * its times and actions.
  */
 
 import { noContent } from "@m/projects-core";
@@ -15,7 +14,6 @@ import { credentialErrorText } from "@m/shell/accounts/hooks";
 import {
   entryWhat,
   loginParts,
-  memberCredentials,
   requestLine,
   requestPreset,
   timesLine,
@@ -31,7 +29,6 @@ import { credentialsChanged, useCredentials } from "@m/shell/credentials/useCred
 import { useShellData } from "@m/shell/data";
 import { useShellNav } from "@m/shell/nav";
 import { t } from "@m/shell/strings";
-import { usePlatformEnv } from "@m/tenancy-client";
 import { useWorkspace } from "@m/workspace";
 import { Plus } from "lucide-react";
 import { useState } from "react";
@@ -43,7 +40,7 @@ import { Avatar, Btn, cx, ErrorLine, Skeleton } from "../ui/primitives";
 import "./credentials.css";
 
 type Api = ReturnType<typeof useCredentials>["api"];
-type AddKind = "site_login" | "proxy" | "mailbox";
+type AddKind = "site_login" | "mailbox";
 
 export function CredentialsPage() {
   const nav = useShellNav();
@@ -51,13 +48,9 @@ export function CredentialsPage() {
   const c = t.credentials;
   const { api, list: read, loading, error } = useCredentials();
   const [adding, setAdding] = useState(false);
-  // The platform sets up this space's proxies; members
-  // see neither (no section, no 添加) and manage site logins and mailboxes as before.
-  const platformEnv = usePlatformEnv();
   // With no computer connected only mailboxes are shown and added.
   const computer = useWorkspace().workspace.runtime.computer !== false;
-  const shown = read ? memberCredentials(read, platformEnv) : null;
-  const list = shown && !computer ? withoutComputer(shown) : shown;
+  const list = read && !computer ? withoutComputer(read) : read;
   const add = (kind: AddKind) => {
     setAdding(false);
     nav.openPanel({ kind: "credentialEditor", preset: { kind } });
@@ -65,7 +58,6 @@ export function CredentialsPage() {
   const kinds: { kind: AddKind; label: string }[] = [
     { kind: "mailbox", label: c.addMailbox },
     ...(computer ? [{ kind: "site_login" as const, label: c.addLogin }] : []),
-    ...(platformEnv || !computer ? [] : [{ kind: "proxy" as const, label: c.addProxy }]),
   ];
   const openRequest = (request: CredentialRequestView) =>
     nav.openPanel({ kind: "credentialEditor", preset: requestPreset(request) });
@@ -88,7 +80,6 @@ export function CredentialsPage() {
             ))
           : null}
       </div>
-      {platformEnv ? <p className="cred-note">{c.platformProxy}</p> : null}
       <ErrorLine error={error} />
       {loading && !list ? <Skeleton lines={5} /> : null}
 
@@ -129,7 +120,7 @@ export function CredentialsPage() {
       {list ? (
         <>
           {empty ? <p className="muted">{c.none}</p> : null}
-          {quietGroups(list, platformEnv).map((group) => (
+          {quietGroups(list).map((group) => (
             <section key={group.key} className="cred-grp">
               <h3>
                 {group.account ? <Avatar initial={group.account.initial} state="idle" /> : null}

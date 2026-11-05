@@ -3,8 +3,8 @@
  * what to do next. The pure decisions behind it, so node:test can pin them
  * (apps/mobile/test/shell-focus.test.ts):
  *   nextSteps     需要你's items as one sentence and one button each, most urgent first: what
- *                 stops an account from acting at all (a site handed it over, a code, a ban, no
- *                 or a broken proxy, a desktop error), then a task's question or review (and a
+ *                 stops an account from acting at all (a site handed it over, a code, a ban, a
+ *                 desktop error), then a task's question or review (and a
  *                 paused standing loop), then a failed task (a failed standing loop first), then
  *                 a missing or wrong login, then an account that is not operating at all (no
  *                 long-term goal, no job: 定目标); ties newest first. One step per
@@ -20,7 +20,6 @@ import { needGuides } from "./chat/guide-core.ts";
 import {
   type AccountFlag,
   type AccountModel,
-  anyKind,
   type NeedItem,
   siteFlag,
   type TaskEntry,
@@ -74,14 +73,11 @@ const ms = (iso: string | null | undefined): number | null => {
 /** A flag's category: a missing or wrong login comes late, an account that is not operating last;
  * anything else stops the account. */
 export function flagCategory(flag: AccountFlag): StepCategory {
-  if (flag === "idle") return "idle";
   const site = siteFlag(flag);
   return site?.status === "no_login" || site?.status === "wrong_password" ? "login" : "blocked";
 }
-/** Within one item: the handover, a code, a ban, the proxy, the desktop, then the logins, then
- * whether it operates at all. */
+/** Within one item: the handover, a code, a ban, the desktop, then the logins. */
 const flagOrder = (flag: AccountFlag): number => {
-  if (flag === "idle") return 9;
   const site = siteFlag(flag);
   if (site)
     return {
@@ -93,9 +89,7 @@ const flagOrder = (flag: AccountFlag): number => {
       wrong_password: 7,
       no_login: 8,
     }[site.status];
-  return { noProxy: 3, noExit: 3, proxyDown: 4, proxyUnreadable: 5, desktopError: 6 }[
-    flag as "noProxy" | "noExit" | "proxyDown" | "proxyUnreadable" | "desktopError"
-  ];
+  return 6;
 };
 
 /** The subject of a flag's sentence: 「Nova_Harrison 」 or 「本项目」. */
@@ -141,33 +135,17 @@ function flagStep(
         return { text: f.noLogin(subject, site.site), button: "fill", action: guideOr(look) };
     }
   }
-  if (flag === "noProxy")
-    return { text: f.noProxy(subject), button: "fill", action: guideOr({ kind: "credentials" }) };
-  // An exit is picked in the account (its 编辑), never typed.
-  if (flag === "noExit") return { text: t.exits.focus(subject), button: "look", action: look };
-  // Its long-term goal is set in its detail (the job is given in the chat).
-  if (flag === "idle") return { text: f.idle(subject), button: "goal", action: look };
-  if (flag === "proxyDown")
-    return { text: f.proxyDown(subject), button: "fill", action: guideOr({ kind: "credentials" }) };
-  if (flag === "proxyUnreadable")
-    return {
-      text: f.proxyUnreadable(subject),
-      button: "fill",
-      action: guideOr({ kind: "credentials" }),
-    };
   return { text: f.desktopError(subject), button: "look", action: look };
 }
 
-/** When an account's or the project's fact was recorded: the site's latest fact, or the proxy's
- * last check. */
+/** When an account's or the project's fact was recorded: the site's latest fact. */
 function flagAt(item: Extract<NeedItem, { kind: "account" | "project" }>, flag: AccountFlag) {
   const site = siteFlag(flag);
   if (item.kind === "account") {
     if (site) return ms(item.account.view.signIns?.find((fact) => fact.site === site.site)?.at);
-    if (flag === "proxyDown") return ms(item.account.view.proxyCheck?.at);
     return null;
   }
-  return flag === "proxyDown" ? ms(item.proxyCheck?.at) : null;
+  return null;
 }
 
 /** One 需要你 item as its next step (its most urgent fact for an account or the project). */
@@ -282,7 +260,7 @@ const sameDay = (a: number, b: number) => {
  * anything to move, the line says first that nothing moves (the 进度汇报 page's words) and
  * nothing reads as running. */
 export function summaryLine(input: {
-  accounts: readonly Pick<AccountModel, "tasks" | "pacing">[];
+  accounts: readonly Pick<AccountModel, "tasks">[];
   entries: readonly TaskEntry[];
   waiting: number;
   now: Date | number;
@@ -299,19 +277,11 @@ export function summaryLine(input: {
     (entry) => entry.phase.key === "wait" || entry.phase.key === "sched",
   ).length;
   const stuck = input.stalled && input.entries.some((entry) => toMove.has(entry.phase.key));
-  const actions = input.accounts.reduce(
-    (sum, account) =>
-      sum +
-      Object.entries(account.pacing.status?.usedToday ?? {})
-        .filter(([kind]) => kind !== anyKind)
-        .reduce((n, [, used]) => n + Math.max(0, used), 0),
-    0,
-  );
   const finished = input.entries.filter((entry) => {
     const at = ms(entry.phase.at);
     return entry.phase.key === "done" && at !== null && sameDay(at, now);
   }).length;
-  const done = actions + finished;
+  const done = finished;
   const parts = [
     stuck ? t.progress.stalled : "",
     running ? s.running(running) : "",

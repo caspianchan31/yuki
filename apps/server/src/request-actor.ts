@@ -8,9 +8,6 @@ export interface RequestActor {
   userId: string;
   /** The space the request acts in; null on user-level routes. */
   spaceKey: string | null;
-  /** The platform operator setting up a space's environment from 所有空间
-   * (he is not one of its members). */
-  platform?: boolean;
 }
 
 const storage = new AsyncLocalStorage<RequestActor>();
@@ -28,8 +25,5 @@ export function currentActor(): RequestActor | null {
 /** A credential history line's actor for something the owner (a member) did. */
 export function ownerActor(): CredentialActor {
   const actor = currentActor();
-  if (!actor) return { type: "owner" };
-  return actor.platform
-    ? { type: "owner", userId: actor.userId, platform: true }
-    : { type: "owner", userId: actor.userId };
+  return actor ? { type: "owner", userId: actor.userId } : { type: "owner" };
 }

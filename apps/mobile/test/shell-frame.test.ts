@@ -129,19 +129,6 @@ test("project rows: Yuki first, then needs, then latest activity; current from l
     [false, true, false, false],
   );
   assert.equal(rows[1].needsYou, 1);
-  // The founder lives in the hall, so N1 counts her there; she is its 创始人, never 未分配.
-  const withFounder = projectRows({
-    overview: [overview(null, "", 1), overview(P1, "acmegame", 1)],
-    projects: [project(P1, "acmegame", 1)],
-    projectsAvailable: true,
-    current: null,
-    currentCounts: null,
-    founderInHall: true,
-  });
-  assert.deepEqual(
-    withFounder.map((row) => row.countLabel),
-    ["0 个未分配", "1 个成员"],
-  );
 });
 
 test("from another project, the hall's 需要你 (a pending review there) shows on its row and in the total", () => {

@@ -49,7 +49,6 @@ export function Shell({ toast, clearToast, error, prompt }: ShellProps) {
   const frame = useFrame();
   const { totalNeedsYou } = useShellData();
   const ui = useTenancyUi();
-  const opening = ui.useStoreOpening();
   // ⌘K / Ctrl+K anywhere opens the palette.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -91,12 +90,10 @@ export function Shell({ toast, clearToast, error, prompt }: ShellProps) {
   // the member pane nor a panel covers the whole screen over it (app.css): what it records as
   // seen is only what the person can see (ChatArea's `inView`).
   const chatInView = page === "work" && !(narrow && (showPane || !!nav.panel));
-  const platformNeeds = ui.usePlatformNeeds();
-  // The tab's title counts what 需要你 counts: the operator's 平台管理 items too.
-  const needsYou = totalNeedsYou + platformNeeds;
+  // The tab's title counts what 需要你 counts.
   useEffect(() => {
-    document.title = t.app.tabTitle(needsYou);
-  }, [needsYou]);
+    document.title = t.app.tabTitle(totalNeedsYou);
+  }, [totalNeedsYou]);
   // Choosing one of the shell's own views (the conversation, 凭据) leaves 平台管理; only a
   // change of view does (the page loading with the tab in its address keeps it).
   const viewBefore = useRef(nav.view);
@@ -127,35 +124,27 @@ export function Shell({ toast, clearToast, error, prompt }: ShellProps) {
       <div className="scrim" onClick={() => setFrame({ drawer: false })} aria-hidden="true" />
       <main className="main">
         <Topbar />
-        {opening ? (
-          <div className="content">
-            <ui.StoreOpening />
+        <BannerSlot workspaceError={error} />
+        {/* The conversation stays mounted while a page is open, so it keeps its state. */}
+        <div className="chat-host" style={{ display: page === "work" ? "flex" : "none" }}>
+          <div className="chat-col">
+            <ChatArea prompt={prompt} inView={chatInView} />
           </div>
-        ) : (
-          <>
-            <BannerSlot workspaceError={error} />
-            {/* The conversation stays mounted while a page is open, so it keeps its state. */}
-            <div className="chat-host" style={{ display: page === "work" ? "flex" : "none" }}>
-              <div className="chat-col">
-                <ChatArea prompt={prompt} inView={chatInView} />
-              </div>
-            </div>
-            {page === "platform" && platform ? (
-              <div className="content">
-                <Suspense fallback={pageFallback}>
-                  <ui.PlatformPage tab={platform} />
-                </Suspense>
-              </div>
-            ) : null}
-            {page === "credentials" ? (
-              <div className="content">
-                <Suspense fallback={pageFallback}>
-                  <CredentialsPage />
-                </Suspense>
-              </div>
-            ) : null}
-          </>
-        )}
+        </div>
+        {page === "platform" && platform ? (
+          <div className="content">
+            <Suspense fallback={pageFallback}>
+              <ui.PlatformPage tab={platform} />
+            </Suspense>
+          </div>
+        ) : null}
+        {page === "credentials" ? (
+          <div className="content">
+            <Suspense fallback={pageFallback}>
+              <CredentialsPage />
+            </Suspense>
+          </div>
+        ) : null}
         <TabBar page={page} />
       </main>
       <aside className="pane" aria-label={t.web.details}>

@@ -8,7 +8,6 @@
 import { useProjects } from "@m/projects-state";
 import { accountErrorText, environmentPath, useAccountOps } from "@m/shell/accounts/hooks";
 import { useShellData } from "@m/shell/data";
-import { useFounderRef } from "@m/shell/founder/useFounder";
 import { useProjectRows } from "@m/shell/frame/useProjectRows";
 import {
   groupChoices,
@@ -40,7 +39,6 @@ export function GroupMembers({ onClose }: { onClose: () => void }) {
   const { notify } = useWorkspace();
   const groupName = useGroupName();
   const everyone = useAllMembers();
-  const founderId = useFounderRef()?.environmentId ?? null;
   const name = rows.find((row) => row.id === current)?.name ?? "这个群";
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState("");
@@ -50,7 +48,7 @@ export function GroupMembers({ onClose }: { onClose: () => void }) {
   const members = data.accounts.value
     .filter((account) => account.projectId === current)
     .map((account) => {
-      const card = accountMember(account, data.now, founderId === account.id, data.stalled);
+      const card = accountMember(account, data.now, data.stalled);
       return {
         id: account.id,
         name: account.name,

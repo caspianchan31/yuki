@@ -97,12 +97,21 @@ test("a template is saved as persona, goal and one repeating task per routine wi
   };
   const template = memberTemplateById("morning-brief");
   assert.ok(template);
-  await applyMemberTemplate(api, template, "env 1", "Asia/Shanghai");
+  await applyMemberTemplate(api, template, "env 1", "Asia/Shanghai", "小晨");
   assert.equal(calls[0].path, "/api/agent/accounts/env%201/persona");
   assert.equal(calls[0].method, "PUT");
   assert.equal(calls[1].path, "/api/agent/accounts/env%201/goal");
   assert.equal(calls[1].method, "PUT");
-  const tasks = calls.slice(2);
+  // Last, her AGENTS.md: her duties and routines, in her own file.
+  const agents = calls.at(-1);
+  assert.ok(agents);
+  assert.equal(agents.path, "/api/members/env%201/files/AGENTS.md");
+  assert.equal(agents.method, "PUT");
+  const written = (agents.body as { content: string }).content;
+  assert.match(written, /^# 小晨\n/);
+  assert.ok(written.includes(template.persona));
+  assert.match(written, /## 例行\n- 每天 7:30 出一页晨报/);
+  const tasks = calls.slice(2, -1);
   assert.equal(tasks.length, 2);
   for (const call of tasks) {
     assert.equal(call.path, "/api/agent/tasks");

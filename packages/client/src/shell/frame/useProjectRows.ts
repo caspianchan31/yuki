@@ -6,14 +6,12 @@
 import { useEffect, useMemo } from "react";
 import { useProjects } from "../../projects-state";
 import { useOverview, useShellData } from "../data";
-import { useFounderRef } from "../founder/useFounder";
 import { type ProjectRowModel, projectRows, unknownProjectIds } from "./project-rows";
 
 export function useProjectRows(): ProjectRowModel[] {
   const { projects, available, current, refresh } = useProjects();
   const overview = useOverview();
   const { counts } = useShellData();
-  const founderInHall = useFounderRef() !== null;
   const rows = useMemo(
     () =>
       projectRows({
@@ -22,9 +20,8 @@ export function useProjectRows(): ProjectRowModel[] {
         projectsAvailable: available,
         current,
         currentCounts: counts,
-        founderInHall,
       }),
-    [overview.projects, projects, available, current, counts, founderInHall],
+    [overview.projects, projects, available, current, counts],
   );
   const unknown = unknownProjectIds(overview.projects, projects).join(",");
   useEffect(() => {

@@ -9,7 +9,7 @@ Connected apps belong to the space: connect once, every member and every project
 - `state`: `connected`, `not_connected`, `not_configured` (the server lacks what it needs: Google client for Google, `SLACK_CLIENT_ID` / `SLACK_CLIENT_SECRET` / `TOKEN_ENCRYPTION_KEY` for Slack, the key for MCP).
 - `gmail`, `google-calendar`: the existing Google connection (`mail.md`); its own 谷歌 row in 设置 connects and disconnects it.
 - `mailbox` (邮箱): the project's own mailbox (`mail.md`, `credentials.md`); added in the project's credentials.
-- `slack`: OAuth v2, redirect `<PUBLIC_API_URL>/api/slack/callback`. Scopes: channels/groups read and history, `chat:write`, `chat:write.public`.
+- `slack`: OAuth v2, redirect `<PUBLIC_API_URL>/api/slack/callback`. Scopes: channels/groups read and history, `users:read` (names), `chat:write`, `chat:write.public`. The API and authorize addresses are Slack's own; `SLACK_API_URL` / `SLACK_AUTHORIZE_URL` replace them for tests and local fakes only.
 - MCP presets (`mcpPresets`, `apps/server/src/apps/mcp.ts`): Notion `https://mcp.notion.com/mcp`, Linear `https://mcp.linear.app/mcp`, GitHub `https://api.githubcopilot.com/mcp/`. Addresses written from memory, not checked against the services from here; marked 预设. Connecting one is the same as adding it as a custom server.
 - 自定义 MCP: name, address, optional bearer token (`POST /api/apps/mcp`).
 
@@ -36,9 +36,10 @@ Connected apps belong to the space: connect once, every member and every project
 
 ## Slack
 
-- `slack_read`: no channel lists channels; a channel (id or name) reads its latest messages (at most 50).
+- `slack_read`: no channel lists channels (name, id, `readable`); a channel (id or name) reads its latest messages (at most 50); with `threadTs` it reads that message and its replies. Each message is name, time, text, link, `ts`; text is cut at 600 characters and one answer at 8000, the newest kept. A channel the Slack app is not in answers that there is no permission and the person must `/invite` it.
 - `prepare_slack_message { channel, text, threadTs? }` → proposal `slack.send`, a message to people (`messageKinds`), so a draft: 发送 · 不发, never let through by the action review's judgment alone. Posted with `chat.postMessage` when sent.
-- Not configured (no client id/secret) or not connected: the tools are absent, `POST /api/apps/slack/connect` answers 503.
+- Not configured (no client id/secret) or not connected: the tools are absent, `POST /api/apps/slack/connect` answers 503. The directory entry carries `note`, the reason: hosted 「暂不可用」; open, which `.env` values are missing and the README steps (「连接 Slack」).
+- The draft card names the channel (`#general`), the message a thread reply answers (`threadPreview`), and the whole text. After 发送 the card shows 已发到 Slack #channel and the message's link (`chat.getPermalink`).
 
 ## UI
 

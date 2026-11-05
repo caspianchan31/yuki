@@ -12,7 +12,6 @@ import { createStore } from "../apps/server/src/db.ts";
 import type { AgentTask } from "../packages/domain/src/agent.ts";
 import type { Mail } from "../packages/domain/src/index.ts";
 import {
-  defaultRoutineZone,
   mailIsNew,
   mailMatches,
   nextRoutineRun,
@@ -143,7 +142,7 @@ test("the when-line and the mail filters", () => {
 
 test("a clock routine waits for its clock in the account's zone, and the run records its cause", async (t) => {
   const h = await harness(t);
-  const zone = defaultRoutineZone; // no computer, so no zone of her own
+  const zone = "Asia/Shanghai"; // no computer, so no zone of her own: the default
   try {
     const account = await h.server.environments.create(owner, {
       name: "Tokyo",

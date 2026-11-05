@@ -84,6 +84,11 @@
   border: 1px solid var(--line2);
   border-radius: var(--r);
 }
+/* A box's own title line (a form inside a pane). */
+.tp-box-title {
+  font-size: 13px;
+  font-weight: 600;
+}
 .tp-box.warn {
   border-color: var(--red-bg);
   background: var(--red-bg);
@@ -446,4 +451,63 @@ button.tp-prow:hover {
 }
 .tp-dates.one {
   grid-template-columns: minmax(0, 1fr);
+}
+
+/* 设置: the pane list on the left, the pane on the right; stacked on a narrow screen. */
+.st {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.st-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  position: sticky;
+  top: 0;
+}
+.st-nav button {
+  text-align: left;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--r);
+  background: none;
+  color: var(--fg2);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.st-nav button:hover {
+  background: var(--bg2);
+}
+.st-nav button[aria-current="page"] {
+  background: var(--bg2);
+  color: var(--fg);
+  font-weight: 600;
+}
+.st-pane {
+  min-width: 0;
+}
+/* The panes are wide: the key column has room for a name such as 「Google 日历」 or a skill's. */
+@media (min-width: 641px) {
+  .st-pane .tp-kv {
+    grid-template-columns: 132px minmax(0, 1fr) auto;
+  }
+}
+@media (max-width: 640px) {
+  .st {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+  .st-nav {
+    flex-direction: row;
+    position: static;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 6px;
+  }
+  .st-nav button {
+    white-space: nowrap;
+  }
 }

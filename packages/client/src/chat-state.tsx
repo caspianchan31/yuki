@@ -67,7 +67,6 @@ import { memberConversationId } from "./shell/chat/member-thread";
 import { chatTurn } from "./shell/chat/turn";
 import { messageMoments, normalizeTurns, type TurnTime } from "./shell/chat/turn-time";
 import { useShellData } from "./shell/data";
-import { useFounderRef } from "./shell/founder/useFounder";
 import {
   capReportTasks,
   loadedTaskReports,
@@ -115,11 +114,6 @@ export const workspaceTools = [
   // The task the person paused or resumed in the chat.
   { name: "pause_task", description: "Display which task the person paused" },
   { name: "resume_task", description: "Display which task the person resumed" },
-  // The project's jobs, in the capybara's words (查看 opens the job).
-  { name: "create_job", description: "Display a job of the project" },
-  { name: "assign_job", description: "Display a job of the project" },
-  { name: "update_job", description: "Display a job of the project" },
-  { name: "close_job", description: "Display a job of the project" },
   { name: "agent_status", description: "Display saved agent progress" },
   { name: "task_events", description: "Display a background task's recent activity" },
   { name: "create_goal", description: "Display a saved goal" },
@@ -684,7 +678,6 @@ export function useChatSession({
     memberThreadId !== "" && herTaskKey.length > 0,
     herTaskKey,
   );
-  const founderRef = useFounderRef();
   const opsName = useOpsName();
   const hall = useIsHall();
   latestActivity.current = activity;
@@ -768,7 +761,6 @@ export function useChatSession({
       : null;
   const speakerLookup: SpeakerLookup = {
     ops: opsName,
-    founder: founderRef ?? null,
     accountOfTask: (taskId) => {
       const entry = shellData.entryById.get(taskId);
       return entry?.environmentId ? (shellData.accountById.get(entry.environmentId) ?? null) : null;

@@ -1,28 +1,27 @@
 // The account's own records, kept under its derived owner
 // (`envOwner`), so they follow the account across tasks and projects and go only with it: its
 // persona (two layers: what the owner wrote stays; what a task wrote the owner may change), the
-// owner's long-term goal and the operating plan. Every change is a new version, kept for good.
+// owner's long-term goal. Every change is a new version, kept for good.
 // Writes are a compare-and-swap on the version, again until no other write came in between.
 import type {
   AccountGoal,
   AccountGoalVersion,
   AccountPersona,
   AccountPersonaVersion,
-  AccountPlan,
-  AccountPlanVersion,
   AccountRecordBy,
   PersonaFieldName,
   PersonaFields,
   PersonaFieldsInput,
 } from "../../../../packages/domain/src/accounts.ts";
 import { personaFieldNames } from "../../../../packages/domain/src/accounts.ts";
-import type { OperatingPlanInput } from "../../../../packages/domain/src/agent.ts";
 import type { Store } from "../db.ts";
 
 export const accountPersonaKind = "account-persona";
 export const accountPersonaVersionsKind = "account-persona-versions";
 export const accountGoalKind = "account-goal";
 export const accountGoalVersionsKind = "account-goal-versions";
+/** Records written before v1.5 (the operating plan): nothing writes them any more, and they are
+ * still removed with the account. */
 export const accountPlanKind = "account-plan";
 export const accountPlanVersionsKind = "account-plan-versions";
 /** Every kind above: removed with the account. */
@@ -188,45 +187,6 @@ export async function writeGoal(
       id: versionId(version),
     });
     return { goal: next, changed: true };
-  }
-}
-
-export function readPlan(db: Store, ledgerOwner: string) {
-  return db.get<AccountPlan>(ledgerOwner, accountPlanKind, "plan");
-}
-export async function planVersions(db: Store, ledgerOwner: string) {
-  return (await db.list<AccountPlanVersion>(ledgerOwner, accountPlanVersionsKind)).sort(
-    (a, b) => b.version - a.version,
-  );
-}
-/** Saves the whole plan as the account's next version (1 for the first). `migratedFrom`: the
- * v0.6 migration's copy of a task's own plan, written only when the account has none. */
-export async function writePlan(
-  db: Store,
-  ledgerOwner: string,
-  input: OperatingPlanInput,
-  taskId: string,
-  options: { migratedFrom?: string; setAt?: string } = {},
-) {
-  for (;;) {
-    const current = await readPlan(db, ledgerOwner);
-    if (options.migratedFrom && current) return { plan: current, written: false };
-    const version = (current?.version ?? 0) + 1;
-    const next: AccountPlan = {
-      ...input,
-      id: "plan",
-      version,
-      setAt: options.setAt ?? new Date().toISOString(),
-      taskId,
-      ...(options.migratedFrom ? { migratedFrom: options.migratedFrom } : {}),
-    };
-    if (!(await swap(db, ledgerOwner, accountPlanKind, current, next))) continue;
-    const { id: _, ...rest } = next;
-    await db.put<AccountPlanVersion>(ledgerOwner, accountPlanVersionsKind, {
-      ...rest,
-      id: versionId(version),
-    });
-    return { plan: next, written: true };
   }
 }
 

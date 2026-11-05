@@ -2,7 +2,7 @@
 // task's that waits for its address when they name the same item.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { AccountAction } from "../apps/server/src/engine/pacing.ts";
+import type { AccountAction } from "../apps/server/src/engine/action-ledger.ts";
 import { reportsEarlierAction, waitingRowFor } from "../apps/server/src/engine/service.ts";
 import type { RunStep } from "../packages/domain/src/agent.ts";
 

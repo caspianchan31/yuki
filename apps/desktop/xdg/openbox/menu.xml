@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The desktop's right-click menu: the browser and a terminal. -->
+<openbox_menu xmlns="http://openbox.org/3.4/menu">
+  <menu id="root-menu" label="Yuki">
+    <item label="Browser"><action name="Execute"><command>/opt/yuki-desktop/browser</command></action></item>
+    <item label="Terminal"><action name="Execute"><command>xterm -fa Monospace -fs 11 -bg '#1e2630' -fg '#e6e6e6'</command></action></item>
+  </menu>
+</openbox_menu>

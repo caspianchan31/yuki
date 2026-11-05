@@ -79,6 +79,6 @@ test("the rebuild strings are Chinese and name what happens", () => {
   for (const text of [c.rebuild, c.rebuildConfirm, c.rebuildNow, c.notCreated])
     assert.doesNotMatch(text, /[A-Za-z]{2,}/, text);
   assert.match(c.rebuildConfirm, /登录/);
-  assert.match(c.rebuildConfirm, /代理/);
+  assert.match(c.rebuildConfirm, /时区/);
   assert.match(c.rebuildConfirm, /模板/);
 });

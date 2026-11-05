@@ -23,43 +23,20 @@ import {
   taskControlWords,
   toolResultRef,
 } from "@m/shell/chat/core";
-import { type GroupTurn, noticeSays, opsRequest, projectRef } from "@m/shell/chat/group-core";
+import { type GroupTurn, noticeText, projectRef } from "@m/shell/chat/group-core";
 import { useOpsName } from "@m/shell/chat/group-state";
-import { groupTaskLine, handoffLine } from "@m/shell/chat/handoff";
+import { groupTaskLine } from "@m/shell/chat/handoff";
 import { useShellData } from "@m/shell/data";
-import { useFounderRef } from "@m/shell/founder/useFounder";
-import {
-  accountGuide,
-  declinedSayings,
-  isFounder,
-  type JobToolName,
-  jobToolLine,
-  jobToolView,
-  noticeText,
-} from "@m/shell/jobs/jobs-core";
 import { type AccountModel, phaseActions, type TaskAction, type TaskEntry } from "@m/shell/model";
-import { useShellNav } from "@m/shell/nav";
 import { phaseWords, t } from "@m/shell/strings";
 import { useContext, useEffect, useState } from "react";
 import type { ChatReport } from "../../../../packages/domain/src/agent";
 import { clockLabel } from "../../../../packages/domain/src/task-phase";
-import { peekAccount, setFrame } from "../shell/state";
+import { peekAccount } from "../shell/state";
 import { Btn, ErrorLine, Spinner } from "../ui/primitives";
 import { InGroup } from "./context";
 import { Block, LinkBtn, StatusPill, TaskAccount } from "./parts";
 import { TaskResults } from "./results";
-
-/** 「@创始人 Ann @Bob 请：发一帖」: the mentions bold, then what is asked. */
-export function OpsRequest({ mentions, text }: { mentions: readonly string[]; text: string }) {
-  return (
-    <div>
-      {mentions.map((name) => (
-        <b key={name}>{`@${name} `}</b>
-      ))}
-      {text}
-    </div>
-  );
-}
 
 /** The task card in chat, shown once at the moment of delegation, with
  * a live state (「现在：」): 「任务 · 委派于 12:50」, the title (opens the task), the account chip
@@ -143,18 +120,11 @@ export function DelegatedTaskCard({ result, loading }: { result: unknown; loadin
     !!ref.id && missingSince?.id === ref.id && fetchedAt !== null && fetchedAt >= missingSince.at;
   const inGroup = useContext(InGroup);
   const opsName = useOpsName();
-  const founder = useFounderRef();
   // The 运营专员 asks the task's account by name, the task's state word
   // small beside it, instead of a task card in the middle of the conversation.
   if (entry && inGroup) {
     const account = entry.environmentId ? (accountById.get(entry.environmentId) ?? null) : null;
-    const mentions = account
-      ? [
-          isFounder(founder, account.name, account.id)
-            ? `${t.group.founderTag} ${account.name}`
-            : account.name,
-        ]
-      : [];
+    const mentions = account ? [account.name] : [];
     return <div className="receipt">{groupTaskLine(opsName, entry.task.title, mentions)}</div>;
   }
   if (entry)
@@ -339,178 +309,39 @@ export function RedirectCard({
   );
 }
 
-/** A block of its own about the project's jobs or an
- * account's persona, in the capybara's words. A declined job's block offers three sayings:
- * 「换个号」 and 「还是让它接」 are said in the chat for the person, 「改人设」 starts the sentence
- * for him to finish. Nothing here is an approval, and nothing waits for it. */
+/** 「@Bob 请：发一帖」: the mentions bold, then what is asked. */
+export function OpsRequest({ mentions, text }: { mentions: readonly string[]; text: string }) {
+  return (
+    <div>
+      {mentions.map((name) => (
+        <b key={name}>{`@${name} `}</b>
+      ))}
+      {text}
+    </div>
+  );
+}
+
+/** A block of its own about an account's persona (or, in older conversations, a notice whose
+ * words were recorded with it), in the capybara's words. Nothing here is an approval. */
 export function NoticeBlock({ report, turn }: { report: ChatReport; turn: GroupTurn }) {
-  const nav = useShellNav();
-  const projects = useProjects();
-  const { now, jobs } = useShellData();
-  const inGroup = useContext(InGroup);
+  const { now } = useShellData();
   const notice = report.notice;
   if (!notice) return null;
-  const words = t.jobs.cards;
-  const time = reportClock(report.createdAt, now);
-  // The account that took or declined it says so itself.
-  const said = (inGroup ? noticeSays(report) : null) ?? noticeText(report);
-  // A project asks the founder (in the hall, as an @-request); a project's
-  // line that the founder reported in the hall (grey, with the way there).
-  if (notice.kind === "founder_request" && inGroup)
-    return (
-      <Block turn={turn} time={time}>
-        <div className="body">
-          <OpsRequest
-            mentions={[`${t.group.founderTag} ${notice.account ?? ""}`]}
-            text={t.group.request(notice.jobTitle ?? "")}
-          />
-          {report.text && report.text !== notice.jobTitle ? (
-            <div className="muted" style={{ whiteSpace: "pre-wrap" }}>
-              {report.text}
-            </div>
-          ) : null}
-        </div>
-      </Block>
-    );
-  // The founder asks a project's 运营专员 to carry its work on (in the hall).
-  if (notice.kind === "project_request")
-    return (
-      <Block turn={turn} time={time}>
-        <div className="body">
-          <OpsRequest
-            mentions={[t.group.ops(notice.project ?? null)]}
-            text={t.group.request(notice.jobTitle ?? "")}
-          />
-          {report.text && report.text !== notice.jobTitle ? (
-            <div className="muted" style={{ whiteSpace: "pre-wrap" }}>
-              {report.text}
-            </div>
-          ) : null}
-        </div>
-      </Block>
-    );
-  if (inGroup && (notice.kind === "job_taken" || notice.kind === "job_done")) {
-    const line = handoffLine(notice);
-    const who = notice.account?.trim();
-    if (line)
-      return (
-        <div className="receipt">
-          <span>{line}</span>
-          {notice.kind === "job_taken" && notice.environmentId && who ? (
-            <button
-              type="button"
-              className="member-jump"
-              onClick={() => peekAccount(notice.environmentId as string)}
-            >
-              {t.chat.openMember(who)}
-            </button>
-          ) : null}
-        </div>
-      );
-  }
-  if (notice.kind === "in_hall")
-    return (
-      <Block turn={turn} tone="sys">
-        <div className="body">
-          {said} <LinkBtn onClick={() => projects.select(null)}>{t.group.toHall}</LinkBtn>
-        </div>
-      </Block>
-    );
-  const sayings = notice.kind === "job_declined" ? declinedSayings(notice, jobs) : [];
+  const said = noticeText(report);
   return (
     <Block
       turn={turn}
-      time={time}
+      time={reportClock(report.createdAt, now)}
       label={said}
       acts={
         notice.kind === "persona" && notice.environmentId ? (
           <button type="button" onClick={() => peekAccount(notice.environmentId as string)}>
-            {words.look}
+            {t.jobs.cards.look}
           </button>
         ) : undefined
       }
     >
-      <div className="body">
-        {said}
-        {sayings.length ? (
-          <span className="inline-act">
-            {sayings.map((saying, index) => (
-              <button
-                key={saying.label}
-                type="button"
-                className={index ? "ghost" : undefined}
-                onClick={() => (saying.send ? nav.say(saying.text) : nav.prefill(saying.text))}
-              >
-                {saying.label}
-              </button>
-            ))}
-          </span>
-        ) : null}
-      </div>
+      <div className="body">{said}</div>
     </Block>
-  );
-}
-
-/** The chat's job tools: 新活「…」派给了 …。, the chat's reason for its choice, 查看 ›. */
-export function JobToolCard({
-  name,
-  result,
-  loading,
-}: {
-  name: JobToolName;
-  result: unknown;
-  loading: boolean;
-}) {
-  const nav = useShellNav();
-  const { accounts } = useShellData();
-  const view = jobToolView(result);
-  const words = t.jobs.cards;
-  const guide = accountGuide(name, view, accounts.value, accounts.loading);
-  const founder = useFounderRef();
-  // In the group the 运营专员 asks by name: 「@创始人 Ann 请：…」.
-  const inGroup = useContext(InGroup);
-  const opsName = useOpsName();
-  const request = opsRequest(name, view, founder ?? null);
-  if (loading)
-    return (
-      <div className="tcard">
-        <Spinner label={words.saving} />
-      </div>
-    );
-  if (view.error || !view.jobId)
-    return (
-      <div className="tcard">
-        <b>{words.failed}</b>
-        <ErrorLine error={view.error} />
-      </div>
-    );
-  // The group keeps one line even when nobody was named.
-  if (inGroup)
-    return <div className="receipt">{groupTaskLine(opsName, view.title, request.mentions)}</div>;
-  return (
-    <div className="tcard">
-      <div>{jobToolLine(name, view, founder)}</div>
-      {name === "create_job" && view.reason ? <span className="muted">{view.reason}</span> : null}
-      {guide.stage === "add" ? (
-        <div className="stack">
-          <div>{t.jobs.guide.none}</div>
-          <div className="acts-row start">
-            <Btn className="sm" onClick={() => nav.openPanel({ kind: "join" })}>
-              {t.jobs.guide.join}
-            </Btn>
-            <Btn className="sm" onClick={() => setFrame({ newMember: true })}>
-              {t.jobs.guide.create}
-            </Btn>
-          </div>
-        </div>
-      ) : guide.stage === "ready" ? (
-        <div className="row">
-          <span>{t.jobs.guide.ready(guide.names.join(t.jobs.nameSep))}</span>
-          <Btn className="sm" onClick={() => nav.say(guide.say)}>
-            {t.jobs.guide.start}
-          </Btn>
-        </div>
-      ) : null}
-    </div>
   );
 }

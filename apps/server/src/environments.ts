@@ -6,7 +6,6 @@
 // that the environment record exists and is not being deleted.
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { pacingActiveHoursSchema, pacingCapsSchema } from "../../../packages/domain/src/agent.ts";
 import type {
   CredentialActor,
   CredentialRequestView,
@@ -16,7 +15,6 @@ import type {
 } from "../../../packages/domain/src/credentials.ts";
 import {
   type Environment,
-  type EnvironmentPacing,
   type EnvironmentRef,
   type EnvironmentSelection,
   type EnvironmentView,
@@ -40,21 +38,10 @@ import {
 } from "../../../packages/domain/src/projects.ts";
 import { removeAccountRecords } from "./accounts/records.ts";
 import { ChatStore } from "./chat/chat-store.ts";
-import {
-  type ComputerService,
-  type ComputerSettingsView,
-  type DesktopState,
-  proxyReadable,
-} from "./computer.ts";
+import type { ComputerService, ComputerSettingsView, DesktopState } from "./computer.ts";
 import type { Config } from "./config.ts";
 import { processCredentialKey } from "./credentials/crypto.ts";
-import {
-  readBrowserCheck,
-  readProxyCheck,
-  readSignIns,
-  removeFacts,
-  writeSignIn,
-} from "./credentials/facts.ts";
+import { readSignIns, removeFacts, writeSignIn } from "./credentials/facts.ts";
 import { CredentialStore, loginGap } from "./credentials/store.ts";
 import {
   validateCookies,
@@ -64,18 +51,7 @@ import {
   validateUsername,
 } from "./credentials/validate.ts";
 import type { Store, StoreQuery } from "./db.ts";
-import {
-  accountActionsKind,
-  accountProfileKind,
-  loadPacing,
-  normaliseCapKinds,
-  pacingAiSettingsId,
-  pacingClaimsKind,
-  pacingSettingsId,
-  pacingSettingsKind,
-  type SiblingRecord,
-  writeOwnerPacing,
-} from "./engine/pacing.ts";
+import { accountActionsKind } from "./engine/action-ledger.ts";
 import { AppError } from "./errors.ts";
 import { ownerActor } from "./request-actor.ts";
 
@@ -164,25 +140,9 @@ const createSchema = z.object({
   accountLabel: accountLabelSchema,
   face: faceSchema.optional(),
 });
-const whole = (name: string) =>
-  z.number().int(`${name} must be a whole number`).min(0, `${name} must not be negative`);
-// The person's own values, in force over what the task set.
-// An omitted field (or kind) keeps its value, null unsets the person's value (the task's, if any,
-// is in force again); `pacing: null` unsets every value of the person's. A cap of 0 turns that
-// kind off. Only the type is checked.
-const pacingPatchSchema = z
-  .object({
-    minGapMinutes: whole("minGapMinutes").nullable().optional(),
-    activeHours: pacingActiveHoursSchema.nullable().optional(),
-    caps: pacingCapsSchema.optional(),
-  })
-  .strict()
-  .nullable()
-  .optional();
 const patchSchema = z.object({
   name: nameSchema.optional(),
   accountLabel: accountLabelSchema,
-  pacing: pacingPatchSchema,
 });
 /** The scope (project owner) of a request's owner. */
 export function scopeOfOwner(owner: string) {
@@ -220,11 +180,9 @@ function warn(warning: string) {
 }
 // A settings view for an environment whose settings could not be read at all.
 const unreadableSettings = (updatedAt: string | null = null): ComputerSettingsView => ({
-  proxy: { configured: true, preview: null },
   timezone: null,
   locale: null,
   updatedAt,
-  unreadable: true,
   localeUnreadable: true,
 });
 
@@ -233,8 +191,6 @@ export class EnvironmentService {
    * account is saved or replaced: the agent service starts (or wakes) the task that signs the
    * account in to that site. Set by the app; tests may leave it unset. */
   onLoginSaved?: (owner: string, environmentId: string, site: string) => Promise<void>;
-  /** An account was created (set by the app). */
-  onCreated?: (owner: string, environmentId: string) => Promise<void>;
   /** Refuses (as creating a task would) when the sign-in tasks for these logins could not be
    * added now; checked before an account is written or moved. Set by the app. */
   roomForSignIns?: (
@@ -252,20 +208,6 @@ export class EnvironmentService {
     sites: string[],
     withdrawn: CredentialRequestView[],
   ) => Promise<void>;
-  /** The account's standing operating loop follows it: when
-   * it moves (`from`/`to` are the task owners of the two projects) the loop in `from` ends and
-   * one starts in `to` if it has something to work on; when it is deleted its loop ends. Set by
-   * the agent service. */
-  loopHooks?: {
-    moved(real: string, environmentId: string, from: string, to: string): Promise<void>;
-    removed(scope: string, environmentId: string): Promise<void>;
-    /** A new account: it takes its project's jobs given to everyone. */
-    created?(owner: string, environmentId: string): Promise<void>;
-  };
-  /** Whether the account has something to work on (a long-term goal or an
-   * open job: AccountLoops.wanted), sent read-only as the view's `hasWork`. Set by the app;
-   * without it views carry no `hasWork`. */
-  hasWork?: (owner: string, environmentId: string) => Promise<boolean>;
   constructor(
     private readonly db: Store,
     private readonly computer: ComputerService,
@@ -274,7 +216,7 @@ export class EnvironmentService {
     private readonly credentialStore?: CredentialStore,
   ) {}
   /** v1.2: every member of the space, whichever group she is in, for the contact list. Only what
-   * that list shows: no proxy, no logins. */
+   * that list shows: no logins. */
   async everyone(owner: string) {
     const { real } = parseOwner(owner);
     return (await this.allRecords(real))
@@ -320,12 +262,11 @@ export class EnvironmentService {
     return (await this.allRecords(owner)).filter((record) => record.projectId === projectId);
   }
   /** Unassigned live accounts, offered to a project for assignment; empty in the default
-   * project, where they are simply the project's own list. Never the founder: it belongs to the
-   * whole space and joins no project (`assign` refuses it). */
+   * project, where they are simply the project's own list. */
   async unassigned(owner: string): Promise<Environment[]> {
     if (parseOwner(owner).projectId === null) return [];
     return (await this.allRecords(owner)).filter(
-      (record) => record.projectId === null && !record.deleting && !record.founder,
+      (record) => record.projectId === null && !record.deleting,
     );
   }
   /** The record whatever its state, or null; a malformed id, or an account assigned to
@@ -344,12 +285,6 @@ export class EnvironmentService {
     if (!isEnvironmentId(id)) throw notFound();
     const record = await this.db.get<Environment>(real, kind, id);
     if (!record || record.deleting) throw notFound();
-    // The founder belongs to the space, in no project; projects give it jobs.
-    if (record.founder && target !== null)
-      throw new AppError(
-        "The founder belongs to the whole space and joins no project; give it a job from the project instead",
-        409,
-      );
     const current = record.projectId ?? null;
     const joining = scope !== null && current === null && target === scope;
     const leaving = scope !== null && current === scope && target === null;
@@ -433,7 +368,6 @@ export class EnvironmentService {
     for (const fact of await readSignIns(this.db, derived))
       if (!("owner" in fact.by))
         await writeSignIn(this.db, derived, { ...fact, by: { owner: true } });
-    await this.loopHooks?.moved(real, id, from, to);
     // Her own conversation (an id from hers) goes where she goes, so it opens in
     // the group she joined, and is not purged with a group she leaves. Best effort: a chat
     // request for it adopts it too (runtime-hooks.ts).
@@ -502,137 +436,23 @@ export class EnvironmentService {
       return { settings: unreadableSettings(), message: message(error) };
     }
   }
-  /** The account's pacing settings, what is in force and its facts now. */
-  async pacing(derived: string): Promise<EnvironmentPacing> {
-    const pacing = await loadPacing(
-      this.db,
-      this.computer.settings,
-      this.config,
-      derived,
-      null,
-      new Date(),
-      this,
-    );
-    // A member of a space the platform sets up sees no proxy address.
-    if (pacing.status.sameExit?.exit && (await this.computer.settings.systemHidden?.(derived)))
-      pacing.status.sameExit = { ...pacing.status.sameExit, exit: null };
-    return pacing;
-  }
-  /** The other live accounts of `derived`'s project, each
-   * with the user names it is known by in that project: its saved site logins' user names (the
-   * project's credential store, metadata only), and its name and account label (no site: any
-   * site). A store that cannot be read fails the call: a sibling is never shown without them. Only
-   * the same project: an account of another project, or unassigned while this one is in a
-   * project, is never a sibling. */
-  async siblings(derived: string): Promise<SiblingRecord[]> {
-    const parsed = parseEnvOwner(derived);
-    if (!parsed) return [];
-    const all = await this.allRecords(parsed.real);
-    const self = all.find((record) => record.id === parsed.environmentId);
-    if (!self) return [];
-    const projectId = self.projectId ?? null;
-    const scope = projectId ? projectOwner(parsed.real, projectId) : parsed.real;
-    const others = all.filter(
-      (record) =>
-        !record.deleting &&
-        record.id !== parsed.environmentId &&
-        (record.projectId ?? null) === projectId,
-    );
-    return Promise.all(
-      others.map(async (record) => {
-        const usedBy: CredentialUsedBy = { type: "account", environmentId: record.id };
-        const logins = await this.store.find(scope, { usedBy, kind: "site_login" });
-        const identities: SiblingRecord["identities"] = [];
-        for (const login of logins)
-          if (login.username)
-            identities.push({ site: login.site ?? null, username: login.username });
-        // Its name and label too (any site): an account signed in by its browser profile alone
-        // has no saved login, and is often named as it is called on the site.
-        for (const username of new Set([record.name, record.accountLabel]))
-          if (username) identities.push({ site: null, username });
-        return { name: record.name, ledgerOwner: envOwner(parsed.real, record.id), identities };
-      }),
-    );
-  }
-  /** The other live accounts of the same project whose desktops leave
-   * through the same proxy exit as `derived`'s: each as its name and ledger owner. The exit is
-   * host:port from the proxy entry's metadata; nothing is decrypted. Projects are isolated, so
-   * an account of another project is never a peer. An account whose proxy cannot be read has
-   * no known exit and no peers. */
-  async exitPeers(derived: string): Promise<{
-    exit: string | null;
-    exitUnreadable: boolean;
-    peers: { name: string; ledgerOwner: string }[];
-  }> {
-    const parsed = parseEnvOwner(derived);
-    if (!parsed) return { exit: null, exitUnreadable: false, peers: [] };
-    const endpoint = await this.computer.settings
-      .endpoint(derived)
-      .catch(() => ({ proxy: null, unreadable: true }));
-    const exitOf = (proxy: { host: string; port: number } | null) =>
-      proxy ? `${proxy.host.toLowerCase()}:${proxy.port}` : null;
-    const exit = exitOf(endpoint.proxy);
-    if (!exit) return { exit: null, exitUnreadable: endpoint.unreadable, peers: [] };
-    const all = await this.allRecords(parsed.real);
-    const self = all.find((record) => record.id === parsed.environmentId);
-    const others = all.filter(
-      (record) =>
-        !record.deleting &&
-        record.id !== parsed.environmentId &&
-        (record.projectId ?? null) === (self?.projectId ?? null),
-    );
-    const peers = await Promise.all(
-      others.map(async (record) => {
-        const ledgerOwner = envOwner(parsed.real, record.id);
-        const other = await this.computer.settings
-          .endpoint(ledgerOwner)
-          .catch(() => ({ proxy: null }));
-        return exitOf(other.proxy) === exit ? { name: record.name, ledgerOwner } : null;
-      }),
-    );
-    return {
-      exit,
-      exitUnreadable: false,
-      peers: peers.filter((peer): peer is { name: string; ledgerOwner: string } => peer !== null),
-    };
-  }
   private compose(
     record: Environment,
     state: DesktopState,
     settings: ComputerSettingsView,
-    pacing: EnvironmentPacing,
-    credentials: Pick<
-      EnvironmentView,
-      "siteLogins" | "signIns" | "proxyCheck" | "browserCheck" | "credentialIds"
-    >,
+    credentials: Pick<EnvironmentView, "siteLogins" | "signIns">,
     settingsMessage?: string,
-    hasWork?: boolean,
   ): EnvironmentView {
     const failure = state.state === "error" ? state.message : settingsMessage;
     return {
       ...record,
       status: failure === undefined ? state.state : "error",
       ...(failure === undefined ? {} : { message: failure }),
-      proxyConfigured: proxyReadable(settings),
       computer: Boolean(this.config.computerEnabled),
       settings,
-      pacing,
       ...credentials,
-      ...(hasWork === undefined ? {} : { hasWork }),
     };
   }
-  /** The view's `hasWork`, or undefined without the hook or when it cannot
-   * be read (a view never fails because of it). */
-  private async workOf(owner: string, environmentId: string): Promise<boolean | undefined> {
-    if (!this.hasWork) return undefined;
-    try {
-      return await this.hasWork(owner, environmentId);
-    } catch {
-      return undefined;
-    }
-  }
-  /** The account's site logins (metadata only), the sign-in facts the AI
-   * recorded, the proxy's last check and the entries it uses. */
   /** What the project's default desktop has saved to sign in with (never a
    * value), for a task that runs there. */
   async projectLoginFacts(owner: string) {
@@ -641,15 +461,11 @@ export class EnvironmentService {
       .filter((entry) => entry.kind === "site_login")
       .map((entry) => ({ site: entry.site ?? "", username: entry.username }));
   }
+  /** The account's site logins (metadata only) and the sign-in facts the AI recorded. */
   async credentialFacts(
     owner: string,
     record: Environment,
-  ): Promise<
-    Pick<
-      EnvironmentView,
-      "siteLogins" | "signIns" | "proxyCheck" | "browserCheck" | "credentialIds"
-    >
-  > {
+  ): Promise<Pick<EnvironmentView, "siteLogins" | "signIns">> {
     const real = realOwnerOf(owner);
     const derived = envOwner(real, record.id);
     const scope = record.projectId ? projectOwner(real, record.projectId) : real;
@@ -674,11 +490,6 @@ export class EnvironmentService {
     return {
       siteLogins,
       signIns: await readSignIns(this.db, derived),
-      proxyCheck: await readProxyCheck(this.db, derived),
-      browserCheck: await readBrowserCheck(this.db, derived),
-      credentialIds: {
-        proxy: entries.find((entry) => entry.kind === "proxy")?.id ?? null,
-      },
     };
   }
   /** Every environment with its desktop state (one provider listing) and masked settings.
@@ -688,8 +499,8 @@ export class EnvironmentService {
   }
   /** Unassigned accounts with their desktop state, for a project's "add" list. Fork
    * (credentials): they are the default project's accounts, so nothing that comes from
-   * that project's credentials (its logins, entries, proxy, sign-in and proxy facts, the pacing
-   * with its exit) is in these views: a project never learns another project's credentials. */
+   * that project's credentials (its logins, entries, sign-in facts) is in these views: a project
+   * never learns another project's credentials. */
   async listUnassigned(owner: string): Promise<EnvironmentView[]> {
     const records = await this.unassigned(owner);
     if (!records.length) return [];
@@ -700,7 +511,6 @@ export class EnvironmentService {
     } catch (error) {
       states = owners.map(() => ({ state: "error", message: message(error) }));
     }
-    const none = { configured: false, preview: null };
     return Promise.all(
       records.map(async (record, index): Promise<EnvironmentView> => {
         const { settings, message: failure } = await this.settingsView(owners[index]);
@@ -710,22 +520,14 @@ export class EnvironmentService {
           ...record,
           status: error === undefined ? state.state : "error",
           ...(error === undefined ? {} : { message: error }),
-          proxyConfigured: false,
           computer: Boolean(this.config.computerEnabled),
           settings: {
-            proxy: none,
             timezone: settings.timezone,
             locale: settings.locale,
             updatedAt: settings.updatedAt,
-            unreadable: false,
           },
           siteLogins: [],
           signIns: [],
-          proxyCheck: null,
-          browserCheck: null,
-          credentialIds: {
-            proxy: null,
-          },
         };
       }),
     );
@@ -742,10 +544,8 @@ export class EnvironmentService {
     return Promise.all(
       records.map(async (record, index) => {
         const { settings, message } = await this.settingsView(owners[index]);
-        const pacing = await this.pacing(owners[index]);
         const credentials = await this.credentialFacts(owner, record);
-        const hasWork = await this.workOf(owner, record.id);
-        return this.compose(record, states[index], settings, pacing, credentials, message, hasWork);
+        return this.compose(record, states[index], settings, credentials, message);
       }),
     );
   }
@@ -761,17 +561,14 @@ export class EnvironmentService {
       record,
       state,
       settings,
-      await this.pacing(derived),
       await this.credentialFacts(owner, record),
       failure,
-      await this.workOf(owner, record.id),
     );
   }
-  /** Validates everything first (the name and, with a computer, its entries, time zone and
-   * language and site logins), then inserts the record, links or creates its
-   * credential entries in the project and saves its settings under the derived owner; a failure
-   * on the way removes what was added and unlinks what was linked. Then the AI signs the account
-   * in to each site it has a login for (a task per site). */
+  /** Validates everything first (the name and, with a computer, its time zone and language and
+   * site logins), then inserts the record, creates its site logins in the project and saves its
+   * settings under the derived owner; a failure on the way removes what was added. Then the AI
+   * signs the account in to each site it has a login for (a task per site). */
   async create(owner: string, raw: unknown): Promise<EnvironmentView> {
     const input = createSchema.parse(raw);
     if (isReservedEnvironmentName(input.name)) throw reserved();
@@ -800,11 +597,6 @@ export class EnvironmentService {
     };
     if (!(await this.db.insertIfAbsent(real, kind, record)))
       throw new AppError("Environment could not be created", 500);
-    // In a space the platform sets up, the platform's own entries serve every
-    // account (the members do not manage them): the new one is linked to them.
-    await this.onCreated?.(owner, record.id);
-    // A new account in a project takes the jobs given to everyone there.
-    await this.loopHooks?.created?.(owner, record.id);
     return this.view(owner, record.id);
   }
   /** A site login of the account was saved or replaced (onLoginSaved: the
@@ -817,8 +609,6 @@ export class EnvironmentService {
   async patch(owner: string, id: string, raw: unknown): Promise<EnvironmentView> {
     const input = patchSchema.parse(raw);
     const current = await this.get(owner, id);
-    // Everything that can refuse is checked before anything is written: the pacing caps too.
-    if (input.pacing?.caps) normaliseCapKinds(input.pacing.caps);
     const patch: Partial<Environment> = { updatedAt: new Date().toISOString() };
     if (input.name !== undefined) {
       if (isReservedEnvironmentName(input.name)) throw reserved();
@@ -845,9 +635,6 @@ export class EnvironmentService {
       patch,
     );
     if (!saved) throw notFound();
-    const derived = envOwner(owner, current.id);
-    // The person's layer; not a secret, so not in the encrypted computer settings.
-    if (input.pacing !== undefined) await writeOwnerPacing(this.db, derived, input.pacing);
     return this.view(owner, current.id);
   }
   /** Marks the record deleting, destroys the desktop under its lease, clears the derived
@@ -892,13 +679,13 @@ export class EnvironmentService {
     }
     await this.db.remove(derived, "computer-settings", "sandbox");
     await this.db.remove(derived, "computer-state", "lease");
-    // The account's pacing settings (both layers), profile, ledger and run claims
-    // go with it.
-    await this.db.remove(derived, pacingSettingsKind, pacingSettingsId);
-    await this.db.remove(derived, pacingSettingsKind, pacingAiSettingsId);
-    for (const pacingKind of [accountActionsKind, pacingClaimsKind, accountProfileKind])
-      for (const row of await this.db.list<{ id: string }>(derived, pacingKind))
-        await this.db.remove(derived, pacingKind, row.id);
+    // What older versions kept for the account (its pacing settings, run claims and site
+    // profiles) and its action ledger go with it.
+    await this.db.remove(derived, "pacing-settings", "pacing");
+    await this.db.remove(derived, "pacing-settings", "pacing-ai");
+    for (const oldKind of [accountActionsKind, "pacing-claims", "account-profile"])
+      for (const row of await this.db.list<{ id: string }>(derived, oldKind))
+        await this.db.remove(derived, oldKind, row.id);
     // Conversations that pointed here keep their record and learn the name it had, so the
     // next run can say which environment went away instead of silently moving on.
     for (const selection of await this.db.list<Selection>(owner, selectionKind))
@@ -907,11 +694,10 @@ export class EnvironmentService {
           ...selection,
           deletedName: record.name,
         });
-    // Its persona, goal and plan go with it, and its operating loop ends.
+    // Its persona and goal go with it.
     await removeAccountRecords(this.db, derived);
-    await this.loopHooks?.removed(scopeOfOwner(owner), record.id);
     // The entries only it used go, shared ones stop serving it, and its
-    // sign-in facts and proxy check go with it.
+    // sign-in facts go with it.
     await this.store.removeAccount(scopeOfOwner(owner), record.id, ownerActor());
     await removeFacts(this.db, derived);
     // Its incidents and their pictures go with it.

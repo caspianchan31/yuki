@@ -1,6 +1,6 @@
 /**
  * Phase C (docs/web.md): one task, from shell/task/TaskDetail.tsx. Header title + ⋯ (改间隔 /
- * 停止重复 / 取消任务 with a confirm); pill + phase line; 账号 (light, name, exit, 看桌面 — or
+ * 停止重复 / 取消任务 with a confirm); pill + phase line; 账号 (light, name, 看桌面 — or
  * 「跑在默认桌面」 when the task is not bound to an account: a marker, never a block); 节奏; only
  * the phase's buttons; the middle by phase (等待 / 现在在做 / 排期 / 已暂停 / the need card for a
  * question, a review or a failure / 结果); 运营计划 v{n} when the task carries one; 本任务汇报;

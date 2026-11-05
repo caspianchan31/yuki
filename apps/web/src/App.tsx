@@ -29,6 +29,7 @@ import { ThreadsProvider } from "@m/threads-state";
 import { type Detail, WorkspaceContext, type WorkspaceContextValue } from "@m/workspace";
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import type { Section, Workspace } from "../../../packages/domain/src";
+import { loadAccountZone } from "./account-zone";
 import { AuthGate } from "./gate/AuthGate";
 import { Centered } from "./gate/Centered";
 import { CopilotKitProvider } from "./platform/copilotkit-headless";
@@ -153,6 +154,10 @@ function WorkspaceApp({ token, projectId }: { token: string; projectId: string |
   }, [refresh]);
   useRetryWhile(!!error, retry);
   const shown = !!workspace;
+  const live = workspace?.mode === "live";
+  useEffect(() => {
+    if (live) void loadAccountZone(api);
+  }, [live, api]);
   useEffect(() => {
     if (!toast || !shown) return;
     const timer = setTimeout(() => setToast(""), 5500);

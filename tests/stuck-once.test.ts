@@ -23,23 +23,23 @@ test("blocked once shows on the task; blocked by the same part again is the owne
   const task = await h.agent.createTask(h.owner, { prompt: "核验第二批 10 家" });
   h.queue.push({
     name: "wait_until",
-    arguments: { minutes: 60, note: "桌面没有代理", blocked: "proxy" },
+    arguments: { minutes: 60, note: "桌面连不上网", blocked: "network" },
   });
   let now = await runs(h, task.id);
   assert.equal(now.status, "scheduled");
-  assert.equal((now.state.incident as { kind: string; waits: number }).kind, "proxy");
+  assert.equal((now.state.incident as { kind: string; waits: number }).kind, "network");
   assert.equal((now.state.incident as { waits: number }).waits, 1);
   assert.equal(runTrouble(now), null, "once: shown on the task's line, not yet a need");
   h.queue.push({
     name: "wait_until",
-    arguments: { minutes: 60, note: "还是没有代理", blocked: "proxy" },
+    arguments: { minutes: 60, note: "还是连不上网", blocked: "network" },
   });
   const before = Date.now();
   now = await runs(h, task.id);
   assert.equal((now.state.incident as { waits: number }).waits, incidentWaitsBeforeOwner);
   const trouble = runTrouble(now);
   assert.ok(trouble, "the same block again is the owner's");
-  assert.equal(trouble.detail, "Blocked: proxy");
+  assert.equal(trouble.detail, "Blocked: network");
   assert.ok(Date.parse(now.nextRunAt ?? "") - before >= 2 * 60 * 60_000 - 5000, now.nextRunAt);
   // A wait with nothing blocking ends it, and the need goes with it.
   h.queue.push({ name: "wait_until", arguments: { minutes: 60, note: "等对方回复" } });

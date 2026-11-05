@@ -1,6 +1,6 @@
 /**
  * v1.2: the dialog behind the roster's +. A new member is a name, a shape and a color (the
- * avatar shows as you pick), and, if you like, a template to start from. No proxy, time zone,
+ * avatar shows as you pick), and, if you like, a template to start from. No time zone,
  * language or site login is asked here: her time zone is the browser's, and the rest is set up
  * in her own conversation. On save the dialog closes and her conversation opens.
  */
@@ -100,7 +100,7 @@ export function NewMember() {
       const id = createdId.current;
       if (template && id) {
         try {
-          await applyMemberTemplate(api, template, id, zone);
+          await applyMemberTemplate(api, template, id, zone, name.trim() || template.name);
         } catch (e) {
           setError(`${n.setupFailed} ${newMemberError(settingsError(e))}`);
           return;

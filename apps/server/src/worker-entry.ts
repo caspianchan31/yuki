@@ -15,11 +15,7 @@ if (!config.databaseUrl)
     "A separate task worker requires DATABASE_URL. Embedded PGlite runs inside the API process.",
   );
 const db = await createStore({ databaseUrl: config.databaseUrl });
-// The old settings' secrets are in the credential store before this worker
-// starts any desktop (the API may be moving them right now; the worker waits for it).
-const { agent, chat } = await createApp(db, config, {
-  credentialKey,
-});
+const { agent, chat } = await createApp(db, config, { credentialKey });
 agent.start();
 console.log("OpenMuse task worker running");
 let stopping = false;

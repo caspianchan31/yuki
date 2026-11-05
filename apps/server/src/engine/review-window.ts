@@ -14,7 +14,7 @@ export async function settleDueReview(
   now: number,
 ): Promise<ActionProposal | null> {
   const action = await db.get<ActionProposal>(owner, "actions", actionId);
-  if (!action || action.status !== "awaiting_review") return null;
+  if (action?.status !== "awaiting_review") return null;
   if (!reviewExpired(action, now)) return null;
   const expired = await db.compareAndSwap<ActionProposal>(
     owner,

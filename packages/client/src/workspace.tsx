@@ -28,7 +28,7 @@ export type Detail =
   // `need` is that step: what to do there and the AI's picture of that
   // moment, shown above the desktop until the sheet closes.
   | { type: "computer"; environment?: EnvironmentRef; focus?: "desktop"; need?: DesktopNeed }
-  // Every account across projects, by proxy exit and by project.
+  // Every member of the project, by project.
   | { type: "topology" }
   | { type: "menu" };
 export interface WorkspaceContextValue {

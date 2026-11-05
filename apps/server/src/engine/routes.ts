@@ -197,30 +197,6 @@ export function agentRoutes(service: AgentService): Hono<{ Variables: { owner: s
   app.put("/accounts/:id/goal", async (c) =>
     c.json(await service.accounts.putGoal(c.get("owner"), c.req.param("id"), await c.req.json())),
   );
-  // The project's jobs, for the live panel's job detail:
-  // one job with what its accounts did for it; the owner's own edits, accounts added or taken
-  // off (by id, this project's only), and 结束这件活. Saved at once, no confirmation.
-  app.get("/jobs", async (c) =>
-    c.json({ jobs: await service.jobs.views(c.get("owner"), { briefOfArchived: true }) }),
-  );
-  app.get("/jobs/:id", async (c) =>
-    c.json(await service.jobs.detail(c.get("owner"), c.req.param("id"))),
-  );
-  app.put("/jobs/:id", async (c) =>
-    c.json(await service.jobs.ownerPatch(c.get("owner"), c.req.param("id"), await c.req.json())),
-  );
-  app.post("/jobs/:id/assign", async (c) =>
-    c.json(await service.jobs.ownerAssign(c.get("owner"), c.req.param("id"), await c.req.json())),
-  );
-  app.post("/jobs/:id/close", async (c) =>
-    c.json(
-      await service.jobs.ownerClose(
-        c.get("owner"),
-        c.req.param("id"),
-        await c.req.json().catch(() => ({})),
-      ),
-    ),
-  );
   // The project's brief, read by its tasks (`projectBrief`).
   app.get("/brief", async (c) => c.json(await service.projectBrief(c.get("owner"))));
   app.put("/brief", async (c) =>

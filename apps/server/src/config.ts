@@ -33,6 +33,8 @@ export interface Config {
   host: string;
   publicUrl: string;
   dataDir: string;
+  /** Where member files are kept (MEMBER_FILES_DIR); `<dataDir>/members` when unset. */
+  memberFilesDir?: string;
   databaseUrl?: string;
   encryptionKey?: string;
   /** Fork: live-mode sign-in is an admin account, created on the setup page (with `setupCode`)
@@ -60,6 +62,9 @@ export interface Config {
    * `<PUBLIC_API_URL>/api/slack/callback`. Without both, Slack reads as not configured. */
   slackClientId?: string;
   slackClientSecret?: string;
+  /** Test and local-fake only: where Slack's API and authorize page are (default: Slack's own). */
+  slackApiUrl?: string;
+  slackAuthorizeUrl?: string;
   /** The browser worker; never set in the open core (no browser is connected). */
   workerUrl?: string;
   workerToken?: string;
@@ -70,6 +75,10 @@ export interface Config {
    * under, for projects and accounts moved to another space (their sandboxes keep the name they
    * were made with). Read from the data at start (loadDesktopIdentities), never from the env. */
   desktopIdentities?: ReadonlyMap<string, string>;
+  /** v1.5 (docs/computer-container.md): the members' computer container, when DESKTOP_URL is set. */
+  desktop?: DesktopConfig;
+  /** A folder with the built web app, served beside the API (WEB_DIR); unset serves none. */
+  webDir?: string;
   /** Model steps per chat reply and per background task run; unset keeps the built-in limits. */
   agentMaxSteps?: number;
   /** Fork: hard cap in minutes on one model run (default 60); idle timeout stays five minutes. */
@@ -79,6 +88,20 @@ export interface Config {
   agentKeepScreenshots?: number;
   allowedOrigins: string[];
   trustProxy?: boolean;
+  /** v1.5 (docs/v1.5.md): billing is dormant until after v2.0: subscriptions are neither made
+   * nor enforced unless `BILLING_ENFORCED=true`, so no space is ever read-only for payment. */
+  billingEnforced?: boolean;
+}
+
+/** Where the members' computer container answers (docs/computer-container.md). */
+export interface DesktopConfig {
+  /** The container's control address inside the compose network, e.g. http://computer:7070. */
+  url: string;
+  /** The shared token itself (DESKTOP_TOKEN), or the file holding it (DESKTOP_TOKEN_FILE). */
+  token?: string;
+  tokenFile?: string;
+  /** Minutes without use before the desktop session pauses (DESKTOP_IDLE_MINUTES, default 15). */
+  idleMinutes: number;
 }
 
 /** Pinned so live rankings do not shift when TypeSafe moves the `jev-latest` alias. */
@@ -112,6 +135,19 @@ export function readConfig(): Config {
   const typesafeApiKey = process.env.TYPESAFE_API_KEY?.trim();
   if (jevMode === "live" && !typesafeApiKey)
     throw new Error("JEV_MODE=live requires a nonblank TYPESAFE_API_KEY");
+  const desktopUrl = process.env.DESKTOP_URL?.trim();
+  if (desktopUrl && !/^https?:\/\/[A-Za-z0-9.-]+(:\d{1,5})?\/?$/.test(desktopUrl))
+    throw new Error("DESKTOP_URL must be an http address such as http://computer:7070");
+  const desktopToken = process.env.DESKTOP_TOKEN?.trim() || undefined;
+  const desktopTokenFile = process.env.DESKTOP_TOKEN_FILE?.trim() || undefined;
+  if (desktopUrl && !desktopToken && !desktopTokenFile)
+    throw new Error("DESKTOP_URL needs DESKTOP_TOKEN_FILE (or DESKTOP_TOKEN)");
+  const desktopIdle = process.env.DESKTOP_IDLE_MINUTES?.trim();
+  if (
+    desktopIdle &&
+    !(/^\d+$/.test(desktopIdle) && Number(desktopIdle) >= 1 && Number(desktopIdle) <= 1440)
+  )
+    throw new Error("DESKTOP_IDLE_MINUTES must be a whole number from 1 to 1440");
   const maxSteps = process.env.AGENT_MAX_STEPS?.trim();
   if (maxSteps && !(/^\d+$/.test(maxSteps) && Number(maxSteps) >= 1 && Number(maxSteps) <= 1000))
     throw new Error("AGENT_MAX_STEPS must be a whole number from 1 to 1000");
@@ -136,6 +172,9 @@ export function readConfig(): Config {
     host: process.env.HOST ?? "127.0.0.1",
     publicUrl,
     dataDir: resolve(process.env.DATA_DIR ?? ".openmuse"),
+    memberFilesDir: process.env.MEMBER_FILES_DIR?.trim()
+      ? resolve(process.env.MEMBER_FILES_DIR.trim())
+      : undefined,
     databaseUrl: process.env.DATABASE_URL,
     encryptionKey: process.env.TOKEN_ENCRYPTION_KEY,
     setupCode: process.env.OPENMUSE_SETUP_CODE,
@@ -155,8 +194,19 @@ export function readConfig(): Config {
     googleRedirectUri: `${publicUrl}/api/google/callback`,
     slackClientId: process.env.SLACK_CLIENT_ID?.trim() || undefined,
     slackClientSecret: process.env.SLACK_CLIENT_SECRET?.trim() || undefined,
+    slackApiUrl: process.env.SLACK_API_URL?.trim() || undefined,
+    slackAuthorizeUrl: process.env.SLACK_AUTHORIZE_URL?.trim() || undefined,
     taskWorkerEnabled: process.env.TASK_WORKER_ENABLED !== "false",
     webSearchEnabled: process.env.WEB_SEARCH_ENABLED !== "false",
+    desktop: desktopUrl
+      ? {
+          url: desktopUrl.replace(/\/$/, ""),
+          token: desktopToken,
+          tokenFile: desktopTokenFile,
+          idleMinutes: desktopIdle ? Number(desktopIdle) : 15,
+        }
+      : undefined,
+    webDir: process.env.WEB_DIR?.trim() ? resolve(process.env.WEB_DIR.trim()) : undefined,
     agentMaxSteps: maxSteps ? Number(maxSteps) : undefined,
     agentRunMaxMinutes: runMax ? Number(runMax) : undefined,
     agentKeepScreenshots: keepScreenshots ? Number(keepScreenshots) : undefined,
@@ -167,6 +217,7 @@ export function readConfig(): Config {
     // Only trust X-Forwarded-For/X-Real-IP when the deployment is known to sit
     // behind a proxy that sets them; otherwise a direct caller can spoof them.
     trustProxy: process.env.TRUST_PROXY === "true",
+    billingEnforced: process.env.BILLING_ENFORCED === "true",
   };
   if (mode === "live" && !config.encryptionKey)
     throw new Error("Live mode requires TOKEN_ENCRYPTION_KEY (32-byte base64)");

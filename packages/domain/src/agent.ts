@@ -1,6 +1,4 @@
 import { z } from "zod";
-import { actionKindPattern, activeHourRange } from "./environments.ts";
-import type { JobView } from "./jobs.ts";
 import type { Routine } from "./routines.ts";
 
 export type TaskStatus =
@@ -310,20 +308,12 @@ export const pacingReportLabels: readonly string[] = [
 export const reportLinksMax = 10;
 /** The part of the infrastructure an incident is
  * about: what a task waits out and tries again by itself, never a question for the person. */
-export const incidentKinds = [
-  "proxy",
-  "desktop",
-  "network",
-  "model",
-  "rate_limit",
-  "sign_in",
-] as const;
+export const incidentKinds = ["desktop", "network", "model", "rate_limit", "sign_in"] as const;
 export type IncidentKind = (typeof incidentKinds)[number];
 /** The incident kinds that are the system a run stands on (the
  * operator's to fix), not a site's check, a sign-in or a site's rate limit, which the run itself
  * works around. */
 export const systemIncidentKinds: ReadonlySet<IncidentKind> = new Set([
-  "proxy",
   "desktop",
   "network",
   "model",
@@ -906,90 +896,6 @@ export const operatingPlanSchema = z.object({
   horizon: z.string().trim().min(1).max(300).describe("期限: how long it runs"),
 });
 export type OperatingPlanInput = z.output<typeof operatingPlanSchema>;
-/** Set_account_pacing arguments. The task bound to an
- * account decides the account's pacing itself, from the facts in its pacing block, and records
- * it here with its reason; an omitted field (or kind) is left as it is, null unsets the task's
- * value. Only the type is checked: whole numbers, not negative; hours inside a day with the start
- * before the end; a kind is `<site>/<action>`. A field or kind the person set by hand is left as
- * it is and reported back as owner-locked. */
-const pacingWhole = (name: string) =>
-  z.number().int(`${name} must be a whole number`).min(0, `${name} must not be negative`);
-const pacingHour = z
-  .number()
-  .int("activeHours must be whole hours")
-  .min(activeHourRange[0])
-  .max(activeHourRange[1]);
-export const pacingKindSchema = z
-  .string()
-  .trim()
-  .toLowerCase()
-  .regex(actionKindPattern, "a kind is <site>/<action>, such as example.com/post");
-export const pacingCapsSchema = z.record(pacingKindSchema, pacingWhole("a cap").nullable());
-// An array of exactly two, not z.tuple: a tuple becomes prefixItems (or array items), which the
-// model API rejects in a tool's input schema (activeHoursPair gives the [start, end] pair).
-export const pacingActiveHoursSchema = z
-  .array(pacingHour)
-  .length(2)
-  .refine(
-    ([start, end]) => start !== undefined && end !== undefined && start < end,
-    "activeHours start must be before its end",
-  );
-/** The parsed hours as the [start, end) pair they are (the schema checked there are two). */
-export const activeHoursPair = (hours: readonly number[]): [number, number] =>
-  hours.slice(0, 2) as [number, number];
-export const accountPacingInputSchema = z
-  .object({
-    minGapMinutes: pacingWhole("minGapMinutes")
-      .nullable()
-      .optional()
-      .describe("Minutes between two actions of any kind"),
-    activeHours: pacingActiveHoursSchema
-      .nullable()
-      .optional()
-      .describe("Local hours [start, end) in the account's time zone in which it acts"),
-    caps: pacingCapsSchema
-      .optional()
-      .describe(
-        "Actions per local day by kind (<site>/<action>, as in usedToday); 0 turns a kind off",
-      ),
-    reason: z
-      .string()
-      .trim()
-      .min(1)
-      .max(600)
-      .describe("Why these values, from the facts; the person reads it on the account"),
-  })
-  .refine(
-    (input) =>
-      input.minGapMinutes !== undefined ||
-      input.activeHours !== undefined ||
-      (input.caps !== undefined && Object.keys(input.caps).length > 0),
-    "set_account_pacing needs at least one of minGapMinutes, activeHours, caps",
-  );
-export type AccountPacingInput = z.output<typeof accountPacingInputSchema>;
-/** Record_account_profile arguments: facts about the account
- * on one site, as the task read them there itself (its own profile page, settings, counters).
- * Free-form keys and values, kept as written: the server does not interpret them. */
-export const accountProfileInputSchema = z.object({
-  site: z
-    .string()
-    .trim()
-    .min(1)
-    .max(2048)
-    .describe("The website these facts are about (its domain or any address on it)"),
-  facts: z
-    .record(
-      z.string().trim().min(1).max(64),
-      z.union([z.string().max(500), z.number(), z.boolean()]),
-    )
-    .refine((facts) => Object.keys(facts).length > 0, "facts needs at least one fact")
-    .refine(
-      (facts) => JSON.stringify(facts).length <= reportTextMax,
-      `facts must be ${reportTextMax} characters or fewer as JSON`,
-    )
-    .describe("What you read about the account there"),
-});
-export type AccountProfileInput = z.output<typeof accountProfileInputSchema>;
 /** The saved plan (`task.state.operatingPlan`): the latest version, 1 for the first. */
 export interface OperatingPlan extends OperatingPlanInput {
   version: number;
@@ -1096,8 +1002,6 @@ export interface AgentWorkspace {
   notifications: AgentNotification[];
   identity: AgentIdentity;
   worker: { running: boolean; lastTickAt?: string };
-  /** The project's jobs (archived ones without their brief). */
-  jobs?: JobView[];
 }
 export const createTaskSchema = z.object({
   title: z.string().trim().min(1).max(160).optional(),

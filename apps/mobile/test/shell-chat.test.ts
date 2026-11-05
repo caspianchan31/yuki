@@ -432,8 +432,8 @@ test("a need card collapses to its receipt once the person acted after it was ra
   const review: NeedItem = {
     kind: "account",
     key: "account:a",
-    reason: "noProxy",
-    flags: ["noProxy"],
+    reason: "desktopError",
+    flags: ["desktopError"],
     account: {} as never,
   };
   assert.equal(receiptForNeed(review, { t1: { text: "r", at: at(15, 0) } }), null);
@@ -860,7 +860,7 @@ test("the conversation's status lines: only what runs now or is stuck; a waiting
     nextRunAt: at(23, 30),
   });
   const queued = task({ id: "queue", status: "queued" });
-  const failed = task({ id: "fail", status: "failed", error: "代理连不上" });
+  const failed = task({ id: "fail", status: "failed", error: "桌面没响应" });
   const asking = task({ id: "ask", status: "waiting_input", question: "用哪个号？" });
   const ended = task({ id: "done", status: "succeeded", originThreadId: "side" });
   const elsewhere = task({ id: "other", status: "running", originThreadId: "another" });

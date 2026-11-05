@@ -6,7 +6,7 @@
  * Sources: N1 (GET /api/projects/overview) gives counts per project; GET /api/projects (the
  * ProjectsProvider) is authoritative for which projects exist, their names after a rename and
  * the `deleting` flag. The current project's numbers come from the local shell counts, which are
- * fresher; both count the same 需要你 (N1 includes the account flags desktop error / no proxy).
+ * fresher; both count the same 需要你 (N1 includes the account flag desktop error).
  * Without N1 the rows have names and account counts only, no badges.
  */
 import { projectNameMax } from "../../../../../packages/domain/src/projects.ts";
@@ -120,18 +120,10 @@ export function projectRows(input: {
   current: string | null;
   /** The current project's local counts; null to use N1's. */
   currentCounts: ShellCounts | null;
-  /** The space has a founder: her account lives in the hall (the default project), so N1 counts
-   * her there, but she is the space's 创始人, never 未分配 (docs/founder.md). */
-  founderInHall?: boolean;
 }): ProjectRowModel[] {
   const { overview, projects, projectsAvailable, current } = input;
-  // 「n 个未分配」 of the hall: its accounts but the founder.
   const accountsOf = (row: Pick<ProjectOverview, "id" | "accounts">) =>
-    row.accounts < 0
-      ? null
-      : row.id === null && input.founderInHall
-        ? Math.max(0, row.accounts - 1)
-        : row.accounts;
+    row.accounts < 0 ? null : row.accounts;
   const byId = new Map(projects.map((project) => [project.id, project]));
   // The space's own conversation (the default project) leads the column.
   const hallFirst = <T extends { id: string | null }>(rows: T[]) => [

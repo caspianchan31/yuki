@@ -11,24 +11,12 @@
  *   line    one short line: 「正在做」, 「排队中」, 「后台停着」, 「01:56 再试」, 「桌面没响应 2 小时了」,
  *           「没在经营」, 「停着」; a project in the hall: 「等你 2 件」, 「3 个在跑」, 「等着」, 「后台停着」,
  *           「没在跑」
- *   founder (fork, make it run) the founder outside her own conversation reads her real loop
- *           (GET /api/founder, founder-core founderState): 正在做, 下次 …, 经营停了, 没在经营;
- *           「创始人」 only until that is known
  *   `stalled` the worker has no heartbeat (ShellData.stalled, the 进度汇报 page's line): nothing
  *           reads as moving
- *   routine (phase 2) the account's 经营循环 in one line: how often it wakes (its repeating
- *           task), when it last acted (the pacing ledger) and how many things it did today:
- *           「每 10 分钟 · 上次 01:46 · 今天 3 件」; null when nothing of it is known
  */
-import {
-  clockLabel,
-  durationLabel,
-  rhythmLabel,
-} from "../../../../../packages/domain/src/task-phase.ts";
-import { type FounderAccount, founderState } from "../founder/founder-core.ts";
-import type { FounderRef } from "../jobs/jobs-core.ts";
-import { type AccountModel, anyKind, flagLabel, type ProjectOverview } from "../model.ts";
-import { incidentWord, phaseWords, t } from "../strings.ts";
+import { durationLabel } from "../../../../../packages/domain/src/task-phase.ts";
+import { type AccountModel, flagLabel, type ProjectOverview } from "../model.ts";
+import { incidentWord, t } from "../strings.ts";
 
 export type MemberState = "needs" | "blocked" | "running" | "waiting" | "idle";
 
@@ -38,7 +26,6 @@ export interface MemberCard {
   /** The round avatar's letter; "" for the 运营专员 (the mascot). */
   initial: string;
   kind: "ops" | "account" | "project";
-  founder: boolean;
   environmentId?: string;
   /** A project standing in the hall for its accounts (kind "project"). */
   projectId?: string;
@@ -49,7 +36,6 @@ export interface MemberCard {
   /** Its desktop is on: the small dot at the avatar's corner. */
   desktopOn: boolean;
   /** Its 经营循环 in one line (phase 2); null for a member without one. */
-  routine: string | null;
 }
 
 const initialOf = (name: string) => name.trim().charAt(0).toUpperCase();
@@ -119,51 +105,12 @@ export function accountLine(
   return t.members.idle;
 }
 
-/** The minutes between the wakes of the account's loop: its live repeating task (the shortest
- * repeat when it has several); null without one. */
-export function wakeMinutes(account: Pick<AccountModel, "tasks">): number | null {
-  const repeats = account.tasks
-    .map((entry) => entry.task.repeatMinutes)
-    .filter((value): value is number => typeof value === "number" && value > 0);
-  return repeats.length ? Math.min(...repeats) : null;
-}
-
-/** How many things the account did today, by its pacing ledger (every kind but `*`, which
- * repeats the others); null when the ledger is not known here. */
-export function doneToday(account: Pick<AccountModel, "pacing">): number | null {
-  const status = account.pacing.present ? account.pacing.status : null;
-  if (!status) return null;
-  return Object.entries(status.usedToday)
-    .filter(([kind]) => kind !== anyKind)
-    .reduce((sum, [, used]) => sum + Math.max(0, used), 0);
-}
-
-/** The account's 经营循环 in one line: 「每 10 分钟 · 上次 01:46 · 今天 3 件」. Each part only when
- * known; null when none is (no loop, no ledger). */
-export function accountRoutine(
-  account: Pick<AccountModel, "tasks" | "pacing">,
-  now: number,
-): string | null {
-  const r = t.members.routine;
-  const wake = wakeMinutes(account);
-  const last = account.pacing.present ? account.pacing.status?.lastActionAt : null;
-  const lastClock = last ? clockLabel(last, now, phaseWords) : "";
-  const done = doneToday(account);
-  const parts = [
-    wake !== null ? r.every(rhythmLabel(wake, phaseWords)) : null,
-    lastClock ? r.last(lastClock) : null,
-    done !== null ? r.today(done) : null,
-  ].filter((part): part is string => !!part);
-  return parts.length ? parts.join(t.common.sep) : null;
-}
-
 export function accountMember(
   account: Pick<
     AccountModel,
-    "id" | "name" | "flags" | "incident" | "now" | "tasks" | "next" | "desktop" | "view" | "pacing"
+    "id" | "name" | "flags" | "incident" | "now" | "tasks" | "next" | "desktop" | "view"
   >,
   now: number,
-  founder: boolean,
   /** The worker has no heartbeat (ShellData.stalled): nothing reads as moving. */
   stalled: boolean,
 ): MemberCard {
@@ -172,13 +119,11 @@ export function accountMember(
     name: account.name,
     initial: initialOf(account.name),
     kind: "account",
-    founder,
     environmentId: account.id,
     state: accountState(account, stalled),
     line: accountLine(account, now, stalled),
     now: account.now?.entry.task.title ?? null,
     desktopOn: account.desktop === "running",
-    routine: accountRoutine(account, now),
   };
 }
 
@@ -219,13 +164,11 @@ export function projectMember(
     name: project.name,
     initial: initialOf(project.name),
     kind: "project",
-    founder: false,
     projectId: project.id ?? undefined,
     state,
     line,
     now: null,
     desktopOn: false,
-    routine: null,
   };
 }
 
@@ -236,80 +179,29 @@ export function opsMember(name: string): MemberCard {
     name,
     initial: "",
     kind: "ops",
-    founder: false,
     state: "idle",
     line: t.members.ops,
     now: null,
     desktopOn: false,
-    routine: null,
   };
 }
 
-/** The founder with no account in this conversation's accounts (a project's conversation: she
- * belongs to the space). Her real state from her loop (`account`, GET
- * /api/founder: running, waiting, stopped and why, or 没在经营 with nothing to work on), never a
- * fixed idle; only while that is not known (not read yet, another founder) 「创始人」. */
-export function founderMember(
-  founder: FounderRef,
-  account: FounderAccount | null = null,
-  now: number = Date.now(),
-  stalled = false,
-): MemberCard {
-  const known =
-    account && (!founder.environmentId || account.environmentId === founder.environmentId)
-      ? founderState(account, now, stalled)
-      : null;
-  return {
-    key: `founder:${founder.environmentId ?? founder.name}`,
-    name: founder.name,
-    initial: initialOf(founder.name),
-    kind: "account",
-    founder: true,
-    ...(founder.environmentId ? { environmentId: founder.environmentId } : {}),
-    state: known?.state ?? "idle",
-    line: known?.line ?? t.members.founder,
-    // Hover and the spoken label: why she stopped (or what keeps failing), else her loop.
-    now: known?.detail ?? (known?.phase ? (account?.loop?.title ?? null) : null),
-    desktopOn: false,
-    routine: null,
-  };
-}
-
-/** The bar's members, in order: the founder, then the accounts here (a project) or each project
+/** The bar's members, in order: the accounts here (a project) or each project
  * (the hall), then the 运营专员 who answers this conversation. */
 export function members(input: {
   hall: boolean;
   ops: string;
-  founder: FounderRef | null;
-  /** The founder as GET /api/founder reads her (her loop), for her face
-   * where she is not one of the accounts here; null or absent while not known. */
-  founderAccount?: FounderAccount | null;
   accounts: readonly Parameters<typeof accountMember>[0][];
   projects: readonly Parameters<typeof projectMember>[0][];
   now: number;
   /** The worker has no heartbeat (ShellData.stalled). */
   stalled: boolean;
 }): MemberCard[] {
-  const isFounder = (account: { id: string; name: string; view?: { founder?: boolean } }) =>
-    account.view?.founder === true ||
-    (input.founder !== null &&
-      (input.founder.environmentId
-        ? input.founder.environmentId === account.id
-        : input.founder.name === account.name));
-  const own = input.accounts.map((account) =>
-    accountMember(account, input.now, isFounder(account), input.stalled),
-  );
-  const founderHere = own.find((member) => member.founder);
-  const rest = own.filter((member) => !member.founder);
-  const founder = founderHere
-    ? [founderHere]
-    : input.founder
-      ? [founderMember(input.founder, input.founderAccount ?? null, input.now, input.stalled)]
-      : [];
+  const own = input.accounts.map((account) => accountMember(account, input.now, input.stalled));
   const middle = input.hall
     ? input.projects
         .filter((project) => project.id !== null)
         .map((project) => projectMember(project, input.stalled))
     : [];
-  return [...founder, ...rest, ...middle, opsMember(input.ops)];
+  return [...own, ...middle, opsMember(input.ops)];
 }

@@ -9,8 +9,6 @@ import {
   type AgentNotification,
   type AgentTask,
   type AgentWorkspace,
-  accountPacingInputSchema,
-  accountProfileInputSchema,
   actionReportLabel,
   clipText,
   continuingLabel,
@@ -24,17 +22,8 @@ import {
   incidentAfterRecovery,
   type Monitor,
   monitorInputSchema,
-  type OperatingPlan,
-  operatingPlanOf,
-  operatingPlanSchema,
-  operatingPlanText,
-  overPaceSuffix,
   type ProjectBrief,
-  pacingSetLabel,
-  pacingWaitLabel,
   pausedResult,
-  planReportLabel,
-  profileRecordedLabel,
   projectBriefSchema,
   providerQuotaPattern,
   quotaResetAt,
@@ -46,14 +35,11 @@ import {
   reportInputWithSiteSchema,
   reportLink,
   reportProof,
-  reportTextMax,
   reportUnconfirmedWords,
   resumedAnswer,
   runCapped,
   runCappedLabel,
   runStoppedLabel,
-  sameTargetSuffix,
-  siblingInteractionSuffix,
   sliceText,
   stoppedRetryDelayMs,
   type TaskIncident,
@@ -71,7 +57,6 @@ import type {
   CredentialUsedBy,
   SiteSignInFact,
 } from "../../../../packages/domain/src/credentials.ts";
-import type { PacingStatus } from "../../../../packages/domain/src/environments.ts";
 import type {
   ActionProposal,
   Artifact,
@@ -80,8 +65,8 @@ import type {
   ProposalInput,
 } from "../../../../packages/domain/src/index.ts";
 import { isMessageToPeople, messageRecipients } from "../../../../packages/domain/src/index.ts";
-import type { ProjectJob } from "../../../../packages/domain/src/jobs.ts";
 import { identityName } from "../../../../packages/domain/src/member-face.ts";
+import { yukiMemberId } from "../../../../packages/domain/src/member-files.ts";
 import { realOwnerOf } from "../../../../packages/domain/src/projects.ts";
 import {
   type AuthBlock,
@@ -100,10 +85,8 @@ import {
 } from "../../../../packages/domain/src/standing.ts";
 import { taskEnvironmentId } from "../../../../packages/domain/src/task-phase.ts";
 import { firstRunPlan, nextClockRun } from "../../../../packages/domain/src/template-setup.ts";
-import { founderOf, isFounder, projectNameOf, projectScopes } from "../accounts/founder.ts";
-import { ProjectJobs, projectJobKind } from "../accounts/jobs.ts";
-import { AccountOperating, type SiblingMatch } from "../accounts/operating.ts";
-import { writePlan } from "../accounts/records.ts";
+import { readAccountZone } from "../account-settings.ts";
+import { AccountOperating } from "../accounts/operating.ts";
 import { type ActionService, isAppKind, reviewExpired } from "../actions.ts";
 import type { AppsService } from "../apps/service.ts";
 import type { BrowserService } from "../browser.ts";
@@ -113,7 +96,6 @@ import {
   handledStands,
   type OwnerHandled,
   ownerHandledKind,
-  readOwnerHandled,
   readSignIns,
   signInKind,
   writeSignIn,
@@ -134,6 +116,8 @@ import type { Files } from "../files.ts";
 import { allowAllGate, type PlanGate, type SpaceScopes } from "../gate.ts";
 import { backgroundFailure } from "../log.ts";
 import { isMailboxConnection } from "../mail/channels.ts";
+import { MemberFiles, type MemberRef } from "../member-files/service.ts";
+import { DiskMemberFileStore, MemoryMemberFileStore } from "../member-files/store.ts";
 import { currentActor } from "../request-actor.ts";
 import {
   askActionReview,
@@ -144,7 +128,15 @@ import {
 import { SearchService } from "../search.ts";
 import { Skills } from "../skills.ts";
 import type { WorkspaceService } from "../workspace.ts";
-import { AccountLoops, isAccountLoop } from "./account-loop.ts";
+import {
+  type AccountAction,
+  accountActionsKind,
+  confirmsRef,
+  ledgerDays,
+  ledgerKey,
+  lookOnly,
+  normalizeLink,
+} from "./action-ledger.ts";
 import {
   ChatReports,
   confirmsWords,
@@ -159,28 +151,8 @@ import {
   unconfirmedOf,
 } from "./chat-reports.ts";
 import { analyzeSpending } from "./finance.ts";
-import { runV06Migration } from "./migration-v06.ts";
 import { executeModelTask, runEndedWithoutCompletion, stoppedIncidentKind } from "./model.ts";
 import { modelSpec, takeBackup } from "./model-fallback.ts";
-import { checkOwnerAway } from "./owner-away.ts";
-import {
-  type AccountAction,
-  accountActionsKind,
-  anyKind,
-  confirmsRef,
-  emptyWaitRefusal,
-  exceedsPacing,
-  isPacingWait,
-  kindOfRow,
-  ledgerDays,
-  ledgerKey,
-  loadPacing,
-  lookOnly,
-  normaliseCapKinds,
-  normalizeLink,
-  writeAiPacing,
-  writeProfile,
-} from "./pacing.ts";
 import {
   countPageDiff,
   describePageDiff,
@@ -201,13 +173,9 @@ import { actionLedgerOf } from "./standing.ts";
 import { drainFileName, LostLeaseError, type TaskContext, TaskWorker } from "./worker.ts";
 
 const hash = (text: string) => createHash("sha256").update(text).digest("hex");
-/** A ledger row a report adds, with its event mark when it is over the pacing.
- * `replaces` is the row a report of the same action without its address
- * wrote, which this one takes over (`ledgerEntry`). */
-type LedgerEntry = AccountAction & { exceeded: string; replaces?: string };
-/** A new action past what is set for the account (a row taken over was told when it was new). */
-const overPace = (entry: LedgerEntry | null): entry is LedgerEntry =>
-  !!entry?.overCapacity && !entry.replaces;
+/** A ledger row a report adds. `replaces` is the row a report of the same action without its
+ * address wrote, which this one takes over (`ledgerEntry`). */
+type LedgerEntry = AccountAction & { replaces?: string };
 /** A change watch's last saved page: its hash, relative-time-free fingerprint and lines. */
 type MonitorPage = { id: string; hash?: string; timelessHash?: string; lines: string[] };
 const date = () => new Date().toISOString();
@@ -249,15 +217,10 @@ export interface ReportReply {
   links?: string[];
   ignoredLinks?: string[];
   note?: string;
-  pacing?: PacingStatus & { exceeded?: boolean };
   progress?: boolean;
   /** When the action this report recorded was taken (the run keeps it as the
    * task's latest action, `state.planActivity`; not shown to the model). */
   actedAt?: string;
-  sibling?: { name: string; link: string | null; kind?: "same_target" };
-  mustUndo?: boolean;
-  siblingNote?: string;
-  jobNote?: string;
   /** `confirms` named no report waiting for its address. */
   confirmsNote?: string;
   incident?: TaskIncident | null;
@@ -377,12 +340,11 @@ export class AgentService {
   apps?: AppsService;
   /** Fill_login_secret, import_site_cookies and record_sign_in. */
   readonly signIn: SignInTools;
-  /** Each account's standing operating loop. */
-  readonly loops: AccountLoops;
-  /** The account's persona, goal and plan, its siblings' facts, the migration. */
+  /** The account's persona and goal. */
   readonly accounts: AccountOperating;
-  /** The project's jobs (「活」). */
-  readonly jobs: ProjectJobs;
+  /** v1.5: each member's AGENTS.md, MEMORY.md and daily notes (docs/member-files.md). The core
+   * keeps them on disk; createApp swaps in the hosted layer's store. */
+  memberFiles: MemberFiles;
   /** Makes a project in the space when the 营销总群's
    * assistant is asked for work in one that does not exist (set by the app: ProjectService). */
   createProject?: (owner: string, name: string) => Promise<{ id: string; name: string }>;
@@ -410,37 +372,15 @@ export class AgentService {
     this.reports = new ChatReports(db);
     this.skills = new Skills(db);
     this.signIn = new SignInTools(db, environments.store);
-    this.loops = new AccountLoops(this);
     this.accounts = new AccountOperating(this);
-    this.jobs = new ProjectJobs(this);
+    // A config with no data directory (some tests) keeps the files in memory.
+    const filesDir =
+      config.memberFilesDir ?? (config.dataDir ? join(config.dataDir, "members") : "");
+    this.memberFiles = new MemberFiles(
+      filesDir ? new DiskMemberFileStore(filesDir) : new MemoryMemberFileStore(),
+      db,
+    );
     this.routines = new Routines(this);
-    // An account's loop runs while it has a goal or a job; jobs given to everyone go
-    // to accounts that join later too, and an account that stops, leaves or goes drops its jobs.
-    // The founder's jobs are in every project.
-    this.loops.openJobs = async (scope, environmentId) =>
-      (await isFounder(this.db, scope, environmentId))
-        ? this.jobs.founderOpenCount(scope, environmentId)
-        : this.jobs.openCount(scope, environmentId);
-    this.loops.dropJobs = async (scope, environmentId, why) => {
-      if (!(await isFounder(this.db, scope, environmentId)))
-        return this.jobs.drop(scope, environmentId, why);
-      for (const { scope: project } of await projectScopes(this.db, scope))
-        await this.jobs.drop(project, environmentId, why);
-    };
-    // The founder takes the jobs for everyone of projects that have no account.
-    this.loops.adoptJobs = async (scope, environmentId) =>
-      (await isFounder(this.db, scope, environmentId))
-        ? this.jobs.adoptForFounder(scope, environmentId)
-        : this.jobs.adopt(scope, environmentId);
-    // The loop follows the account when it moves and ends when it is deleted; a new
-    // account takes the project's jobs given to everyone.
-    environments.loopHooks = {
-      moved: (real, environmentId, from) => this.loops.moved(real, environmentId, from),
-      removed: (scope, environmentId) => this.loops.removed(scope, environmentId),
-      created: async (owner, environmentId) => {
-        await this.loops.ensure(owner, environmentId);
-      },
-    };
     this.worker = new TaskWorker(db, (owner, task, context) => this.execute(owner, task, context), {
       // A read-only space's tasks wait until it may run again.
       mayRun: async (owner) => (await this.plan.refusal(owner)) === null,
@@ -465,20 +405,57 @@ export class AgentService {
         if (task.status === "failed")
           await step("take up a failed standing task", () => this.reviveStanding(owner, task));
         await step("publish outcome", () => this.publishOutcome(owner, task));
+        await step("note the run in the member's day note", () => this.noteRun(owner, task));
         await step("queue a pending instruction", () => this.queuePendingRedirect(owner, task));
-        await step("settle the loop", () => this.settleLoop(owner, task));
-        await step("confirm a site the owner handled", () => this.afterLoopRun(owner, task));
-        await step("start a loop after an earlier task", () =>
-          this.loops.earlierEnded(owner, task),
-        );
       },
     });
   }
+  /** The member the files belong to: Yuki (`yuki`), or one of the space's accounts. Null when
+   * there is no such member in the space. */
+  async memberRef(owner: string, id: string, cached = false): Promise<MemberRef | null> {
+    const space = realOwnerOf(owner);
+    // A run's start does not ask the database again for a name and time zone read a moment ago.
+    const key = `${owner}\n${id}`;
+    const hit = cached ? this.memberRefs.get(key) : undefined;
+    if (hit && hit.until > Date.now()) return hit.ref;
+    const ref = await this.memberRefNow(owner, space, id);
+    if (ref) this.memberRefs.set(key, { ref, until: Date.now() + 30_000 });
+    return ref;
+  }
+  private readonly memberRefs = new Map<string, { ref: MemberRef; until: number }>();
+  private async memberRefNow(owner: string, space: string, id: string): Promise<MemberRef | null> {
+    // The day a note belongs to is the day in the account's time zone (设置 → 通用 → 时区, the
+    // one routines use); else her computer's; UTC without either.
+    const accountZone = await readAccountZone(this.db, owner).catch(() => null);
+    if (id === yukiMemberId) {
+      const identity = await this.db.get<{ name?: string }>(owner, "agent-settings", "identity");
+      return { space, owner, id, name: identityName(identity?.name), timezone: accountZone };
+    }
+    const record = (await this.environments.allRecords(owner)).find((found) => found.id === id);
+    if (!record || record.deleting) return null;
+    const timezone =
+      accountZone ??
+      (await this.computer.settings
+        .view(envOwner(owner, id))
+        .then((view) => view.timezone ?? null)
+        .catch(() => null));
+    return { space, owner, id, name: record.name, timezone };
+  }
+  /** What a run of this task reads first: the member's files. Empty when they cannot be read. */
+  async memberFilesBlock(owner: string, accountId: string | null): Promise<string> {
+    const ref = await this.memberRef(owner, accountId ?? yukiMemberId, true).catch(() => null);
+    return ref ? this.memberFiles.promptBlock(ref) : "";
+  }
+  /** A run of a task has settled: the member's note for the day says so (the server's doing,
+   * not the model's). */
+  private async noteRun(owner: string, task: AgentTask) {
+    const id = taskEnvironmentId(task);
+    const ref = await this.memberRef(owner, id ?? yukiMemberId);
+    if (ref) await this.memberFiles.noteSettledRun(ref, task);
+  }
   start() {
     this.worker.start();
-    // The v0.6 migration once, then each account's loop is
-    // checked: what is missing starts, what should not run ends.
-    void this.startup().catch((error) => backgroundFailure("account loops at start", error));
+    void this.startup().catch((error) => backgroundFailure("start-up checks", error));
     // Maintenance is independent of the HTTP response and reconciles durable records.
     void this.maintain().catch((error) => backgroundFailure("initial maintenance", error));
     this.maintenance = setInterval(() => {
@@ -520,13 +497,6 @@ export class AgentService {
           backgroundFailure("publish outcome", error),
         );
       }
-      // Each space with standing loops: ask once after the
-      // owner's long absence, pause the loops when he does not answer.
-      const spaces = new Set<string>();
-      for (const { owner, value } of await this.db.scan<AgentTask>("tasks"))
-        if (isStandingTask(value)) spaces.add(realOwnerOf(owner));
-      for (const space of spaces)
-        await checkOwnerAway(this, space).catch((error) => backgroundFailure("owner away", error));
       for (const { owner, value } of await this.db.scan<Monitor>("monitors"))
         await this.activateMonitor(owner, value);
       // An owner's turn a loop left unconfirmed gets its own check.
@@ -571,10 +541,25 @@ export class AgentService {
   }
   /** At every start. */
   async startup() {
-    await runV06Migration(this);
-    await this.loops.reconcile();
+    await this.pauseRetiredLoops();
     await this.backfillOwnerHandled();
     await this.backfillDesktopConflicts();
+  }
+  /** v1.5 removed the accounts' standing operating loops and the v0.6 migration task. The tasks
+   * older versions made for them stay in the database untouched, but nothing starts or ends them
+   * any more, so once, at start, each one still going is paused (the owner sees it paused and can
+   * cancel it). */
+  async pauseRetiredLoops() {
+    const marker = { id: "retired-loops-paused-v15", at: date() };
+    if (await this.db.get("system", "migrations", marker.id)) return;
+    for (const { owner, value } of await this.db.scan<AgentTask>("tasks")) {
+      if (value.input?.accountLoop !== true && value.input?.migrationV06 !== true) continue;
+      if (terminal.has(value.status) || value.status === "paused") continue;
+      await this.control(owner, value.id, "pause").catch((error) =>
+        backgroundFailure("pause a retired account loop", error),
+      );
+    }
+    await this.db.insertIfAbsent("system", "migrations", marker);
   }
   /** A sign-in fact a task recorded in a run during which a desktop tool of a run on
    * the same desktop failed with a conflict is not the site's doing. Once, at start, for every
@@ -724,10 +709,7 @@ export class AgentService {
         this.db.get<AgentIdentity>(owner, "agent-settings", "identity"),
       ]);
     const heartbeat = await this.db.get<{ lastTickAt: string }>("system", "worker-status", "tasks");
-    // The project's jobs, for the live panel (archived ones without their brief).
-    const jobs = await this.jobs.views(owner);
     return {
-      jobs,
       tasks,
       goals,
       monitors,
@@ -921,10 +903,6 @@ export class AgentService {
     if (action === "resume" && task.status !== "paused")
       throw new AppError("Only paused tasks can be resumed", 409);
     if (action === "pause" && (terminal.has(task.status) || task.status === "paused")) return task;
-    // Cancel on an account's loop is 停止经营: its goal is cleared and the jobs given
-    // to it here are no longer its, so nothing starts it again by itself.
-    if (action === "cancel" && isAccountLoop(task) && typeof task.input.environmentId === "string")
-      await this.accounts.stopOperating(owner, task.input.environmentId);
     if (task.kind === "monitor" && action === "resume") {
       // Both UI entry points must activate the monitor before a worker can claim its task.
       await this.controlMonitor(owner, String(task.input.monitorId), "resume");
@@ -1046,12 +1024,6 @@ export class AgentService {
       title: `Task ${status}`,
       detail: "Changed by you",
     });
-    // An earlier task the migration listed, stopped by the owner, lets its account's
-    // loop start.
-    if (action === "cancel")
-      await this.loops
-        .earlierEnded(owner, updated)
-        .catch((error) => backgroundFailure("account loop after a stopped task", error));
     return updated;
   }
   /** The person's 「继续」 for a task (the chat's resume_task).
@@ -1110,23 +1082,6 @@ export class AgentService {
   /** An instruction that reached a running task after its wait re-read
    * the record (the run was already ending) would otherwise sit until the whole wait is over.
    * Once the run has settled, a scheduled task with an instruction pending runs again now. */
-  /** After a run of an account's loop, the loop ends when the
-   * account has nothing left to work on; a job given to it after its wait was set runs it now. */
-  private async settleLoop(owner: string, saved: AgentTask) {
-    if (!isAccountLoop(saved) || typeof saved.input.environmentId !== "string") return;
-    await this.loops.ensure(owner, saved.input.environmentId);
-    const task = await this.db.get<AgentTask>(owner, "tasks", saved.id);
-    const since = taskWait(task ?? saved)?.since;
-    if (task?.status !== "scheduled" || !task.wakeAt || !since || task.wakeAt < since) return;
-    // Already due: the worker runs it now anyway.
-    if (task.nextRunAt && Date.parse(task.nextRunAt) <= Date.now()) return;
-    await this.queueNow(
-      owner,
-      task,
-      "New job",
-      "A job came while the run was ending; running again now.",
-    );
-  }
   private async queuePendingRedirect(owner: string, saved: AgentTask) {
     const task = await this.db.get<AgentTask>(owner, "tasks", saved.id);
     if (task?.status !== "scheduled" || !task.pendingAnswer?.trim()) return;
@@ -1281,17 +1236,9 @@ export class AgentService {
         const told = await tell(request.by.taskId, `${site} 的登录已保存。`);
         if (told?.status === "queued") woken = true;
       }
-    // A login saved for the project wakes the task that asked for it; when none takes it (it
-    // ended), the project's operating goal goes on with it.
-    if (!woken && usedBy.type === "project")
-      await this.projectCredentialSaved(owner, `${site} 的登录已保存。`);
     if (woken || usedBy.type !== "account") return;
     await this.startSignIn(owner, usedBy, site, `${site} 的登录信息已更新。`);
   }
-  /** Something the project's default desktop needed was
-   * saved (a site login, its proxy). Its operating goal goes on: a waiting one is told; when none
-   * is open, the latest one that ended is opened again with the news, so a login or proxy the
-   * owner gives is never left with no task to use it. */
   /** What a task asked for was saved (a mailbox): it is told, which wakes it. A task
    * waiting on the person's answer is left alone (the notice would stand in for the answer); one
    * that ended or is gone is skipped. */
@@ -1302,44 +1249,6 @@ export class AgentService {
       if (error instanceof AppError && (error.status === 404 || error.status === 409)) return;
       throw error;
     });
-  }
-  async projectCredentialSaved(owner: string, text: string) {
-    const operating = (await this.db.list<AgentTask>(owner, "tasks"))
-      .filter(
-        (task) =>
-          task.kind === "agent" &&
-          !task.input?.environmentId &&
-          !task.input?.migrationV06 &&
-          !!operatingPlanOf(task.state),
-      )
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-    const open = operating.filter((task) => !terminal.has(task.status));
-    if (open.length) {
-      for (const task of open)
-        await this.redirect(owner, task.id, { text }).catch((error) => {
-          if (error instanceof AppError && (error.status === 404 || error.status === 409)) return;
-          throw error;
-        });
-      return;
-    }
-    const ended = operating.find((task) => task.status === "succeeded");
-    if (!ended) return;
-    const reopened = await this.db.compareAndSwap<AgentTask>(
-      owner,
-      "tasks",
-      ended.id,
-      { status: "succeeded", updatedAt: ended.updatedAt },
-      { status: "queued", nextRunAt: date(), pendingAnswer: text, updatedAt: date() },
-    );
-    if (reopened)
-      await this.db.put(owner, "run-events", {
-        id: randomUUID(),
-        taskId: ended.id,
-        kind: "status",
-        date: date(),
-        title: "Resumed work",
-        detail: text,
-      } satisfies RunEvent);
   }
   /** The task that signs `usedBy` in to `site`: the open one for it is told
    * (`told`) and takes it (queued, or running: a sign-in run that is told during the run signs
@@ -1408,42 +1317,6 @@ export class AgentService {
       checkAt: null,
     };
     await this.db.put(factOwner, ownerHandledKind, handled);
-    // An account with a standing loop: the loop looks again itself and goes on from there. A loop
-    // that is about to run reads the owner's turn at its start (its data, and this instruction); one
-    // mid-run gets the instruction through the redirect channel, with its next tool's result
-    // (model.ts, the tool wrapper), so it confirms the site before its next step. When its run
-    // ends instead (a wait, a held desktop), the dedicated check starts as the run settles
-    // (afterLoopRun), whether or not the loop runs again at once: the desktop hold keeps them
-    // apart, and the check waits its normal hold wait.
-    const loop =
-      usedBy.type === "account"
-        ? await this.loops.wake(
-            owner,
-            usedBy.environmentId,
-            ownerTookOverLabel,
-            ownerHandledHandIn(site),
-          )
-        : null;
-    if (loop) {
-      const handedIn =
-        loop.status === "queued" || loop.status === "running"
-          ? await this.redirect(owner, loop.id, { text: ownerHandledHandIn(site) })
-              .then(() => true)
-              .catch((error) => {
-                if (error instanceof AppError && (error.status === 404 || error.status === 409))
-                  return false;
-                throw error;
-              })
-          : false;
-      // A loop that will not run now (waiting for an answer, paused, ended meanwhile): the check
-      // runs at once.
-      if (!handedIn)
-        await this.confirmOwnerHandled(factOwner, handled, 0).catch((error) => {
-          if (error instanceof AppError && error.status === 409) return;
-          throw error;
-        });
-      return true;
-    }
     if (usedBy.type === "account")
       await this.assertRoomForSignIns(owner, [{ environmentId: usedBy.environmentId, site }]);
     else await this.assertRoomForTasks(owner, 1);
@@ -1461,20 +1334,6 @@ export class AgentService {
       `${site}：主人在桌面里处理过了，请再看一次并记下所见。`,
     );
     return true;
-  }
-  /** A run of an account's loop settled. Each owner's turn on the
-   * account that is still unconfirmed and had no check yet gets its dedicated check now, whether
-   * or not the loop runs again at once. The check takes the desktop when the hold frees, with its normal hold wait. */
-  private async afterLoopRun(owner: string, saved: AgentTask) {
-    const environmentId = saved.input?.environmentId;
-    if (!isAccountLoop(saved) || typeof environmentId !== "string") return;
-    if (!isEnvironmentId(environmentId)) return;
-    const factOwner = envOwner(owner, environmentId);
-    for (const row of await readOwnerHandled(this.db, factOwner))
-      if (row.environmentId === environmentId)
-        await this.confirmOwnerHandled(factOwner, row, 0).catch((error) =>
-          backgroundFailure("confirm a site the owner handled", error),
-        );
   }
   /** Starts the dedicated sign-in check (startSignIn) for one
    * owner's turn still unconfirmed, at least `minAgeMs` old, once per owner's turn (`checkAt`, claimed by
@@ -1704,168 +1563,6 @@ export class AgentService {
       await context.guard();
     }
     return task;
-  }
-  /** Saves the
-   * plan as the account's own (`account-plan`, the next version of the account's line: it does
-   * not start again with a new task) and announces it: a "Plan v<n>" card in the task's
-   * conversation and a run event of kind `plan`. The task keeps the version it saved in
-   * `state.operatingPlan` (what its card in the live panel shows). Setting the plan is progress,
-   * so the counts of waits and automatic continuations start again. It is written through the
-   * run's checkpoint, and the caller keeps the returned task as the run's own, so every later
-   * checkpoint, wait and the run's result carry it. Nobody approves it; the run goes on. */
-  async setOperatingPlan(owner: string, task: AgentTask, raw: unknown, context: TaskContext) {
-    const input = operatingPlanSchema.parse(raw);
-    const ledgerOwner = this.ledgerOwnerOf(owner, task);
-    await context.guard();
-    // The account's own plan when the task runs on one; on the default desktop, the task's.
-    const plan = ledgerOwner
-      ? (await writePlan(this.db, ledgerOwner, input, task.id)).plan
-      : {
-          version: (operatingPlanOf(task.state)?.version ?? 0) + 1,
-          setAt: new Date().toISOString(),
-        };
-    const version = plan.version;
-    const title = planReportLabel(version);
-    const text = operatingPlanText(input);
-    // The card first: a run that loses its lease after it sets the plan again writes the next
-    // version, and the same version with the same plan text is the same card. A card holds at
-    // most reportTextMax characters, so a long plan's card clips its long sections and keeps all
-    // six; the event keeps the whole plan.
-    const { report } = await this.reports.enqueue(owner, task, {
-      id: hash(`plan:${task.id}:${version}:${hash(text)}`),
-      kind: "report",
-      title,
-      text: operatingPlanText(input, reportTextMax),
-      links: [],
-    });
-    await this.db.put(owner, "run-events", {
-      id: report.id,
-      taskId: task.id,
-      date: report.createdAt,
-      kind: "plan",
-      title,
-      detail: text,
-    } satisfies RunEvent);
-    const operatingPlan: OperatingPlan = { ...input, version, setAt: plan.setAt };
-    const saved = await context.checkpoint({
-      state: { ...task.state, operatingPlan, waits: 0, autoContinued: 0 },
-    });
-    return { task: saved, version };
-  }
-  /** Set_account_pacing. The task bound to an account
-   * records the pacing it decided for the account, with its reason, in the task's layer; a field
-   * the person set by hand is left as it is and named in `ownerLocked`. A run event says what
-   * was set and why; when every field named is the person's, nothing is written, the event's
-   * first line reads `nothing written` and `saved` is false. Nothing is approved and nothing
-   * waits. */
-  async setAccountPacing(owner: string, task: AgentTask, raw: unknown, context: TaskContext) {
-    const input = accountPacingInputSchema.parse(raw);
-    const ledgerOwner = this.ledgerOwnerOf(owner, task);
-    if (!ledgerOwner) throw new AppError("Only a task bound to an account sets its pacing", 409);
-    await context.guard();
-    // Kinds as the ledger counts them (www.example.com/post is example.com/post), so the result
-    // names the kinds that are now enforced.
-    const { reason, ...sent } = input;
-    const fields = { ...sent, caps: normaliseCapKinds(sent.caps) };
-    const { set, ownerLocked } = await writeAiPacing(this.db, ledgerOwner, fields, reason);
-    const { status } = await this.pacingOf(ledgerOwner, task.id);
-    const sentValue = (name: string): unknown =>
-      name.startsWith("caps.")
-        ? fields.caps?.[name.slice(5)]
-        : fields[name as "minGapMinutes" | "activeHours"];
-    const value = (name: string) => {
-      const item = sentValue(name);
-      return item === null || item === undefined
-        ? "unset"
-        : Array.isArray(item)
-          ? `${item[0]}-${item[1]}`
-          : String(item);
-    };
-    await context.event(
-      "status",
-      pacingSetLabel,
-      [
-        ...(set.length ? set.map((field) => `${field}: ${value(field)}`) : ["nothing written"]),
-        `reason: ${reason}`,
-        ...(ownerLocked.length
-          ? [`set by the person, left as they are: ${ownerLocked.join(", ")}`]
-          : []),
-      ].join("\n"),
-    );
-    return {
-      saved: set.length > 0,
-      set: Object.fromEntries(set.map((name) => [name, sentValue(name) ?? null])),
-      ownerLocked,
-      pacing: status,
-    };
-  }
-  /** Record_account_profile. Facts about the account on one
-   * site, as the task read them there itself, kept under the account by site, so every later run
-   * (and every project the account is in) has them. Not interpreted: kept as written. */
-  async recordAccountProfile(owner: string, task: AgentTask, raw: unknown, context: TaskContext) {
-    const input = accountProfileInputSchema.parse(raw);
-    const ledgerOwner = this.ledgerOwnerOf(owner, task);
-    if (!ledgerOwner)
-      throw new AppError("Only a task bound to an account records its profile", 409);
-    const site = siteOf(input.site);
-    if (!site) throw new AppError("site must be a website address or domain", 422);
-    await context.guard();
-    await writeProfile(this.db, ledgerOwner, {
-      site,
-      facts: input.facts,
-      recordedAt: date(),
-      taskId: task.id,
-    });
-    const { status } = await this.pacingOf(ledgerOwner, task.id);
-    await context.event(
-      "status",
-      profileRecordedLabel,
-      `${site}: ${clipText(JSON.stringify(input.facts), 1000)}`,
-    );
-    return { recorded: true, site, profiles: status.profiles, pacing: status };
-  }
-  /** The account's settings, what is in force and its facts now, with the
-   * accounts on the same exit from the environment service. */
-  /** Whether the task recorded an action on the account's ledger at or after `since` (a run's
-   * start), and the ledger's latest action by any task: what a wait and the empty-wait refusal
-   * (model.ts) ask. */
-  async ledgerSince(ledgerOwner: string, taskId: string, since: string) {
-    const rows = await this.db.list<AccountAction>(ledgerOwner, accountActionsKind);
-    let latestAt: string | null = null;
-    for (const row of rows) if (!latestAt || row.at > latestAt) latestAt = row.at;
-    return {
-      acted: rows.some((row) => row.taskId === taskId && row.at >= since && !lookOnly(row.action)),
-      latestAt,
-    };
-  }
-  /** The words refusing this
-   * wait, or null when it goes through. */
-  async emptyWaitCheck(
-    task: AgentTask,
-    minutes: number,
-    blocked: IncidentKind | undefined,
-    pacing: { owner: string; ledgerOwner: string; taskId: string; runStartedAt: string },
-  ): Promise<string | null> {
-    if (blocked || Number(task.state.waits ?? 0) < 1) return null;
-    const { status } = await this.pacingOf(pacing.ledgerOwner, pacing.taskId);
-    if (isPacingWait(minutes, status)) return null;
-    const ledger = await this.ledgerSince(pacing.ledgerOwner, pacing.taskId, pacing.runStartedAt);
-    if (ledger.acted) return null;
-    const latest = await this.db.get<AgentTask>(pacing.owner, "tasks", pacing.taskId);
-    if (latest?.pendingAnswer || (latest?.wakeAt && latest.wakeAt >= pacing.runStartedAt))
-      return null;
-    return emptyWaitRefusal(ledger.latestAt);
-  }
-  pacingOf(ledgerOwner: string, taskId: string | null, now = new Date()) {
-    return loadPacing(
-      this.db,
-      this.computer.settings,
-      this.config,
-      ledgerOwner,
-      taskId,
-      now,
-      this.environments,
-    );
   }
   /** The project's brief; empty text and no date when there is none. */
   async projectBrief(owner: string): Promise<ProjectBrief> {
@@ -2545,7 +2242,7 @@ export class AgentService {
     };
   }
   /** The next wake at the clock written on the task, in the account's time zone. Null when the
-   * task has no clock, no account, or no time zone: the caller keeps now + the interval. */
+   * task has no clock or no time zone: the caller keeps now + the interval. */
   private async nextWrittenRun(owner: string, task: AgentTask): Promise<string | null> {
     const when = task.prompt
       ?.split("\n")
@@ -2553,10 +2250,12 @@ export class AgentService {
       .find((line) => line.startsWith("什么时候："))
       ?.slice("什么时候：".length)
       .trim();
-    const environmentId = taskEnvironmentId(task);
-    if (!when || !environmentId) return null;
+    if (!when) return null;
     try {
-      const zone = (await this.computer.settings.view(envOwner(owner, environmentId))).timezone;
+      let zone = await readAccountZone(this.db, owner);
+      const environmentId = taskEnvironmentId(task);
+      if (!zone && environmentId)
+        zone = (await this.computer.settings.view(envOwner(owner, environmentId))).timezone;
       return zone ? nextClockRun(when, zone, new Date(Date.now() + 60_000)) : null;
     } catch {
       return null;
@@ -2888,47 +2587,33 @@ export class AgentService {
    * redirect, an action recorded on the account), shown on the task; it stops nothing.
    * The note is also the task's `lastUpdate`, so the latest progress record is never older than
    * the note when a later run (after an interruption, a failure, a question) reads both.
-   * `pacing` is passed for a task bound to an account. A wait
-   * that matches the account's pacing as the server computes it now (`isPacingWait`) is marked
-   * `pacing`, is not counted in `state.waits` and is titled "Waiting N minutes (pacing)"; when
-   * this run recorded no action on the account, its event says so. The model cannot declare a
-   * wait to be pacing. Before the wait is scheduled the task is read again: an instruction the
-   * person gave during the run (`pendingAnswer`) makes it run again at once. Without `pacing`
-   * nothing here changes. */
+   * `account` is passed for a task bound to an account. Before the wait is scheduled the task is
+   * read again: an instruction the person gave during the run (`pendingAnswer`) makes it run
+   * again at once. */
   async wait(
     task: AgentTask,
     context: TaskContext,
     minutes: number,
     note: string,
-    pacing?: { owner: string; ledgerOwner: string; taskId: string; runStartedAt: string },
+    account?: { owner: string; taskId: string; runStartedAt: string },
     blocked?: IncidentKind,
     /** The task's owner, for the incident's picture (fork, incident screenshots). */
     owner?: string,
   ) {
     await context.guard();
     const since = new Date();
-    let paced = false;
-    let unrecorded = false;
     let redirected = false;
     let woken = false;
-    if (pacing) {
-      const { status } = await this.pacingOf(pacing.ledgerOwner, pacing.taskId, since);
-      paced = isPacingWait(minutes, status);
-      if (paced)
-        unrecorded = !(
-          await this.ledgerSince(pacing.ledgerOwner, pacing.taskId, pacing.runStartedAt)
-        ).acted;
-      const latest = await this.db.get<AgentTask>(pacing.owner, "tasks", pacing.taskId);
+    if (account) {
+      const latest = await this.db.get<AgentTask>(account.owner, "tasks", account.taskId);
       redirected = !!latest?.pendingAnswer;
-      // A job given to the account's loop while this run went on.
-      woken = !!latest?.wakeAt && latest.wakeAt >= pacing.runStartedAt;
+      woken = !!latest?.wakeAt && latest.wakeAt >= account.runStartedAt;
     }
     // The same part blocking again is not probed at the same pace: each
     // wait after the first is twice the one before (at most a day), and the owner sees it.
-    const blockedWaits =
-      !paced && blocked
-        ? (incidentAfterFailure(taskIncident(task.state), blocked, since.toISOString()).waits ?? 1)
-        : 1;
+    const blockedWaits = blocked
+      ? (incidentAfterFailure(taskIncident(task.state), blocked, since.toISOString()).waits ?? 1)
+      : 1;
     if (blockedWaits > 1)
       minutes = Math.min(1440, Math.max(minutes, minutes * 2 ** (blockedWaits - 1)));
     const until = new Date(since.getTime() + minutes * 60000).toISOString();
@@ -2937,15 +2622,12 @@ export class AgentService {
       note,
       since: since.toISOString(),
       until,
-      ...(paced ? { pacing: true } : {}),
     };
-    const waits = Number(task.state.waits ?? 0) + (paced ? 0 : 1);
+    const waits = Number(task.state.waits ?? 0) + 1;
     // A wait because the infrastructure failed opens or keeps the task's
     // incident; any other wait means the run was not stopped by it, so the incident is over.
     const current = taskIncident(task.state);
-    // A wait for the account's own pacing is not a failure, whatever `blocked` it names (a run
-    // once called its own minimum gap a rate limit): no incident, no notice, no picture.
-    const failure = paced ? undefined : blocked;
+    const failure = blocked;
     const incident = failure
       ? incidentAfterFailure(current, failure, since.toISOString())
       : incidentAfterRecovery(current, since.toISOString());
@@ -2968,17 +2650,14 @@ export class AgentService {
     };
     await context.event(
       "status",
-      paced
-        ? pacingWaitLabel(minutes)
-        : `Waiting ${minutes} ${minutes === 1 ? "minute" : "minutes"}`,
+      `Waiting ${minutes} ${minutes === 1 ? "minute" : "minutes"}`,
       [
         note,
         `Resumes at ${until}`,
         // Why it waits, so the timeline says it after the incident is over.
         ...(blocked ? [`Blocked: ${blocked}`] : []),
         ...(redirected ? ["Runs again now: the person sent a new instruction"] : []),
-        ...(woken && !redirected ? ["Runs again now: a new job"] : []),
-        ...(unrecorded ? ["[no action recorded this run]"] : []),
+        ...(woken && !redirected ? ["Runs again now: it was woken during the run"] : []),
       ].join("\n"),
     );
     return {
@@ -3228,10 +2907,6 @@ export class AgentService {
    * failed within `standingReviveWindowMs` (one failed longer ago the owner has left). */
   async reviveStanding(owner: string, task: AgentTask) {
     if (task.status !== "failed") return null;
-    if (isAccountLoop(task))
-      return typeof task.input.environmentId === "string"
-        ? this.loops.ensure(owner, task.input.environmentId)
-        : null;
     // A task with its plan saved that is bound to an account (one made before v0.6) is not taken
     // up again: the account's own loop acts on it now, and two standing workers on one account
     // would act twice. Only such a task on the project's default desktop is.
@@ -3386,23 +3061,10 @@ export class AgentService {
     let recorded = false;
     let site: string | null = null;
     let action: string | null = null;
-    let sibling: SiblingMatch | null = null;
-    let jobNote: string | null = null;
     let confirmsNote: string | null = null;
     let ref: string | null = null;
     let cardOf: string | null = null;
     let rowCard: string | null = null;
-    // The founder's report of a job also speaks in the project that gave it.
-    let founderCopy: {
-      scope: string;
-      threadId: string | null;
-      name: string;
-      jobId: string;
-      jobTitle: string;
-      project: string | null;
-      /** The project's conversation already has its line for this action. */
-      pointed: boolean;
-    } | null = null;
     if (ledgerOwner) {
       // The action is what the AI said it did, on the site it named;
       // nothing is inferred from links. A report without one (a summary, a notice, a link it
@@ -3444,60 +3106,13 @@ export class AgentService {
         // names, while its row (this task's) waits for one.
         const waiting = entry?.unconfirmed ? entry : ledger.row?.unconfirmed ? ledger.row : null;
         if (evidence.unconfirmed && waiting?.taskId === task.id) ref = confirmsRef(waiting.id);
-        // The job the action was for, when it is one given to this account here.
-        // An action already on the ledger (told again, or confirmed
-        // after a report without its address) keeps the job its row has, so the founder's card
-        // names the project as the first one did.
-        const jobId = input.jobId?.trim() || ledger.row?.jobId || null;
-        // v0.8: the founder's job is kept in the project that gave it.
-        const jobScope =
-          jobId && typeof task.input?.environmentId === "string"
-            ? await this.jobs.jobScope(owner, task.input.environmentId, jobId)
-            : owner;
-        const job = jobId ? await this.db.get<ProjectJob>(jobScope, projectJobKind, jobId) : null;
-        const ownJob = job?.assignees.some((item) => item.envId === task.input?.environmentId);
-        if (input.jobId?.trim() && !ownJob)
-          jobNote = "jobId is not a job given to this account; recorded without it";
-        if (ownJob && job && jobScope !== owner) {
-          const founder = await founderOf(this.db, owner);
-          if (founder && founder.id === task.input?.environmentId)
-            founderCopy = {
-              scope: jobScope,
-              threadId: job.origin?.threadId ?? null,
-              name: founder.name,
-              jobId: job.id,
-              jobTitle: job.title,
-              project: await projectNameOf(this.db, jobScope),
-              pointed: ledger.row?.jobId === job.id,
-            };
-        }
-        // An action done to something another account of
-        // the project made, or to that account, is recorded as it happened (the ledger is true)
-        // and marked; the run is told to undo it. One in the place a sibling acted in too is
-        // marked as a fact. Nothing is refused and nothing reaches 需要你.
         if (entry) {
           // A row taken over keeps what its first report named when this one names nothing.
           const target = input.target?.trim()
             ? (normalizeLink(input.target) ?? input.target.trim())
             : (entry.target ?? null);
           const targetUser = input.targetUser?.trim() || entry.targetUser || null;
-          sibling = await this.accounts.siblingRelation(ledgerOwner, site, target, targetUser);
-          entry = {
-            ...entry,
-            target,
-            targetUser,
-            ...(ownJob ? { jobId, projectOwner: jobScope } : {}),
-            ...(sibling ? { sibling: { name: sibling.name, kind: sibling.kind } } : {}),
-          };
-          if (sibling?.kind === "interaction") {
-            title += siblingInteractionSuffix;
-            marks.push(
-              `[sibling touched: ${sibling.name}${sibling.link ? ` ${sibling.link}` : ""}]`,
-            );
-          } else if (sibling) {
-            title += sameTargetSuffix(sibling.name);
-            marks.push(`[same place as ${sibling.name}: ${sibling.link ?? ""}]`);
-          }
+          entry = { ...entry, target, targetUser };
         }
         // Recorded first, before the lease is checked and before the card: the action was taken
         // whatever happens to this run now, and an action missing from the ledger lets the
@@ -3506,7 +3121,7 @@ export class AgentService {
         // When that key already holds the action, the row that waited for it was this action
         // told before its address, and goes.
         if (entry) {
-          const { exceeded: _, replaces, ...row } = entry;
+          const { replaces, ...row } = entry;
           if (!replaces) {
             recorded = !!(await this.db.insertIfAbsent(ledgerOwner, accountActionsKind, row));
             if (recorded) await this.pruneLedger(ledgerOwner, row.at);
@@ -3515,10 +3130,6 @@ export class AgentService {
             await this.db.insertIfAbsent(ledgerOwner, accountActionsKind, row);
             await this.db.remove(ledgerOwner, accountActionsKind, replaces);
           }
-        }
-        if (overPace(entry)) {
-          title += overPaceSuffix;
-          marks.push(entry.exceeded);
         }
       } else if (input.topic) title = topicReportLabels[input.topic];
     }
@@ -3561,7 +3172,6 @@ export class AgentService {
       ...(seen ? { seen } : {}),
       ...(shot?.shot ? { shot: shot.id } : {}),
       ...(seenAt ? { seenAt } : {}),
-      ...(founderCopy?.project ? { project: founderCopy.project } : {}),
     };
     // The same report told again (its run event is keyed by it) shows nothing new: its card is
     // its own, or the action's it went into.
@@ -3575,25 +3185,6 @@ export class AgentService {
       : cardOf && cardOf !== id
         ? await this.reports.rewrite(owner, task, { ...card, id: cardOf })
         : await this.reports.enqueue(owner, task, card);
-    if (founderCopy && !founderCopy.pointed)
-      await this.reports.enqueue(
-        founderCopy.scope,
-        { id: task.id, title: task.title, originThreadId: founderCopy.threadId },
-        {
-          id: hash(`founder-report:${id}:${founderCopy.scope}`),
-          kind: "report",
-          title,
-          text: founderCopy.jobTitle,
-          links: [],
-          notice: {
-            kind: "in_hall",
-            jobId: founderCopy.jobId,
-            jobTitle: founderCopy.jobTitle,
-            account: founderCopy.name,
-          },
-          speaker: { name: founderCopy.name, founder: true },
-        },
-      );
     await this.db.insertIfAbsent(owner, "run-events", {
       id,
       taskId: task.id,
@@ -3608,7 +3199,6 @@ export class AgentService {
         ...(evidence.unconfirmed ? [unconfirmedMarks[evidence.why ?? "address"]] : []),
       ].join("\n"),
     } satisfies RunEvent);
-    const pacing = ledgerOwner ? (await this.pacingOf(ledgerOwner, task.id)).status : null;
     // An action recorded on the account means it can act again.
     if (incident === undefined && recorded && current && !current.resolvedAt)
       incident = incidentAfterRecovery(current, at);
@@ -3624,26 +3214,10 @@ export class AgentService {
         ? { confirms: ref, evidenceNote: `${evidence.reply.evidenceNote} ${confirmsWords(ref)}` }
         : {}),
       ...(confirmsNote ? { confirmsNote } : {}),
-      ...(jobNote ? { jobNote } : {}),
-      // What this action did to the project's other accounts.
-      ...(sibling?.kind === "interaction"
-        ? {
-            sibling: { name: sibling.name, link: sibling.link },
-            mustUndo: true,
-            siblingNote:
-              "This action touched another account of this project. Undo it where the site allows (delete the reply, take back the vote), then report the undo as its own action.",
-          }
-        : sibling
-          ? { sibling: { name: sibling.name, link: sibling.link, kind: "same_target" as const } }
-          : {}),
-      // What is left and when next, right after the action; `progress` (an action
-      // recorded, or a summary) resets the run's count of waits and automatic continuations.
-      ...(pacing
-        ? {
-            pacing: { ...pacing, ...(overPace(entry) ? { exceeded: true } : {}) },
-            // A look reported as an action is not progress.
-            progress: (recorded && !lookOnly(input.action)) || input.topic === "summary",
-          }
+      // `progress` (an action recorded, or a summary) resets the run's count of waits and
+      // automatic continuations. A look reported as an action is not progress.
+      ...(ledgerOwner
+        ? { progress: (recorded && !lookOnly(input.action)) || input.topic === "summary" }
         : {}),
     };
   }
@@ -3658,12 +3232,9 @@ export class AgentService {
     line: string,
   ) {
     const desktop = this.ledgerOwnerOf(owner, task) ?? scopeOfOwner(owner);
-    const system = kind === "desktop" || kind === "model" || kind === "network" || false;
+    const system = kind === "desktop" || kind === "model" || kind === "network";
     await this.computer.incidents.record({ owner: desktop, kind, line, system });
   }
-  /** The account a task is bound to, as the owner its ledger and settings are
-   * kept under (the environment's derived owner, the same from every project); null for a task
-   * on the default desktop, which is not paced. */
   /** The owner's 「以后总是允许」 / 「以后都先问我」 on a
    * review card: kept for that action's account (the task's) or, without one, the project, for
    * its kind; 「以后总是允许」 also sends the card's own action now when it still waits. */
@@ -3718,7 +3289,7 @@ export class AgentService {
    * earlier report a new one confirms (the same posted text, the latest action of its kind) took
    * a second action with the same template text for the first, uncounted. A report that does
    * not name the row is an action of its own. `confirmsNote` says when `confirms` names no such
-   * row. `exceeded` is the event mark when a new action is over the pacing. */
+   * row. */
   private async ledgerEntry(
     ledgerOwner: string,
     owner: string,
@@ -3778,7 +3349,6 @@ export class AgentService {
           permalink: reported.permalink ?? null,
           links: reported.links,
           unconfirmed: null,
-          exceeded: "",
           replaces: waiting.id,
         },
         row: held ?? waiting,
@@ -3788,10 +3358,6 @@ export class AgentService {
       ? "confirms names no report of this task on this site with this action that waits for its address; recorded as an action of its own"
       : undefined;
     const now = new Date();
-    const { status } = await this.pacingOf(ledgerOwner, task.id, now);
-    const kind = kindOfRow({ site, action });
-    const overCapacity = exceedsPacing(status, kind, now.getTime());
-    const remaining = status.remainingToday[kind] ?? "no cap";
     return {
       entry: {
         id: rowId,
@@ -3800,11 +3366,9 @@ export class AgentService {
         site,
         action,
         permalink: reported.permalink ?? null,
-        overCapacity,
         links: reported.links,
         at: now.toISOString(),
         ...(reported.unconfirmed ? { unconfirmed: true } : {}),
-        exceeded: `[pacing exceeded: ${kind} remaining ${remaining} / earliestNext ${status.earliestNext[kind] ?? status.earliestNext[anyKind] ?? "none set"}]`,
       },
       row: null,
       confirmsNote,

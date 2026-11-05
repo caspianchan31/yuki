@@ -17,11 +17,9 @@ type Area = "task" | "accounts" | "credentials" | "pages" | "legacy";
 
 const areaOf: Record<Kind, Area> = {
   task: "task",
-  job: "task",
   newTask: "task",
   settings: "task",
   notes: "task",
-  founder: "task",
   projects: "task",
   threads: "task",
   account: "accounts",

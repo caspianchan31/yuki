@@ -1,11 +1,11 @@
-# Repeating tasks on an account's desktop (fork feature)
+# Repeating tasks on an account's desktop
 
-A background task of kind `agent` or `plan` can repeat every N minutes (1 to 10080) and run on one account's desktop. Upstream, only URL monitors recur; an agent task ran once.
+A background task of kind `agent` or `plan` can repeat every N minutes (1 to 10080) and run on one account's desktop.
 
 ## Model
 
 - `AgentTask.repeatMinutes: number | null` (null or absent = once) and `AgentTask.runs` (completed runs). `createTaskSchema` accepts `repeatMinutes`; other kinds with a value are 422.
-- The account is the existing binding `input.environmentId` (see `environments.md`): the run acts as the derived owner `${real}#env:${id}`, so it uses that account's desktop, proxy and sign-ins. No value means the project's default desktop.
+- The account is the existing binding `input.environmentId` (see `environments.md`): the run acts as the derived owner `${real}#env:${id}`, so it uses that account's desktop and sign-ins. No value means the project's default desktop.
 
 ## Lifecycle
 

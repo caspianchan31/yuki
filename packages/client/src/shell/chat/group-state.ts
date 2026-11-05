@@ -7,7 +7,6 @@
  */
 import { useAgentWorkspace } from "../../agent-workspace";
 import { useProjects } from "../../projects-state";
-import { useStoreSpace } from "../store-space";
 import { t } from "../strings";
 import { mascotVariant } from "./core";
 
@@ -15,15 +14,11 @@ import { mascotVariant } from "./core";
 export function useOpsName(): string {
   const projects = useProjects();
   // The space's own conversation has the hall's assistant.
-  const space = useStoreSpace();
-  if (space.store) return t.group.ops(space.name);
   return projects.current === null ? t.group.hallOps : t.group.ops(projects.project?.name ?? null);
 }
 /** Whether the conversation on screen is the 营销总群 (the space's own, the default project). */
 export function useIsHall(): boolean {
-  const current = useProjects().current;
-  const space = useStoreSpace();
-  return current === null && !space.store;
+  return useProjects().current === null;
 }
 
 /** The capybara's colour from the stored identity (sky until the settings have loaded). */

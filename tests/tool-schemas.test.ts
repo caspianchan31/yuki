@@ -6,7 +6,6 @@ import { test } from "node:test";
 import { z } from "zod";
 import * as accounts from "../packages/domain/src/accounts.ts";
 import * as domain from "../packages/domain/src/agent.ts";
-import * as jobs from "../packages/domain/src/jobs.ts";
 
 const tuplish = (node: unknown): boolean => {
   if (!node || typeof node !== "object") return false;
@@ -16,8 +15,8 @@ const tuplish = (node: unknown): boolean => {
 };
 
 test("no tool input schema uses tuple items", () => {
-  // The account tools' and the jobs tools' schemas too.
-  const schemas = Object.entries({ ...domain, ...accounts, ...jobs }).filter(
+  // The account tools' schemas too.
+  const schemas = Object.entries({ ...domain, ...accounts }).filter(
     ([, value]) => value && typeof value === "object" && "_zod" in (value as object),
   );
   assert.ok(schemas.length > 0);
@@ -25,17 +24,4 @@ test("no tool input schema uses tuple items", () => {
     const json = z.toJSONSchema(schema as z.ZodType, { io: "input", unrepresentable: "any" });
     assert.equal(tuplish(json), false, `${name} converts to tuple items`);
   }
-});
-
-test("set_account_pacing still takes an hour window as two numbers", () => {
-  const ok = domain.accountPacingInputSchema.safeParse({ activeHours: [9, 23], reason: "r" });
-  assert.equal(ok.success, true);
-  assert.equal(
-    domain.accountPacingInputSchema.safeParse({ activeHours: [9], reason: "r" }).success,
-    false,
-  );
-  assert.equal(
-    domain.accountPacingInputSchema.safeParse({ activeHours: [23, 9], reason: "r" }).success,
-    false,
-  );
 });

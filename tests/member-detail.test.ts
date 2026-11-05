@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import {
   appsToConnect,
   capReportTasks,
-  clockNeedsZone,
+  clockZoneNote,
   dropGuidedAccountNeeds,
   dutyText,
   goalRoutines,
@@ -319,11 +319,12 @@ describe("appsToConnect", () => {
   });
 });
 
-describe("clockNeedsZone", () => {
-  it("is only a written clock with no time zone", () => {
-    assert.equal(clockNeedsZone("每天 7:30", ""), true);
-    assert.equal(clockNeedsZone("每周一 9:00", null), true);
-    assert.equal(clockNeedsZone("每天 7:30", "Asia/Shanghai"), false);
-    assert.equal(clockNeedsZone("每 4 小时", ""), false);
+describe("clockZoneNote", () => {
+  it("names the account's zone for a written clock only", () => {
+    assert.equal(clockZoneNote("每天 7:30", "Asia/Shanghai"), "按 Asia/Shanghai");
+    assert.equal(clockZoneNote("每周一 9:00", " Europe/Paris "), "按 Europe/Paris");
+    assert.equal(clockZoneNote("每 4 小时", "Asia/Shanghai"), "");
+    assert.equal(clockZoneNote("每天 7:30", ""), "");
+    assert.equal(clockZoneNote("每天 7:30", null), "");
   });
 });

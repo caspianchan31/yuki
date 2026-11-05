@@ -1,115 +1,11 @@
 // The shape checks of every credential the store
 // holds. The site login checks are generic: nothing here knows any particular site.
-import type { ProxyEndpoint } from "../../../../packages/domain/src/topology.ts";
 import { AppError } from "../errors.ts";
 import { siteOf } from "./site.ts";
 import { otpauthDefaults, type TotpAlgorithm, type TotpParameters } from "./totp.ts";
 
-// Exactly the schemes a desktop's proxy client accepts; it speaks plain TCP to the proxy,
-// so there is no https://. The literal "//" also rejects "http:host:1", which URL accepts.
-const proxyPrefix = /^(socks5h?|http):\/\//i;
-// The URL parser drops tabs and newlines and reads "\" as "/", but the template reads the
-// raw file with Python's urlsplit, which does neither.
-const unprintable = /[\s\p{Cc}\\]/u;
-// A DNS name or IP literal; URL keeps other characters in a socks5 host as written.
+// A DNS name or IP literal (a mailbox's server).
 const hostPattern = /^(?:[A-Za-z0-9._-]+|\[[0-9A-Fa-f:.]+\])$/;
-
-export const invalidProxy = () =>
-  new AppError(
-    "Proxy URL must be a socks5://, socks5h:// or http:// URL with a host and an explicit port, and no path, query or fragment (500 characters at most)",
-    400,
-  );
-
-export interface ProxyParts {
-  scheme: string;
-  /** Percent-encoded as URL leaves them; the template percent-decodes both. */
-  username: string;
-  password: string;
-  host: string;
-  port: number;
-}
-
-/** Parses a proxy URL; the port is the one written, even a scheme default that URL drops. */
-export function parseProxy(value: string): ProxyParts {
-  const prefix = proxyPrefix.exec(value);
-  if (!prefix || value.length > 500 || unprintable.test(value) || /[?#]/.test(value))
-    throw invalidProxy();
-  // Nothing may follow the authority but a single "/".
-  const rest = value.slice(prefix[0].length);
-  const slash = rest.indexOf("/");
-  if (slash !== -1 && rest.slice(slash) !== "/") throw invalidProxy();
-  const authority = slash === -1 ? rest : rest.slice(0, slash);
-  // Both parsers end the credentials at the last "@"; the port must be written after the host.
-  const endpoint = /^(?:\[[^\]]*\]|[^:[\]]*):(\d{1,5})$/.exec(
-    authority.slice(authority.lastIndexOf("@") + 1),
-  );
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    throw invalidProxy();
-  }
-  const port = Number(endpoint?.[1]);
-  if (
-    !endpoint ||
-    !(port >= 1 && port <= 65535) ||
-    !hostPattern.test(url.hostname) ||
-    (url.pathname !== "" && url.pathname !== "/") ||
-    url.search ||
-    url.hash ||
-    // The template authenticates only with a user name, so a lone password would be ignored.
-    (url.password && !url.username)
-  )
-    throw invalidProxy();
-  return {
-    scheme: prefix[1].toLowerCase(),
-    username: url.username,
-    password: url.password,
-    host: url.hostname,
-    port,
-  };
-}
-/** Which exit a proxy address is: its scheme, user name, host and port, never its password (a
- * new password for the same account is the same exit; a rotating-session proxy's other user name
- * on the same host and port is another exit). Throws for a value that is not a proxy address. */
-export function proxyExitIdentity(value: string): string {
-  const { scheme, username, host, port } = parseProxy(value);
-  return `${scheme}://${username}@${host.toLowerCase()}:${port}`;
-}
-const formatProxy = ({ scheme, username, password, host, port }: ProxyParts) =>
-  `${scheme}://${username ? `${username}${password ? `:${password}` : ""}@` : ""}${host}:${port}`;
-/** `scheme://[user[:pass]@]host:port`, rebuilt from the parsed parts, so the file holds
- * exactly the endpoint the server checked. Re-parsing it must not change it, so a saved
- * value always passes the check again at start. */
-export function canonicalProxy(value: string) {
-  const canonical = formatProxy(parseProxy(value));
-  if (formatProxy(parseProxy(canonical)) !== canonical) throw invalidProxy();
-  return canonical;
-}
-/** Normalizes one field: undefined keeps, null or blank clears, a string is validated and
- * returned in its canonical form. */
-export function validateProxyUrl(value: string | null | undefined) {
-  if (value === undefined) return undefined;
-  const text = value?.trim() ?? "";
-  if (!text) return null;
-  return canonicalProxy(text);
-}
-/** The proxy's scheme, host and port, built field by field so its user name and password can
- * never come along; null for a value that no longer passes the checks. The host is lower-cased
- * (URL keeps a socks5 host as written), so one server reads as one exit. */
-export function proxyEndpoint(value: string): ProxyEndpoint | null {
-  try {
-    const { scheme, host, port } = parseProxy(value);
-    return { scheme, host: host.toLowerCase(), port };
-  } catch {
-    return null;
-  }
-}
-/** The metadata of a proxy entry: what may be shown and what the same-exit facts read, without decrypting anything. */
-export function proxyMeta(value: string) {
-  const { scheme, host, port, username, password } = parseProxy(value);
-  return { scheme, host: host.toLowerCase(), port, auth: Boolean(username || password) };
-}
 
 /** The site of a login: a registrable domain computed from a URL, host or domain. */
 export function validateSite(value: unknown) {

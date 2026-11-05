@@ -1,10 +1,14 @@
-// No computer (未接电脑): the open core's computer. Members work through chat, apps and routines;
-// nothing here starts a desktop, runs a command or reads a screen. Every operation that needs a
-// computer answers 503 with `noComputerMessage`; what only reads (a snapshot, a member's desktop
-// state for a listing) answers that there is none.
+// The open core's computer. With no computer container configured (DESKTOP_URL unset) it is no
+// computer (未接电脑): members work through chat, apps and routines; nothing here starts a desktop,
+// runs a command or reads a screen. Every operation that needs a computer answers 503 with
+// `noComputerMessage`; what only reads (a snapshot, a member's desktop state for a listing)
+// answers that there is none. With one configured (docs/computer-container.md) the same calls go to
+// the members' computer container through `DesktopComputer` (desktop-computer.ts).
 import type { ComputerCommand, ComputerSnapshot } from "../../../packages/domain/src/computer.ts";
 import type { Config } from "./config.ts";
 import type { Store } from "./db.ts";
+import { DesktopAgent } from "./desktop-agent.ts";
+import { DesktopComputer } from "./desktop-computer.ts";
 import { AppError } from "./errors.ts";
 import { Incidents } from "./incidents.ts";
 
@@ -16,44 +20,14 @@ export type DesktopState = { state: ComputerState } | { state: "error"; message:
 
 /** A member's computer settings (no secret); with no computer nothing is saved. */
 export interface ComputerSettingsView {
-  proxy: { configured: boolean; preview: string | null };
   timezone: string | null;
   locale: string | null;
   updatedAt: string | null;
-  unreadable: boolean;
   localeUnreadable: boolean;
 }
-export interface ComputerSettingsEndpoint {
-  proxy: { scheme: string; host: string; port: number } | null;
-  unreadable: boolean;
-  localeUnreadable: boolean;
-  timezone: string | null;
-  locale: string | null;
-}
-/** Whether a member's desktop browser could start; never with no computer. */
-export const proxyReadable = (view: ComputerSettingsView) =>
-  view.proxy.configured && !view.unreadable;
-const noSettings: ComputerSettingsView = {
-  proxy: { configured: false, preview: null },
-  timezone: null,
-  locale: null,
-  updatedAt: null,
-  unreadable: false,
-  localeUnreadable: false,
-};
 export class ComputerSettings {
-  systemHidden?: (owner: string) => Promise<boolean>;
   async view(_owner: string): Promise<ComputerSettingsView> {
-    return { ...noSettings, proxy: { ...noSettings.proxy } };
-  }
-  async endpoint(_owner: string): Promise<ComputerSettingsEndpoint> {
-    return {
-      proxy: null,
-      unreadable: false,
-      localeUnreadable: false,
-      timezone: null,
-      locale: null,
-    };
+    return { timezone: null, locale: null, updatedAt: null, localeUnreadable: false };
   }
 }
 
@@ -95,18 +69,37 @@ export class ComputerService {
   readonly incidents: Incidents;
   /** Nothing is saved for a computer that is not there. */
   readonly settings = new ComputerSettings();
-  readonly provider = "none";
+  readonly provider: string;
+  /** The members' computer container, when one is configured (read through `desktopOf`). */
+  readonly container: DesktopComputer | null;
   constructor(
     readonly db: Store,
     readonly config: Config,
   ) {
+    this.container = config.desktop
+      ? new DesktopComputer(
+          db,
+          config,
+          new DesktopAgent({
+            url: config.desktop.url,
+            token: config.desktop.token,
+            tokenFile: config.desktop.tokenFile,
+          }),
+        )
+      : null;
+    this.provider = this.container ? "desktop" : "none";
     this.incidents = new Incidents(db, config.dataDir, {
       screenshot: async () => null,
       mask: async (_owner, text) => text,
       scope: async () => null,
     });
   }
-  async snapshot(_owner: string): Promise<ComputerSnapshot> {
+  /** Stops the idle sweep and the live views (the server is shutting down, or a test ends). */
+  close() {
+    this.container?.close();
+  }
+  async snapshot(owner: string): Promise<ComputerSnapshot> {
+    if (this.container) return this.container.snapshot(owner);
     return {
       enabled: false,
       provider: "none",
@@ -118,26 +111,47 @@ export class ComputerService {
     };
   }
   async state(_owner: string): Promise<ComputerState> {
-    throw noComputer();
+    if (!this.container) throw noComputer();
+    return (await this.container.running()) ? "running" : "stopped";
   }
   async states(owners: string[]): Promise<DesktopState[]> {
-    return owners.map(() => ({ state: "missing" }));
+    if (!this.container) return owners.map(() => ({ state: "missing" }));
+    // One computer for every member of this install: they all read its state.
+    let state: DesktopState;
+    try {
+      state = { state: (await this.container.running()) ? "running" : "stopped" };
+    } catch (error) {
+      state = {
+        state: "error",
+        message: error instanceof AppError ? error.message : "The computer does not answer",
+      };
+    }
+    return owners.map(() => state);
   }
   async start(
-    _owner: string,
+    owner: string,
     _options: { ensure?: () => Promise<void> } = {},
   ): Promise<ComputerSnapshot> {
-    throw noComputer();
+    if (!this.container) throw noComputer();
+    await this.container.start();
+    return this.container.snapshot(owner);
   }
-  async stop(_owner: string): Promise<ComputerSnapshot> {
-    throw noComputer();
+  async stop(owner: string): Promise<ComputerSnapshot> {
+    if (!this.container) throw noComputer();
+    await this.container.stop();
+    return this.container.snapshot(owner);
   }
-  /** Nothing to destroy: no desktop was ever made. */
+  /** Nothing to destroy: the container's files are the person's (docker compose down -v). */
   async destroy(owner: string) {
     return this.snapshot(owner);
   }
-  async execute(_owner: string, _raw: unknown, _options: object = {}): Promise<ComputerCommand> {
-    throw noComputer();
+  async execute(
+    owner: string,
+    raw: unknown,
+    options: { idempotencyKey?: string; signal?: AbortSignal } = {},
+  ): Promise<ComputerCommand> {
+    if (!this.container) throw noComputer();
+    return this.container.execute(owner, raw, options);
   }
   async holdOf(_owner: string): Promise<DesktopHold | null> {
     return null;

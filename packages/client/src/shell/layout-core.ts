@@ -76,9 +76,9 @@ export function layoutFor(width: number, pro = false): Layout {
 }
 
 /** The header's project name opens the project panel (with its ▾) unless the project column
- * is there to switch with (pro view, desktop). A store space has no project to switch. */
-export function canSwitchProject(input: { store: boolean; projectColumn?: boolean }): boolean {
-  return !input.store && !input.projectColumn;
+ * is there to switch with (pro view, desktop). */
+export function canSwitchProject(input: { projectColumn?: boolean }): boolean {
+  return !input.projectColumn;
 }
 
 /** Width of the desktop pinned beside the timeline. */

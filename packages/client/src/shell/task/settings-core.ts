@@ -85,3 +85,53 @@ export function identityPayload(
     showChatUpdates,
   };
 }
+
+/** 外观: follow the system, or force light or dark. */
+export type Appearance = "system" | "light" | "dark";
+export const appearanceChoices: readonly Appearance[] = ["system", "light", "dark"];
+export const appearanceKey = "yuki.appearance";
+
+/** Anything but "light" or "dark" follows the system. */
+export function parseAppearance(value: unknown): Appearance {
+  return value === "light" || value === "dark" ? value : "system";
+}
+
+/** The saved choice; an unreadable store (private window, blocked data) follows the system. */
+export function readAppearance(storage: Pick<Storage, "getItem"> | null | undefined): Appearance {
+  try {
+    return parseAppearance(storage?.getItem(appearanceKey));
+  } catch {
+    return "system";
+  }
+}
+
+/** Saves the choice ("system" clears it). False when the store refused. */
+export function writeAppearance(
+  storage: Pick<Storage, "setItem" | "removeItem"> | null | undefined,
+  value: Appearance,
+): boolean {
+  try {
+    if (!storage) return false;
+    if (value === "system") storage.removeItem(appearanceKey);
+    else storage.setItem(appearanceKey, value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The `data-theme` value for the root element; null leaves the system's choice in force. */
+export function themeAttribute(value: Appearance): "light" | "dark" | null {
+  return value === "system" ? null : value;
+}
+
+/** The browser's own time zone, or null when it cannot say. */
+export function browserZone(
+  read: () => string | undefined = () => Intl.DateTimeFormat().resolvedOptions().timeZone,
+): string | null {
+  try {
+    return read()?.trim() || null;
+  } catch {
+    return null;
+  }
+}

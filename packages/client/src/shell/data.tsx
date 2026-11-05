@@ -14,7 +14,7 @@
  *   GET /api/chat-reports?threadId=main&limit=5  every 15 s, the main chat's latest (rail)  4/min
  *   GET /api/main-thread                 every 15 s, which chat is the main one (another
  *                                        member's 开新主聊天, ThreadsProvider)              4/min
- *   GET /api/environments                every 20 s (accounts, desktop state, pacing)      3/min
+ *   GET /api/environments                every 20 s (accounts, desktop state)      3/min
  *   GET /api/credentials/sign-ins        every 20 s (the project's own login facts, 需要你)  3/min
  *   GET /api/projects/overview           every 30 s (N1, project counts, red dot)          2/min
  *   GET /api/workspace                   on mount and foreground (App), and every 60 s only
@@ -23,7 +23,7 @@
  *                                        Calendar in live mode, so never on a timer otherwise)  0–1/min
  *                                                                               total ≈ 48–49/min
  * On demand only (never polled): /api/environments/unassigned (加入), /api/topology (accounts
- * page, exit sharing), /api/agent/brief (project notes), /api/chat-reports?taskId (task detail),
+ * page), /api/agent/brief (project notes), /api/chat-reports?taskId (task detail),
  * /api/agent/tasks/:id (task detail), chat turns and thread selection. That leaves room for a
  * second tab and the chat's own bursts (a turn, its saves, its "seen" marks). Every poller loads
  * once on mount whatever the page's visibility; a hidden page nobody has touched for a minute
@@ -41,7 +41,6 @@ import {
 } from "react";
 import type { ActionProposal } from "../../../../packages/domain/src";
 import type { AgentMemory, AgentTask, ChatReport } from "../../../../packages/domain/src/agent";
-import type { JobView } from "../../../../packages/domain/src/jobs";
 import type { Topology } from "../../../../packages/domain/src/topology";
 import { useAgentWorkspace } from "../agent-workspace";
 import { MuseApi } from "../api";
@@ -51,14 +50,12 @@ import { normalizeReports } from "../chat-reports-core";
 import { environmentsUnavailable, normalizeEnvironment } from "../environments";
 import { clearLastSeen, lastSeenScope, readLastSeen, writeLastSeen } from "../last-seen";
 import { lastSeenStorage, scopeOf } from "../last-seen-store";
-import { usePlatformEnv } from "../tenancy-client";
 import { useMuseThread } from "../threads-state";
 import { normalizeTopology } from "../topology-core";
 import { useWorkspace } from "../workspace";
 import { accountsDirectory } from "./accounts/directory";
 import { withoutWaitCards } from "./chat/core";
 import { forgetThreadNames } from "./frame/thread-rows";
-import { normalizeJobs } from "./jobs/jobs-core";
 import {
   type AccountModel,
   type AccountView,
@@ -68,9 +65,6 @@ import {
   needItems,
   normalizeBrief,
   normalizeOverview,
-  normalizePacing,
-  normalizeProjectProxyCheck,
-  normalizeProjectProxyConfigured,
   normalizeProjectSignIns,
   otherProjectsNeedsYou,
   type ProjectBrief,
@@ -197,9 +191,6 @@ export interface ShellData {
   agentError: string;
   tasks: AgentTask[];
   memories: AgentMemory[];
-  /** The project's jobs (「活」), with every /api/agent read (archived ones without
-   * their brief; the job detail reads one whole). */
-  jobs: JobView[];
   entries: TaskEntry[];
   entryById: Map<string, TaskEntry>;
   worker: WorkerHealth;
@@ -254,16 +245,10 @@ export function useShellData(): ShellData {
   return value;
 }
 
-/** Reads GET /api/environments raw, so the optional `pacing` field (dropped by
- * normalizeEnvironment) survives. */
+/** Reads GET /api/environments. */
 export function normalizeAccountViews(payload: unknown): AccountView[] {
   return (Array.isArray(payload) ? payload : [])
-    .map((item) => ({
-      ...normalizeEnvironment(item),
-      pacing: normalizePacing(
-        item && typeof item === "object" ? (item as { pacing?: unknown }).pacing : undefined,
-      ),
-    }))
+    .map((item) => normalizeEnvironment(item))
     .filter((view) => view.id !== "");
 }
 
@@ -278,10 +263,8 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   const { mainId, enabled: richThreads } = useMuseThread();
   const now = useNow();
   const overview = useOverview();
-  // The platform sets up this space's proxies: exits, not proxy needs.
-  const platformEnv = usePlatformEnv();
 
-  // Accounts of this project (with desktop state and pacing).
+  // Accounts of this project (with desktop state).
   // The accounts this device last read for this space and project, at once.
   const [accountViews, setAccountViews] = useState<AccountView[]>(
     () => readLastSeen<AccountView[]>(lastSeenStorage(), scopeOf(api), "accounts") ?? [],
@@ -323,8 +306,6 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   // the overview the same way. A failed read keeps the last answer; a server without the route
   // (404) has none.
   const [projectSignIns, setProjectSignIns] = useState<ProjectSignIn[]>([]);
-  const [projectProxyCheck, setProjectProxyCheck] = useState<AccountView["proxyCheck"]>(null);
-  const [projectProxyConfigured, setProjectProxyConfigured] = useState<boolean | null>(null);
   const [signInsVersions] = useState(requestVersions);
   const refreshProjectSignIns = useCallback(async () => {
     const isNewest = signInsVersions.begin();
@@ -332,14 +313,10 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
       const answer = await api.request<unknown>("/api/credentials/sign-ins");
       if (isNewest()) {
         setProjectSignIns(normalizeProjectSignIns(answer));
-        setProjectProxyCheck(normalizeProjectProxyCheck(answer));
-        setProjectProxyConfigured(normalizeProjectProxyConfigured(answer));
       }
     } catch (e) {
       if (isNewest() && e instanceof ApiError && e.status === 404) {
         setProjectSignIns([]);
-        setProjectProxyCheck(null);
-        setProjectProxyConfigured(null);
       }
     }
   }, [api, signInsVersions]);
@@ -384,7 +361,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   const [topology, setTopology] = useState<Topology | null>(null);
   const [topologyLoading, setTopologyLoading] = useState(false);
   const [topologyError, setTopologyError] = useState("");
-  // With no computer connected there are no exits to show (the server has no /api/topology).
+  // With no computer connected there is no topology to read (the server has no /api/topology).
   const noComputer = workspace.runtime.computer === false;
   const refreshTopology = useCallback(async () => {
     if (noComputer) return;
@@ -539,7 +516,6 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   ]);
 
   const tasks = data?.tasks ?? [];
-  const jobs = useMemo(() => normalizeJobs(data?.jobs), [data?.jobs]);
   const worker = useMemo(() => workerHealth(data?.worker, now), [data?.worker, now]);
   // No heartbeat once /api/agent has answered: nothing moves, so a run reads 后台停着 everywhere
   // its phase shows (stalledPhase), from this one flag.
@@ -550,8 +526,8 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     [entries],
   );
   const accountModels = useMemo(
-    () => buildAccountModels({ accounts: accountViews, entries, now, platformEnv }),
-    [accountViews, entries, now, platformEnv],
+    () => buildAccountModels({ accounts: accountViews, entries, now }),
+    [accountViews, entries, now],
   );
   const accountById = useMemo(
     () => new Map(accountModels.map((account) => [account.id, account])),
@@ -568,20 +544,8 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
         actions: reviews,
         accounts: accountModels,
         projectSignIns: accountsUnavailable ? [] : projectSignIns,
-        projectProxyCheck: accountsUnavailable ? null : projectProxyCheck,
-        projectProxyConfigured: accountsUnavailable ? null : projectProxyConfigured,
-        platformEnv,
       }),
-    [
-      platformEnv,
-      entries,
-      reviews,
-      accountModels,
-      projectSignIns,
-      projectProxyCheck,
-      projectProxyConfigured,
-      accountsUnavailable,
-    ],
+    [entries, reviews, accountModels, projectSignIns, accountsUnavailable],
   );
   const counts = useMemo(() => shellCounts(entries, needs), [entries, needs]);
   const rail = useMemo(() => railTasks(entries, now), [entries, now]);
@@ -596,7 +560,6 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     agentError,
     tasks,
     memories: data?.memories ?? [],
-    jobs,
     entries,
     entryById,
     worker,

@@ -11,11 +11,11 @@ import {
   authBlockLine,
   authBlockOf,
   createRoutineSchema,
-  defaultRoutineZone,
   isRoutine,
   mailIsNew,
   mailMatches,
   nextRoutineRun,
+  pickRoutineZone,
   pushRoutineRun,
   type Routine,
   type RoutineMail,
@@ -26,6 +26,7 @@ import {
   updateRoutineSchema,
 } from "../../../../packages/domain/src/routines.ts";
 import { taskEnvironmentId } from "../../../../packages/domain/src/task-phase.ts";
+import { readAccountZone } from "../account-settings.ts";
 import { envOwner } from "../environments.ts";
 import { AppError } from "../errors.ts";
 import { backgroundFailure } from "../log.ts";
@@ -53,20 +54,23 @@ export class Routines {
     );
   }
 
-  /** The time zone clock times use: the account's desktop settings, else the project's default
-   * desktop, else `defaultRoutineZone`. */
+  /** The time zone clock times use: the account's own setting, else the account's desktop
+   * settings, else the project's default desktop, else `defaultRoutineZone`. */
   async zoneFor(owner: string, environmentId: string | null): Promise<string> {
+    const account = await readAccountZone(this.db, owner).catch(() => null);
+    if (account) return pickRoutineZone(account);
+    const computers: Array<string | null> = [];
     for (const target of [environmentId, null]) {
       try {
-        const zone = (
-          await this.service.computer.settings.view(target ? envOwner(owner, target) : owner)
-        ).timezone;
-        if (zone?.trim()) return zone.trim();
+        computers.push(
+          (await this.service.computer.settings.view(target ? envOwner(owner, target) : owner))
+            .timezone,
+        );
       } catch {
         // An unreadable setting falls through to the next.
       }
     }
-    return defaultRoutineZone;
+    return pickRoutineZone(...computers);
   }
 
   /** The next run of a routine, or null when it waits for mail (no clock). */
