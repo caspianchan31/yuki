@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "types": ["vite/client"],
+    "paths": {
+      "@m/*": ["../../packages/client/src/*"],
+      "react": ["./node_modules/@types/react"],
+      "lucide-react": ["./node_modules/lucide-react"],
+      "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime"],
+      "react-dom": ["./node_modules/@types/react-dom"],
+      "markdown-it": ["./node_modules/@types/markdown-it"],
+      "@copilotkit/react-native/headless": ["./src/platform/copilotkit-headless.tsx"],
+      "@openmuse/domain": ["../../packages/domain/src/index.ts"]
+    }
+  },
+  "include": ["src", "vite.config.ts"]
+}

@@ -1,0 +1,32 @@
+{
+  "name": "@openmuse/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5173",
+    "build": "vite build",
+    "preview": "vite preview --port 5174",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@copilotkit/core": "1.70.1",
+    "@copilotkit/react-core": "1.70.1",
+    "@ag-ui/client": "0.0.59",
+    "lucide-react": "0.468.0",
+    "markdown-it": "14.1.0",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "zod": "^4.1.0",
+    "@copilotkit/shared": "1.70.1"
+  },
+  "devDependencies": {
+    "@types/markdown-it": "14.1.2",
+    "@types/react": "~19.1.0",
+    "@types/react-dom": "~19.1.0",
+    "@vitejs/plugin-react": "4.7.0",
+    "typescript": "~5.9.2",
+    "vite": "6.3.5"
+  },
+  "packageManager": "pnpm@11.19.0"
+}

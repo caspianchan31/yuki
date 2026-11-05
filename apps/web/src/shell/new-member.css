@@ -1,0 +1,105 @@
+/* v1.2: the new-member dialog and the delete box of a member's profile card. */
+
+.nm-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.nm-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.nm-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+.nm-preview {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.nm-preview-name {
+  font-size: 15px;
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nm-shapes,
+.nm-colors,
+.nm-templates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.nm-shape {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  cursor: pointer;
+}
+.nm-shape[aria-pressed="true"] {
+  border-color: var(--fg);
+  box-shadow: inset 0 0 0 1px var(--fg);
+}
+.nm-color {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid var(--bg);
+  box-shadow: 0 0 0 1px var(--line);
+  cursor: pointer;
+}
+.nm-color[aria-pressed="true"] {
+  box-shadow: 0 0 0 2px var(--fg);
+}
+.nm-shape:disabled,
+.nm-color:disabled,
+.nm-template:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.nm-template {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+}
+.nm-template[aria-pressed="true"] {
+  background: var(--fg);
+  color: var(--bg);
+  border-color: var(--fg);
+}
+.nm-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--fg2);
+}
+
+.md-remove {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--r);
+  background: var(--red-bg);
+  color: var(--red);
+  font-size: 13px;
+}
+.md-remove p {
+  margin: 0;
+}
+.md-remove .row {
+  gap: 8px;
+}

@@ -1,0 +1,50 @@
+/* v1.2: the member avatar's layout: the face fills its box, the manager's star sits
+   at the top-right and the state dot at the bottom-right. */
+
+.mface {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  line-height: 0;
+}
+
+.mface svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.mface-star {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 40%;
+  height: 40%;
+}
+
+.mface-st {
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 30%;
+  height: 30%;
+  border-radius: 50%;
+  border: 2px solid var(--bg);
+  box-sizing: border-box;
+}
+
+.mface-st.run {
+  background: #30a46c;
+}
+.mface-st.wait {
+  background: #8d8d8d;
+}
+.mface-st.need {
+  background: #f76b15;
+}
+.mface-st.block {
+  background: #e5484d;
+}
+.mface-st.idle {
+  background: #b4b4b8;
+}

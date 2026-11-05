@@ -1,0 +1,168 @@
+/* v1.2: the new-group dialog and the group rail's name, add and remove controls. */
+
+.ng-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.ng-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ng-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+}
+.ng-list li + li {
+  border-top: 1px solid var(--line);
+}
+.ng-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.ng-row[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: default;
+}
+.ng-row input {
+  flex: none;
+  accent-color: var(--fg);
+}
+.ng-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ng-where {
+  flex: none;
+  font-size: 12px;
+  color: var(--fg2);
+}
+.ng-move {
+  margin: 0;
+  padding: 0 10px 8px 48px;
+  font-size: 12px;
+  color: var(--fg2);
+}
+.ng-problems {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--red);
+}
+
+.gp-title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+.gp-title h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gp-rename {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+.gp-rename .input {
+  flex: 1;
+  min-width: 0;
+}
+.gp-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.gp-row > button:first-child {
+  flex: 1;
+  min-width: 0;
+}
+.group-members .gp-remove {
+  flex: none;
+  width: auto;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--fg2);
+  border-radius: 8px;
+}
+.group-members .gp-remove:hover {
+  background: var(--hover);
+}
+.group-members .gp-remove:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.gp-add {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.gp-add h4 {
+  margin: 6px 0 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg2);
+}
+.gp-pick {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--bg);
+}
+.gp-pick li + li {
+  border-top: 1px solid var(--line);
+}
+.gp-pick button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.gp-pick button:hover:not(:disabled) {
+  background: var(--hover);
+}
+.gp-pick button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.gp-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--fg2);
+}

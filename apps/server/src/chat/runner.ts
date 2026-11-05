@@ -1,0 +1,804 @@
+// A persistent AgentRunner for the SSE runtime, backed by ChatStore.
+// Implements only the async run/connect/isRunning/stop contract (not LocalThreadEndpointRunner,
+// whose synchronous methods a database cannot satisfy); thread listing lives in thread-routes.ts.
+// Semantics follow the runtime's InMemoryAgentRunner (1.70.1), plus: the thread lock lives in the
+// database, a running run is journaled, and the terminal event is sent only after the run is saved.
+import { randomUUID } from "node:crypto";
+import {
+  type AbstractAgent,
+  type BaseEvent,
+  EventType,
+  type Message,
+  type RunStartedEvent,
+} from "@ag-ui/client";
+import {
+  AgentRunner,
+  type AgentRunnerConnectRequest,
+  type AgentRunnerIsRunningRequest,
+  type AgentRunnerRunRequest,
+  type AgentRunnerStopRequest,
+  finalizeRunEvents,
+} from "@copilotkit/runtime/v2";
+import { Observable, ReplaySubject, type Subscription } from "rxjs";
+import { backgroundFailure } from "../log.ts";
+import type { BeginResult, ChatStore, ConnectHistory, DeadLocks, RunStatus } from "./chat-store.ts";
+import {
+  compactLeniently,
+  compactRun,
+  messageIdsOf,
+  persistedRunEvents,
+  replayedRun,
+  startedEvent,
+  withRunIdentity,
+} from "./events.ts";
+import {
+  type ClaimResult,
+  historyUnavailableCode,
+  type LocalRunnerOptions,
+  type RunControl,
+  threadLockedCode,
+} from "./types.ts";
+
+export const lockedMessage = "这个对话还在回复，等它说完再发。";
+export const persistenceFailedMessage = "这条回复没存下来，重新加载后可能看不到。";
+export const persistenceFailedCode = "persistence_failed";
+const restartingMessage = "服务器正在重启。";
+const crashedMessage = "服务器在这条回复说完前停了。";
+const startFailedMessage = "这个对话没能开始，再试一次。";
+export const historyUnavailableMessage = "这个对话没读出来，再试一次。";
+const journalBatch = 64;
+
+interface ActiveRun {
+  threadId: string;
+  runId: string;
+  agent: AbstractAgent;
+  subject: ReplaySubject<BaseEvent>;
+  newMessages: Message[];
+  /** Every event of the run, in order (finalizeRunEvents appends to it). */
+  events: BaseEvent[];
+  /** The terminal event and anything after it, sent once the run is saved. */
+  held: BaseEvent[];
+  /** Events not yet written to the journal. */
+  pending: BaseEvent[];
+  journalSeq: number;
+  flushTimer?: ReturnType<typeof setTimeout>;
+  flushChain: Promise<void>;
+  stopRequested: boolean;
+  /** Interrupted by close(): saved as "interrupted". */
+  closing: boolean;
+  finalized: boolean;
+  done: Promise<void>;
+  markDone: () => void;
+}
+
+/** Connects reading a thread's history, and the begin() calls on the thread that ended meanwhile. */
+interface HistoryWatch {
+  readers: number;
+  begins: number;
+}
+
+/** begin() calls in progress on a thread; `idle` resolves when the last one ends. */
+interface BeginWindow {
+  open: number;
+  idle: Promise<void>;
+  close: () => void;
+}
+
+/** A claim this process took whose run has not begun yet. */
+interface PendingClaim {
+  runId: string;
+  begun: Promise<void>;
+  settle: () => void;
+}
+
+interface Begun {
+  run: ActiveRun;
+  historic: Set<string>;
+  /** The stored conversation the model continues from. */
+  stored: Message[];
+  stopRequested: boolean;
+}
+
+function runError(message: string, code?: string): BaseEvent {
+  return { type: EventType.RUN_ERROR, message, ...(code ? { code } : {}) } as BaseEvent;
+}
+
+function isTerminal(event: BaseEvent): boolean {
+  return event.type === EventType.RUN_FINISHED || event.type === EventType.RUN_ERROR;
+}
+
+const delay = (ms: number) =>
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, ms).unref();
+  });
+
+/** The subscription a connect holds on a live run, and whether its client has gone. */
+type LiveTail = { subscription: Subscription | undefined; closed: boolean };
+
+export class LocalAgentRunner extends AgentRunner implements RunControl {
+  readonly instanceId: string;
+  /** Backoff before each retry of a failed close statement (3 retries). Tests shorten it. */
+  closeRetryDelaysMs = [500, 1000, 2000];
+  /** Longest wait for one shutdown step, and for a connect waiting on a claimed run to begin. */
+  closeCapMs = 5000;
+  /** History reads one connect makes at most while runs keep beginning on its thread. */
+  historyReadLimit = 10;
+  private readonly heartbeatMs: number;
+  private readonly staleAfterMs: number;
+  private readonly sweepMs: number;
+  private readonly flushMs: number;
+  private readonly active = new Map<string, ActiveRun>();
+  private readonly claimed = new Map<string, PendingClaim>();
+  private readonly watches = new Map<string, HistoryWatch>();
+  private readonly beginning = new Map<string, BeginWindow>();
+  private timers: ReturnType<typeof setInterval>[] = [];
+  private started = false;
+  private closed = false;
+  private closePromise?: Promise<void>;
+  private readonly starting = new Set<Promise<void>>();
+  private beating = false;
+  private sweeping?: Promise<void>;
+
+  constructor(
+    readonly store: ChatStore,
+    readonly options: LocalRunnerOptions = {},
+  ) {
+    super();
+    this.instanceId = options.instanceId ?? randomUUID();
+    this.heartbeatMs = options.heartbeatMs ?? 5000;
+    this.staleAfterMs = options.staleAfterMs ?? 30000;
+    this.sweepMs = options.sweepMs ?? 15000;
+    this.flushMs = options.flushMs ?? 250;
+  }
+
+  // ---- AgentRunner ----
+
+  run(request: AgentRunnerRunRequest): Observable<BaseEvent> {
+    const subject = new ReplaySubject<BaseEvent>(Infinity);
+    void this.execute(request, subject).catch((error) => {
+      // execute handles its own failures; this is a last resort so a stream never hangs.
+      backgroundFailure("chat run", error);
+      subject.next(runError(startFailedMessage));
+      subject.complete();
+    });
+    return subject.asObservable();
+  }
+
+  connect(request: AgentRunnerConnectRequest): Observable<BaseEvent> {
+    const subject = new ReplaySubject<BaseEvent>(Infinity);
+    // The live tail of a run in progress; dropped when the client goes away, so a client that
+    // disconnects does not keep the replayed history and every later event in memory until the
+    // run ends (a long reply with repeated reconnects would pile them up).
+    const tail: LiveTail = { subscription: undefined, closed: false };
+    void this.replay(request.threadId, subject, tail).catch((error) => {
+      backgroundFailure("chat connect", error);
+      // The runtime ends the SSE response normally when this stream errors, so the app would take
+      // what it received (often nothing) for the whole conversation. A RUN_ERROR with this code
+      // makes the app's load fail instead, which offers Retry.
+      subject.next(runError(historyUnavailableMessage, historyUnavailableCode));
+      subject.complete();
+    });
+    let subscribers = 0;
+    return new Observable<BaseEvent>((subscriber) => {
+      subscribers++;
+      const inner = subject.subscribe(subscriber);
+      return () => {
+        inner.unsubscribe();
+        if (--subscribers > 0) return;
+        tail.closed = true;
+        tail.subscription?.unsubscribe();
+        tail.subscription = undefined;
+      };
+    });
+  }
+
+  async isRunning(request: AgentRunnerIsRunningRequest): Promise<boolean> {
+    if (this.active.has(request.threadId)) return true;
+    return this.store.isLocked(request.threadId);
+  }
+
+  async stop(request: AgentRunnerStopRequest): Promise<boolean | undefined> {
+    const local = this.active.get(request.threadId);
+    if (local) {
+      if (request.runId !== undefined && request.runId !== local.runId) return false;
+      if (local.stopRequested || local.finalized || local.closing) return false;
+      this.abort(local);
+      return true;
+    }
+    // Held by another instance (or claimed and about to begin): it honours the flag on its next
+    // heartbeat, or right after it begins.
+    return this.store.requestStop(request.threadId, request.runId);
+  }
+
+  // ---- RunControl ----
+
+  async claim(input: {
+    owner: string;
+    threadId: string;
+    agentId: string;
+    runId: string;
+    speaker?: string | null;
+  }): Promise<ClaimResult> {
+    const attempt = () =>
+      this.store.claimRun({
+        ...input,
+        instanceId: this.instanceId,
+        staleAfterMs: this.staleAfterMs,
+      });
+    let row = await attempt();
+    for (let retry = 0; !row.claimed && retry < 2; retry++) {
+      if (row.owner !== null && row.owner !== input.owner) break;
+      if (row.owner === null) {
+        // Inserted concurrently after this statement's snapshot: look again.
+        row = await attempt();
+        continue;
+      }
+      if (!row.stale || !row.holder || this.isLocalRun(input.threadId, row.holder)) break;
+      // Take over a dead lock only after saving what its journal holds.
+      await this.recover(input.threadId, row.holder, this.staleAfterMs);
+      row = await attempt();
+    }
+    if (row.claimed) {
+      this.trackClaim(input.threadId, input.runId);
+      return { ok: true };
+    }
+    if (row.owner !== null && row.owner !== input.owner) return { ok: false, reason: "forbidden" };
+    return { ok: false, reason: "locked" };
+  }
+
+  async release(threadId: string, runId: string): Promise<void> {
+    this.settleClaim(threadId, runId);
+    await this.store.releaseClaim(threadId, runId);
+  }
+
+  /** Remembers a claim until its run begins, so a connect in between waits for the run. */
+  private trackClaim(threadId: string, runId: string) {
+    let resolve = () => {};
+    // A claim whose run never begins and is never released (its request failed in between) is
+    // forgotten once its lock would be stale.
+    let expiry: ReturnType<typeof setTimeout> | undefined;
+    const entry: PendingClaim = {
+      runId,
+      begun: new Promise<void>((done) => {
+        resolve = done;
+      }),
+      settle: () => {
+        clearTimeout(expiry);
+        if (this.claimed.get(threadId) === entry) this.claimed.delete(threadId);
+        resolve();
+      },
+    };
+    this.claimed.get(threadId)?.settle();
+    this.claimed.set(threadId, entry);
+    expiry = setTimeout(entry.settle, this.staleAfterMs);
+    expiry.unref();
+  }
+
+  private settleClaim(threadId: string, runId: string) {
+    const entry = this.claimed.get(threadId);
+    if (entry?.runId === runId) entry.settle();
+  }
+
+  // ---- Lifecycle ----
+
+  /** Recovers stale runs once, then starts the heartbeat and sweep timers (unref'd). */
+  async start(): Promise<void> {
+    if (this.started || this.closed) return;
+    this.started = true;
+    // Nothing of ours runs yet, so locks under this instance id belong to a previous process; when
+    // no other process can use the database (embedded PGlite), every lock does.
+    await this.sweep(this.options.exclusive ? { all: true } : { instanceId: this.instanceId });
+    const heartbeat = setInterval(() => void this.heartbeat(), this.heartbeatMs);
+    const sweep = setInterval(() => void this.sweep(), this.sweepMs);
+    heartbeat.unref();
+    sweep.unref();
+    this.timers.push(heartbeat, sweep);
+  }
+
+  /** Stops timers and saves in-flight local runs as interrupted, ending their SSE streams. */
+  async close(): Promise<void> {
+    this.closePromise ??= this.shutdown();
+    return this.closePromise;
+  }
+
+  private async shutdown(): Promise<void> {
+    this.closed = true;
+    for (const timer of this.timers) clearInterval(timer);
+    this.timers = [];
+    for (const claim of [...this.claimed.values()]) claim.settle();
+    await Promise.race([Promise.all(this.starting), delay(this.closeCapMs)]);
+    const runs = [...this.active.values()];
+    for (const run of runs) {
+      run.closing = true;
+      run.stopRequested = false;
+      this.cancel(run);
+    }
+    await Promise.all(
+      runs.map(async (run) => {
+        await Promise.race([run.done, delay(this.closeCapMs)]);
+        // An agent that ignores abort is finalized without it; its later events are dropped.
+        if (!run.finalized)
+          await Promise.race([this.finalize(run, restartingMessage), delay(this.closeCapMs)]);
+      }),
+    );
+    if (this.sweeping) await this.sweeping;
+    try {
+      await this.store.releaseInstanceClaims(this.instanceId);
+    } catch (error) {
+      backgroundFailure("chat release claims", error);
+    }
+  }
+
+  // ---- Run ----
+
+  private async execute(request: AgentRunnerRunRequest, subject: ReplaySubject<BaseEvent>) {
+    // close() waits for runs that are still starting, so none slips past a shutdown.
+    let started = () => {};
+    const starting = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    this.starting.add(starting);
+    let begun: Begun | undefined;
+    try {
+      begun = await this.begin(request, subject);
+    } finally {
+      this.starting.delete(starting);
+      started();
+      this.settleClaim(request.threadId, request.input.runId);
+    }
+    if (!begun) return;
+    const { run, historic, stored } = begun;
+    if (this.closed) {
+      run.closing = true;
+      return this.finalize(run, restartingMessage);
+    }
+    let interruption: string | undefined;
+    try {
+      // The model sees the conversation as this server stored it, then the
+      // messages this request brings; the client's copy may lack a turn another member just had.
+      run.agent.setMessages([...stored, ...run.newMessages]);
+      const running = run.agent.runAgent(request.input, {
+        onEvent: ({ event }) => {
+          this.onEvent(run, event, historic, request.input);
+        },
+      });
+      if (begun.stopRequested) this.abort(run);
+      await running;
+    } catch (error) {
+      interruption = error instanceof Error ? error.message : String(error);
+    }
+    await this.finalize(run, interruption);
+  }
+
+  /**
+   * Takes the thread for the run and registers it, or ends the stream with a RUN_ERROR. While it
+   * runs, the run may be begun in the database but not yet in `active`; a connect reading the
+   * thread's history meanwhile reads it again once this ends (see readHistory).
+   */
+  private async begin(
+    request: AgentRunnerRunRequest,
+    subject: ReplaySubject<BaseEvent>,
+  ): Promise<Begun | undefined> {
+    const { threadId } = request;
+    let window = this.beginning.get(threadId);
+    if (!window) {
+      let idle = () => {};
+      const opened: BeginWindow = {
+        open: 0,
+        idle: new Promise<void>((resolve) => {
+          idle = resolve;
+        }),
+        close: () => {
+          if (--opened.open > 0) return;
+          this.beginning.delete(threadId);
+          idle();
+        },
+      };
+      window = opened;
+      this.beginning.set(threadId, window);
+    }
+    window.open++;
+    try {
+      return await this.takeThread(request, subject);
+    } finally {
+      window.close();
+      const watch = this.watches.get(threadId);
+      if (watch) watch.begins++;
+    }
+  }
+
+  private async takeThread(
+    request: AgentRunnerRunRequest,
+    subject: ReplaySubject<BaseEvent>,
+  ): Promise<Begun | undefined> {
+    const { threadId, agent, input } = request;
+    const runId = input.runId;
+    const refuse = (event: BaseEvent) => {
+      subject.next(event);
+      subject.complete();
+      return undefined;
+    };
+    if (this.closed) {
+      await this.store.releaseClaim(threadId, runId).catch(() => undefined);
+      return refuse(runError(restartingMessage));
+    }
+    let historic: Set<string>;
+    let stored: Message[];
+    let newMessages: Message[];
+    let result: BeginResult;
+    try {
+      ({ messages: stored, ids: historic } = await this.store.history(threadId));
+      newMessages = (input.messages ?? []).filter((message) => !historic.has(message.id));
+      const attempt = () =>
+        this.store.beginRun({
+          threadId,
+          runId,
+          instanceId: this.instanceId,
+          started: startedEvent({ threadId, runId, newMessages }),
+          staleAfterMs: this.staleAfterMs,
+        });
+      result = await attempt();
+      if (
+        result.status === "locked" &&
+        result.stale &&
+        result.holder &&
+        !this.isLocalRun(threadId, result.holder)
+      ) {
+        await this.recover(threadId, result.holder, this.staleAfterMs);
+        result = await attempt();
+      }
+    } catch (error) {
+      backgroundFailure("chat begin", error);
+      await this.store.releaseClaim(threadId, runId).catch(() => undefined);
+      return refuse(runError(startFailedMessage));
+    }
+    if (result.status === "locked") {
+      // The thread is claimed for this very runId, which runs on another thread: undo this
+      // request's claim (a lock held by another run stays).
+      if (result.holder === runId)
+        await this.store.releaseClaim(threadId, runId).catch(() => undefined);
+      return refuse(runError(lockedMessage, threadLockedCode));
+    }
+    if (result.status === "missing") return refuse(runError("找不到这个对话。"));
+    if (result.status === "duplicate") {
+      await this.store.releaseClaim(threadId, runId).catch(() => undefined);
+      return refuse(runError("这条已经发过了。"));
+    }
+    let markDone = () => {};
+    const run: ActiveRun = {
+      threadId,
+      runId,
+      agent,
+      subject,
+      newMessages,
+      events: [],
+      held: [],
+      pending: [],
+      journalSeq: 0,
+      flushChain: Promise.resolve(),
+      stopRequested: false,
+      closing: false,
+      finalized: false,
+      done: new Promise<void>((resolve) => {
+        markDone = resolve;
+      }),
+      markDone: () => markDone(),
+    };
+    this.active.set(threadId, run);
+    return { run, historic, stored, stopRequested: result.stopRequested };
+  }
+
+  private onEvent(
+    run: ActiveRun,
+    event: BaseEvent,
+    historic: Set<string>,
+    input: AgentRunnerRunRequest["input"],
+  ) {
+    if (run.finalized) return;
+    // A stop or shutdown that came before the agent's stream was set up could not detach it yet.
+    if (run.stopRequested || run.closing) this.detach(run);
+    if (event.type === EventType.RUN_STARTED) {
+      // As InMemoryAgentRunner: a RUN_STARTED without input carries the request input with only
+      // the messages new to the thread.
+      const started = event as RunStartedEvent;
+      if (!started.input) {
+        started.input = {
+          ...input,
+          ...(input.messages
+            ? { messages: input.messages.filter((message) => !historic.has(message.id)) }
+            : {}),
+        };
+      }
+    }
+    run.events.push(event);
+    if (run.held.length > 0 || isTerminal(event)) run.held.push(event);
+    else run.subject.next(event);
+    run.pending.push(event);
+    this.scheduleFlush(run);
+  }
+
+  private abort(run: ActiveRun) {
+    run.stopRequested = true;
+    this.cancel(run);
+  }
+
+  /**
+   * Ends the agent's run: abortRun for agents that implement it, then detaches the run, which
+   * unsubscribes from the agent's stream. AbstractAgent.abortRun is a no-op, and ConversationAgent
+   * cancels its model stream only when unsubscribed. runAgent then resolves and the run finalizes.
+   */
+  private cancel(run: ActiveRun) {
+    try {
+      run.agent.abortRun();
+    } catch (error) {
+      backgroundFailure("chat abort", error);
+    }
+    this.detach(run);
+  }
+
+  private detach(run: ActiveRun) {
+    try {
+      void run.agent.detachActiveRun().catch((error: unknown) => {
+        backgroundFailure("chat detach", error);
+      });
+    } catch (error) {
+      backgroundFailure("chat detach", error);
+    }
+  }
+
+  private scheduleFlush(run: ActiveRun) {
+    if (run.pending.length >= journalBatch) {
+      if (run.flushTimer) clearTimeout(run.flushTimer);
+      run.flushTimer = undefined;
+      this.flush(run);
+      return;
+    }
+    if (run.flushTimer) return;
+    run.flushTimer = setTimeout(() => {
+      run.flushTimer = undefined;
+      this.flush(run);
+    }, this.flushMs);
+    run.flushTimer.unref();
+  }
+
+  /** Writes pending events to the journal; serialised per run, a failure retries with the next batch. */
+  private flush(run: ActiveRun): Promise<void> {
+    run.flushChain = run.flushChain.then(async () => {
+      if (run.pending.length === 0) return;
+      const batch = run.pending.splice(0);
+      try {
+        await this.store.appendJournal(run.runId, run.journalSeq, batch);
+        run.journalSeq += batch.length;
+      } catch (error) {
+        run.pending.unshift(...batch);
+        backgroundFailure("chat journal", error);
+      }
+    });
+    return run.flushChain;
+  }
+
+  /**
+   * Saves the run (one close statement, retried) and only then sends the held terminal event and
+   * ends the stream. If the save keeps failing, the stream ends with persistence_failed and the
+   * lock is left to go stale, so a sweep closes the run from its journal. If another process had
+   * already recovered the run from its journal (its lock went stale), the stored reply is that
+   * shorter one, so the stream ends with persistence_failed too. Any other failure here ends the
+   * same way: the run always leaves `active`, so its lock is no longer heartbeated and a sweep
+   * recovers it from its journal once it is stale.
+   */
+  private async finalize(run: ActiveRun, interruption?: string): Promise<void> {
+    if (run.finalized) return;
+    run.finalized = true;
+    if (run.flushTimer) clearTimeout(run.flushTimer);
+    run.flushTimer = undefined;
+    let appended: BaseEvent[] = [];
+    let saved = false;
+    try {
+      await run.flushChain;
+      const message = run.closing ? restartingMessage : interruption;
+      appended = finalizeRunEvents(run.events, {
+        stopRequested: run.stopRequested,
+        ...(message !== undefined ? { interruptionMessage: message } : {}),
+      }).map((event) => withRunIdentity(event, run.threadId, run.runId));
+      // finalizeRunEvents appended to run.events in place; keep the identity-filled copies.
+      run.events.splice(run.events.length - appended.length, appended.length, ...appended);
+      const status: Exclude<RunStatus, "running"> = run.closing
+        ? "interrupted"
+        : run.stopRequested
+          ? "stopped"
+          : run.events.find(isTerminal)?.type === EventType.RUN_ERROR
+            ? "error"
+            : "finished";
+      const events = persistedRunEvents(run.events, run);
+      saved = await this.closeWithRetry({
+        threadId: run.threadId,
+        runId: run.runId,
+        status,
+        events,
+        messageIds: messageIdsOf(events),
+      });
+    } catch (error) {
+      backgroundFailure("chat finalize", error);
+    }
+    try {
+      if (saved) {
+        for (const event of [...run.held, ...appended]) run.subject.next(event);
+      } else {
+        // Keep the journal complete for the sweep that will recover this run.
+        run.pending.push(...appended);
+        await this.flush(run);
+        for (const event of appended) if (!isTerminal(event)) run.subject.next(event);
+        run.subject.next(runError(persistenceFailedMessage, persistenceFailedCode));
+      }
+    } finally {
+      run.subject.complete();
+      if (this.active.get(run.threadId) === run) this.active.delete(run.threadId);
+      run.markDone();
+    }
+  }
+
+  /** True once this run's events are saved; false when they were not (failed, or closed elsewhere). */
+  private async closeWithRetry(input: Parameters<ChatStore["closeRun"]>[0]): Promise<boolean> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return (await this.store.closeRun(input)).closed;
+      } catch (error) {
+        backgroundFailure("chat save", error);
+        const wait = this.closeRetryDelaysMs[attempt];
+        if (wait === undefined) return false;
+        await delay(wait);
+      }
+    }
+  }
+
+  // ---- Connect ----
+
+  private async replay(
+    threadId: string,
+    subject: ReplaySubject<BaseEvent>,
+    tail: LiveTail = { subscription: undefined, closed: false },
+  ) {
+    // A run this process claimed but has not begun yet (one statement away): wait for it, so the
+    // connect tails it instead of finding the thread idle.
+    const pending = this.claimed.get(threadId);
+    if (pending) await Promise.race([pending.begun, delay(this.closeCapMs)]);
+    const { live, history } = await this.readHistory(threadId);
+    for (const event of compactLeniently(history.closed.flatMap(replayedRun))) subject.next(event);
+    if (live) {
+      // Its ReplaySubject replays it from the start and completes once it is saved. A client that
+      // left while the history was read gets no tail at all.
+      if (tail.closed) return;
+      tail.subscription = live.subject.subscribe({
+        next: (event) => subject.next(event),
+        complete: () => subject.complete(),
+        error: (error) => subject.error(error),
+      });
+      return;
+    }
+    // A run held by another process: send what its journal held (no cross-process live tail).
+    if (history.running) for (const event of compactRun(history.running)) subject.next(event);
+    subject.complete();
+  }
+
+  /**
+   * The thread's history and the local run to tail after it, consistent with each other. The live
+   * run is captured before the read, which leaves it out. The read agrees with `active` unless a
+   * run began on the thread during it: a pg Pool can answer from a snapshot taken before that run
+   * was saved while the run has already left `active` (it would be missing), or after the run was
+   * begun in the database but before it entered `active` (only its empty journal would be sent),
+   * and a run that succeeded the captured one is left out as running. So a read is used only if no
+   * begin() on the thread ended during it and none is still in progress (that one is waited for);
+   * otherwise it is made again with the run that is live now. Runs on a thread follow one another,
+   * so the reads end once no run starts within one read. At historyReadLimit the connect fails
+   * (the app offers Retry) rather than send a wrong history.
+   */
+  private async readHistory(
+    threadId: string,
+  ): Promise<{ live: ActiveRun | undefined; history: ConnectHistory }> {
+    const watch = this.watches.get(threadId) ?? { readers: 0, begins: 0 };
+    this.watches.set(threadId, watch);
+    watch.readers++;
+    try {
+      for (let read = 1; ; read++) {
+        const begins = watch.begins;
+        const live = this.active.get(threadId);
+        const history = await this.store.connectHistory(threadId, live?.runId);
+        const beginning = this.beginning.get(threadId);
+        if (watch.begins === begins && !beginning) return { live, history };
+        if (read >= this.historyReadLimit)
+          throw new Error("Replies kept starting while this conversation was loaded.");
+        if (beginning) await Promise.race([beginning.idle, delay(this.closeCapMs)]);
+      }
+    } finally {
+      if (--watch.readers === 0) this.watches.delete(threadId);
+    }
+  }
+
+  // ---- Background ----
+
+  private isLocalRun(threadId: string, runId: string): boolean {
+    return this.active.get(threadId)?.runId === runId;
+  }
+
+  private async heartbeat(): Promise<void> {
+    if (this.beating || this.closed) return;
+    this.beating = true;
+    try {
+      // Runs stay heartbeated while they save; one whose save failed has left `active` already.
+      const runs = [...this.active.values()];
+      const rows = await this.store.heartbeat(
+        this.instanceId,
+        runs.map((run) => run.runId),
+      );
+      for (const row of rows) {
+        if (!row.stopRequested) continue;
+        const run = this.active.get(row.threadId);
+        if (run && run.runId === row.runId && !run.stopRequested && !run.finalized) this.abort(run);
+      }
+    } catch (error) {
+      backgroundFailure("chat heartbeat", error);
+    } finally {
+      this.beating = false;
+    }
+  }
+
+  /** Recovers stale locks (and every lock of a dead holder). Never throws. History is kept until a
+   * thread is deleted (no retention). */
+  async sweep(dead?: DeadLocks): Promise<void> {
+    if (this.sweeping) return this.sweeping;
+    this.sweeping = (async () => {
+      try {
+        const stale = await this.store.staleRuns(this.staleAfterMs, dead);
+        for (const lock of stale) {
+          if (this.isLocalRun(lock.threadId, lock.runId)) continue;
+          try {
+            await this.recover(
+              lock.threadId,
+              lock.runId,
+              lock.guarded ? this.staleAfterMs : undefined,
+            );
+          } catch (error) {
+            backgroundFailure("chat recovery", error);
+          }
+        }
+      } catch (error) {
+        backgroundFailure("chat sweep", error);
+      }
+    })().finally(() => {
+      this.sweeping = undefined;
+    });
+    return this.sweeping;
+  }
+
+  /**
+   * Closes a dead run from its journal as "interrupted" (an interruption message is appended),
+   * or just releases a claim whose run never began. staleAfterMs guards against a live holder.
+   */
+  private async recover(threadId: string, runId: string, staleAfterMs?: number): Promise<void> {
+    const running = await this.store.runningRun(threadId, runId);
+    if (!running) {
+      await this.store.closeRun({
+        threadId,
+        runId,
+        status: "interrupted",
+        events: [],
+        messageIds: [],
+        staleAfterMs,
+      });
+      return;
+    }
+    const journal = running.journal;
+    finalizeRunEvents(journal, { interruptionMessage: crashedMessage });
+    const stored = (running.started as RunStartedEvent | null)?.input?.messages;
+    const newMessages = Array.isArray(stored) ? stored : [];
+    const events = persistedRunEvents(journal, { threadId, runId, newMessages });
+    await this.store.closeRun({
+      threadId,
+      runId,
+      status: "interrupted",
+      events,
+      messageIds: messageIdsOf(events),
+      staleAfterMs,
+    });
+  }
+}

@@ -1,0 +1,449 @@
+/* Phase C (docs/web.md): the few pieces the work panels (task, job, new task, settings,
+   项目资料, founder, projects, threads) need beyond app.css: a key/value row with a trailing
+   control, the inline confirmation and edit boxes, the fold, the switch, the flag, the receipt,
+   the account light, the need card and the choice row. Tokens only. */
+
+.tp {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.tp .sec {
+  margin-bottom: 0;
+}
+.tp p {
+  margin: 0;
+}
+.tp-pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.tp-small {
+  font-size: 12px;
+  color: var(--fg2);
+}
+.tp-faint {
+  font-size: 12px;
+  color: var(--fg3);
+}
+.tp-mono {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+.tp-strong {
+  font-weight: 600;
+}
+.tp-red {
+  color: var(--red);
+}
+.tp-green {
+  color: var(--green);
+}
+
+/* key · value · trailing control */
+.tp-kv {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  align-items: start;
+  font-size: 13px;
+  padding: 4px 0;
+}
+.tp-kv > .k {
+  color: var(--fg2);
+  padding-top: 3px;
+}
+.tp-kv > .v {
+  min-width: 0;
+  padding-top: 3px;
+  overflow-wrap: anywhere;
+}
+.tp-kv > .r {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+@media (max-width: 480px) {
+  .tp-kv {
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+  .tp-kv > .r {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+}
+
+/* inline boxes: a confirmation (red) and an edit form */
+.tp-box {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line2);
+  border-radius: var(--r);
+}
+.tp-box.warn {
+  border-color: var(--red-bg);
+  background: var(--red-bg);
+}
+.btn.danger.solid {
+  background: var(--red);
+  border-color: var(--red);
+  color: var(--bg);
+}
+.btn.ghost {
+  border-color: transparent;
+  background: none;
+}
+.btn.sm {
+  font-size: 12px;
+  padding: 3px 8px;
+}
+.tp .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* the ⋯ menu of the task panel */
+.tp-menu {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--bg2);
+}
+
+/* fold (prototype .foldbtn) */
+.tp-fold {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tp-fold > button {
+  align-self: flex-start;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 2px 0;
+}
+.tp-fold > button:hover {
+  text-decoration: underline;
+}
+
+/* a small marker and the receipt */
+.tp-flag {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: var(--amber-bg);
+  color: var(--amber);
+}
+.tp-flag.red {
+  background: var(--red-bg);
+  color: var(--red);
+}
+.tp-flag.grey {
+  background: var(--bg3);
+  color: var(--fg2);
+}
+.tp-receipt {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: var(--r);
+  background: var(--green-bg);
+  color: var(--green);
+}
+
+/* the account light */
+.tp-light {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--fg3);
+}
+.tp-light.red {
+  background: var(--red);
+}
+.tp-light.amber {
+  background: var(--amber);
+}
+.tp-light.grey {
+  background: var(--line2);
+}
+.tp-light.hollow {
+  background: none;
+  border: 1.5px solid var(--fg3);
+}
+.tp-dot-pill::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* the need card of a task (question / review / failure) */
+.tp-need {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: var(--r);
+  border: 1px solid var(--amber-bg);
+  background: var(--amber-bg);
+}
+.tp-need.fail {
+  border-color: var(--red-bg);
+  background: var(--red-bg);
+}
+.tp-need .input {
+  background: var(--bg);
+}
+
+/* report and timeline lines */
+.tp-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+.tp-line {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 8px;
+  row-gap: 2px;
+  align-items: baseline;
+  min-width: 0;
+}
+.tp-line > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.tp-line .lbl {
+  font-weight: 600;
+}
+.tp-line .lbl.green {
+  color: var(--green);
+}
+.tp-line .lbl.red {
+  color: var(--red);
+}
+.tp-line .lbl.amber {
+  color: var(--amber);
+}
+/* 「未确认：没有这条内容自己的链接」: its own row under the report's line. */
+.tp-line .tp-unconfirmed {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--amber);
+}
+.tp-plan-row {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 8px;
+  font-size: 13px;
+}
+
+/* a choice row (prototype .opt) */
+.tp-opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+}
+.tp-opt:hover {
+  background: var(--hover);
+}
+.tp-opt[aria-pressed="true"],
+.tp-opt.sel {
+  border-color: var(--fg3);
+}
+.tp-opt .grow {
+  flex: 1;
+  min-width: 0;
+}
+.tp-opt .t {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tp-opt .d {
+  color: var(--fg2);
+  font-size: 12px;
+}
+
+/* the project rows */
+.tp-prow {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: var(--r);
+  border: 1px solid transparent;
+}
+button.tp-prow:hover {
+  background: var(--hover);
+}
+.tp-prow.cur {
+  border-color: var(--line2);
+}
+.tp-prow .top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+.tp-prow .nm {
+  font-weight: 600;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tp-prow .cnt {
+  font-size: 12px;
+  color: var(--fg3);
+  flex: none;
+}
+
+/* founder: priority rows and project cards */
+.tp-prio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 4px 6px;
+  border-radius: var(--r);
+  background: var(--bg2);
+}
+.tp-prio .n {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid var(--line2);
+  background: var(--bg);
+  flex: none;
+}
+.tp-prio .n.top {
+  background: var(--fg);
+  color: var(--bg);
+  border-color: var(--fg);
+}
+.tp-prio .nm {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tp-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+.tp-card:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+.tp-link {
+  align-self: flex-start;
+  text-align: left;
+  font-size: 13px;
+  color: var(--fg);
+}
+.tp-link:hover {
+  text-decoration: underline;
+}
+.tp-link.red {
+  color: var(--red);
+}
+.tp-founder-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  text-align: left;
+}
+.tp-founder-row:hover {
+  background: var(--hover);
+}
+.tp-founder-row .nm {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
+  font-size: 12px;
+  color: var(--fg2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tp-speaker {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.tp-speaker .nm {
+  font-weight: 600;
+  font-size: 13.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* the 重复 radios and the date fields */
+.tp-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+.tp-radio input {
+  accent-color: var(--fg);
+  margin: 0;
+}
+.tp-num {
+  width: 72px;
+}
+.tp-dates {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 12px;
+}
+.tp-dates.one {
+  grid-template-columns: minmax(0, 1fr);
+}

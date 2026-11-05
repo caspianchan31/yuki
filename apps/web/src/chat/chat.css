@@ -1,0 +1,635 @@
+/* Phase C (docs/web.md): the conversation's additions to app.css (block timeline, composer).
+   Tokens only; the prototype's classes (.blk, .chips, .acts, .composer…) do the rest. */
+
+.chat-screen {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+.chat-error {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 12px 16px;
+}
+.member-chat-h {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* A need that came back into the conversation, as a card rather than an inbox row. */
+.chat-screen .member-needs {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 12px 0;
+}
+.chat-screen .member-needs .it {
+  width: min(460px, 100%);
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--bg2);
+  box-sizing: border-box;
+}
+.chat-screen .member-needs .it:hover {
+  background: var(--bg2);
+}
+
+/* the person's own message, on the right */
+.blk.mine {
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: end;
+}
+.blk.mine:hover {
+  background: transparent;
+}
+.blk.mine > div {
+  width: 100%;
+}
+.blk.mine .who-line {
+  font-size: 12px;
+  color: var(--fg3);
+}
+.blk.mine .body.me {
+  max-width: 86%;
+  white-space: pre-wrap;
+}
+.blk .bav img {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: contain;
+}
+.blk .bav.cap {
+  overflow: hidden;
+}
+/* v1.2: an account's face brings its own shape and colour, so no grey circle behind. */
+.blk .bav.face {
+  background: transparent;
+}
+.blk.need.fail {
+  background: var(--red-bg);
+}
+.blk.need .body .where {
+  font-weight: 600;
+}
+.blk .stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+  min-width: 0;
+}
+.blk .sub-line {
+  color: var(--fg2);
+  font-size: 13px;
+}
+.blk .fold {
+  font-size: 12px;
+  color: var(--fg2);
+  margin-top: 4px;
+}
+.blk .fold:hover {
+  color: var(--fg);
+}
+.blk .quote.long {
+  max-height: 10.5em;
+  overflow: hidden;
+}
+.blk .quote.long.all {
+  max-height: none;
+}
+.blk .body .md {
+  line-height: 1.6;
+}
+.blk .row-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  align-items: center;
+}
+.blk .row-acts .grow {
+  flex: 1;
+}
+/* v1.2: 「对话气泡」 — a member's message is a grey bubble (the person's own is .body.me,
+   a system line keeps its plain look). */
+.chat-screen .blk:not(.mine):not(.sys) > div > .body:not(.me) {
+  background: var(--bg3);
+  display: inline-block;
+  max-width: 100%;
+  padding: 10px 14px;
+  border-radius: 18px;
+  font-size: 15px;
+  line-height: 24px;
+}
+/* v1.2: the stop report's block is a card (title, question, answer box), not a
+   bubble — its .body keeps the plain look. */
+.chat-screen .blk.need:not(.mine):not(.sys) > div > .body:not(.me) {
+  background: transparent;
+  display: block;
+  padding: 0;
+  border-radius: 0;
+  font-size: inherit;
+  line-height: inherit;
+}
+.btn.sm {
+  font-size: 12px;
+  padding: 3px 10px;
+}
+
+/* a receipt: 「✓ 你点了重试 · 14:48」. Scoped so the rail's pill does not pull these onto one row. */
+.chat-screen .receipt {
+  display: flex;
+  width: 100%;
+  box-sizing: border-box;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--fg3);
+  font-size: 12px;
+  margin: 6px 0;
+  background: transparent;
+  border-radius: 0;
+  padding: 0;
+}
+.chat-screen .receipt.stack {
+  flex-direction: column;
+  gap: 2px;
+}
+.receipt svg {
+  color: var(--green);
+  flex: none;
+}
+.member-jump {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+/* a tool's card inside a block (the desktop, a page, a mail, a choice…) */
+.tcard {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-top: 6px;
+  max-width: 520px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--bg);
+  min-width: 0;
+}
+.tcard.err-edge {
+  border-color: var(--red);
+}
+.tcard.focus {
+  border-color: var(--fg);
+  box-shadow: 0 0 0 1px var(--fg);
+}
+.tcard .th {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.tcard .th .ic {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: var(--bg2);
+  display: grid;
+  place-items: center;
+  color: var(--fg2);
+  flex: none;
+}
+.tcard .th .grow {
+  flex: 1;
+  min-width: 0;
+}
+.tcard .th .t {
+  font-weight: 600;
+  font-size: 13px;
+}
+.tcard .th .d {
+  color: var(--fg2);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tcard .th .d.red {
+  color: var(--red);
+}
+.tcard .shot {
+  width: 100%;
+  aspect-ratio: 1.6;
+  object-fit: contain;
+  border-radius: 6px;
+  background: var(--bg2);
+  border: 1px solid var(--line);
+}
+.tcard .ph {
+  border-radius: 6px;
+  background: var(--bg2);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--fg2);
+  font-size: 13px;
+}
+.tcard .acts-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+  align-items: center;
+}
+.tcard .acts-row.start {
+  justify-content: flex-start;
+}
+.tcard .opt {
+  border-radius: 6px;
+  background: var(--bg2);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tcard .src {
+  font-size: 12px;
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+.tcard .kvs {
+  display: grid;
+  grid-template-columns: minmax(0, 40%) minmax(0, 1fr);
+  gap: 4px 10px;
+  font-size: 13px;
+}
+.tcard .kvs .k {
+  color: var(--fg2);
+}
+.tcard .num {
+  font-size: 22px;
+  font-weight: 600;
+}
+.tcard .fld .lbl {
+  color: var(--fg2);
+  font-weight: 600;
+  font-size: 12px;
+  margin-bottom: 2px;
+}
+.tcard ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.tcard .bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg3);
+  overflow: hidden;
+}
+.tcard .bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+/* an incident's picture */
+.incident {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--fg2);
+}
+.incident img,
+.incident .ph-img {
+  width: 72px;
+  height: 45px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  object-fit: cover;
+  background: var(--bg2);
+  display: grid;
+  place-items: center;
+}
+.shot-ovl {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.82);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  color: #fff;
+}
+.shot-ovl img {
+  max-width: min(1280px, 100%);
+  max-height: calc(100% - 64px);
+  object-fit: contain;
+}
+
+/* an account's light (prototype .achip) */
+.light {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  display: inline-block;
+  background: var(--fg3);
+}
+.light.red {
+  background: var(--red);
+}
+.light.amber {
+  background: var(--amber);
+}
+.light.blue {
+  background: var(--accent);
+}
+.light.teal {
+  background: var(--green);
+}
+.light.hollow {
+  background: transparent;
+  border: 1.5px solid var(--fg3);
+}
+.achip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  max-width: 100%;
+}
+.achip:hover {
+  border-color: var(--line2);
+}
+.flag {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--bg3);
+  color: var(--fg2);
+}
+
+/* the empty conversation */
+.chat-empty {
+  max-width: 420px;
+  margin: 0 auto;
+  padding: 40px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: center;
+}
+.chat-empty img {
+  width: 96px;
+  height: 96px;
+  object-fit: contain;
+  align-self: center;
+}
+.chat-empty h2 {
+  margin: 0;
+  font-size: 17px;
+}
+.chat-empty p {
+  margin: 0;
+  color: var(--fg2);
+}
+.chat-empty .sugg {
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  padding: 9px 12px;
+  text-align: left;
+}
+.chat-empty .sugg:hover {
+  background: var(--hover);
+}
+.chat-loading {
+  padding: 8px 0;
+}
+
+/* back to the newest */
+.to-latest {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 100%;
+  margin-bottom: 8px;
+  background: var(--bg);
+  box-shadow: var(--shadow);
+}
+
+/* back up to the card of an open need still to fill (GuidePointer) */
+.guide-pointer {
+  position: absolute;
+  right: 16px;
+  bottom: 100%;
+  margin-bottom: 8px;
+  background: var(--bg);
+  box-shadow: var(--shadow);
+}
+
+/* composer additions */
+.composer {
+  position: relative;
+}
+.composer .box {
+  align-items: flex-end;
+}
+.composer textarea {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  outline: 0;
+  min-width: 0;
+  font: inherit;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--fg);
+  resize: none;
+  padding: 5px 0;
+  max-height: 140px;
+}
+.composer textarea:focus-visible {
+  outline: 0;
+}
+.composer .send[disabled] {
+  cursor: default;
+}
+.composer .lines {
+  max-width: 760px;
+  margin: 0 auto 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+.composer .q {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg2);
+}
+.composer .q .t {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* v1.2: 「输入框」 — one rounded pill: ＋, the text, a solid black round send.
+   Prefixed with .chat-screen (the composer's ancestor, ChatScreen) so these win over app.css. */
+.chat-screen .composer .box {
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg);
+}
+.chat-screen .composer .box.tall {
+  align-items: flex-end;
+  border-radius: 18px;
+}
+.chat-screen .composer .box:focus-within {
+  border-color: var(--line2);
+}
+.chat-screen .composer textarea {
+  font-size: 15px;
+  line-height: 24px;
+}
+
+.chat-screen .composer .send {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fg);
+  color: var(--bg);
+}
+.chat-screen .composer .send[disabled] {
+  opacity: 0.35;
+}
+
+/* A reply's desktop steps folded to one line
+   (「在桌面上做了 3 步」) that opens to the steps, the latest shot and 打开桌面. */
+.drun {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-self: stretch;
+}
+.drun-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--fg3);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.drun-line:hover {
+  color: var(--fg);
+}
+.drun-line.red,
+.drun-steps .red {
+  color: var(--red);
+}
+.drun-steps {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--fg2);
+}
+
+/* A reply's steps, folded under what it did. */
+.reply-steps > summary {
+  cursor: pointer;
+  list-style: none;
+}
+.reply-steps > summary::after {
+  content: " ▸";
+}
+.reply-steps[open] > summary::after {
+  content: " ▾";
+}
+.reply-steps[open] > .stack {
+  margin-top: 6px;
+}
+
+/* v1.2: the @ list above the chat box. */
+.mention-anchor {
+  position: relative;
+  max-width: 760px;
+  margin: 0 auto;
+  height: 0;
+}
+.mention-menu {
+  position: absolute;
+  left: 0;
+  bottom: 6px;
+  z-index: 5;
+  width: min(360px, 100%);
+  max-height: 260px;
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--line2);
+  border-radius: 12px;
+  background: var(--bg);
+  box-shadow: var(--shadow);
+}
+.mention-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.mention-row.on {
+  background: var(--sel);
+}
+.mention-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mention-hint,
+.mention-kind {
+  flex: none;
+  font-size: 12px;
+  color: var(--fg3);
+}

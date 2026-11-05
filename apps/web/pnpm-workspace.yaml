@@ -1,0 +1,7 @@
+# Phase C (docs/web.md): apps/web is its own pnpm workspace with its own lockfile, so adding
+# it never moves the versions the server resolves in the root workspace.
+packages:
+  - .
+allowBuilds:
+  esbuild: true
+  '@scarf/scarf': false

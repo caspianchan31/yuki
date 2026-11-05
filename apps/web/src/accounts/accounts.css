@@ -1,0 +1,737 @@
+/* Phase C (docs/web.md): the few pieces the 账号与代理 area needs beyond app.css (the account
+   light, notes and confirm boxes, option rows, the latest screenshot, the pinned desktop). Tokens
+   only, never literal colours. */
+
+/* one light per account (shell/theme.ts light) */
+.acc-light {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+  flex: none;
+  background: var(--fg3);
+}
+.acc-light.red {
+  background: var(--red);
+}
+.acc-light.amber {
+  background: var(--amber);
+}
+.acc-light.grey {
+  background: var(--line2);
+}
+.acc-light.hollow {
+  background: transparent;
+  border: 1.5px solid var(--fg3);
+}
+
+.btn.sm {
+  font-size: 12px;
+  padding: 3px 8px;
+}
+.btn.ghost {
+  border-color: transparent;
+  color: var(--fg2);
+}
+.btn.dtext {
+  border-color: transparent;
+  color: var(--red);
+}
+.acc-spin {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--line2);
+  border-top-color: var(--fg2);
+  animation: acc-rot 0.8s linear infinite;
+  display: inline-block;
+}
+@keyframes acc-rot {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.acc-small {
+  font-size: 12px;
+  color: var(--fg2);
+  margin: 0;
+}
+.acc-faint {
+  font-size: 12px;
+  color: var(--fg3);
+}
+.acc-redtext {
+  color: var(--red);
+}
+.acc-ambertext {
+  color: var(--amber);
+}
+.acc-greentext {
+  color: var(--green);
+}
+.acc-mono {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.acc-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.acc-stack.tight {
+  gap: 2px;
+}
+.acc-ellipsis {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* the prototype's .info and .confirm */
+.acc-info {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  background: var(--bg2);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--fg2);
+}
+.acc-info svg {
+  flex: none;
+  margin-top: 3px;
+}
+.acc-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--r);
+  background: var(--red-bg);
+  color: var(--red);
+  font-size: 13px;
+}
+.acc-confirm.amber {
+  background: var(--amber-bg);
+  color: var(--amber);
+}
+.acc-confirm > p {
+  margin: 0;
+}
+
+/* the judgment card: an account only the owner can unblock */
+.acc-judge {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--red-bg);
+  margin-bottom: 8px;
+}
+.acc-judge .grow {
+  flex: 1;
+  min-width: 0;
+}
+.acc-judge .why {
+  color: var(--red);
+  font-size: 12px;
+}
+
+/* the page */
+.acc-page .head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.acc-page .head > div {
+  min-width: 0;
+}
+.acc-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.acc-foot {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+.acc-grouphead {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg2);
+  margin: 14px 0 6px;
+}
+.acc-grouphead:first-child {
+  margin-top: 0;
+}
+td .acc-nm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  min-width: 0;
+}
+td .lbl,
+.gcard .lbl {
+  color: var(--fg2);
+  font-weight: 400;
+  font-size: 12px;
+}
+td .acc-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+td.acc-wrap {
+  white-space: normal;
+  min-width: 140px;
+}
+td.acc-act {
+  text-align: right;
+  width: 1%;
+}
+td.acc-act .btn {
+  opacity: 0;
+}
+tr.row:hover td.acc-act .btn,
+tr.row:focus-within td.acc-act .btn,
+tr.row.sel td.acc-act .btn {
+  opacity: 1;
+}
+@media (max-width: 860px) {
+  td.acc-act .btn {
+    opacity: 1;
+  }
+}
+.acc-flag {
+  font-size: 11px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--red-bg);
+  color: var(--red);
+  white-space: nowrap;
+}
+.acc-flag.grey {
+  background: var(--bg3);
+  color: var(--fg2);
+}
+.acc-flag.amber {
+  background: var(--amber-bg);
+  color: var(--amber);
+}
+.gcard {
+  cursor: pointer;
+  min-width: 0;
+}
+.gcard.sel {
+  background: var(--sel);
+}
+.gcard .top > div {
+  min-width: 0;
+}
+.gcard .flags {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.gcard .meta span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gcard .acts {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.gcard .av .st {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--bg);
+}
+.acc-menu-wrap {
+  position: relative;
+}
+.menu .menu-h {
+  font-size: 11px;
+  color: var(--fg3);
+  padding: 4px 8px 2px;
+  font-weight: 600;
+}
+
+/* panels */
+.acc-kv {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  align-items: start;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.acc-kv > .k {
+  color: var(--fg2);
+  padding-top: 2px;
+}
+.acc-kv > .v {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-wrap: anywhere;
+}
+.acc-kv > .r {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+@media (max-width: 480px) {
+  .acc-kv {
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+  .acc-kv > .r {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+}
+.acc-face {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.acc-face > .acc-stack {
+  min-width: 0;
+}
+.acc-face .line {
+  font-size: 14px;
+}
+.acc-face .line.needs {
+  color: var(--red);
+}
+.acc-face .line.blocked {
+  color: var(--amber);
+}
+.acc-shot {
+  width: 100%;
+  aspect-ratio: 1.6;
+  object-fit: contain;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--bg2);
+  display: block;
+}
+.acc-shot-ph {
+  margin: 0 0 4px;
+  color: var(--fg3);
+  font-size: 12.5px;
+}
+.acc-tag {
+  display: inline-block;
+  align-self: flex-start;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 0 7px;
+  border-radius: 5px;
+  background: var(--bg2);
+  border: 1px solid var(--line);
+}
+.acc-block {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.acc-block > h4 {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg3);
+  font-weight: 600;
+}
+.acc-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 14px;
+}
+.acc-task {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 4px;
+  margin: 0 -4px;
+  border-radius: 6px;
+  text-align: left;
+  width: calc(100% + 8px);
+  min-width: 0;
+}
+.acc-task:hover {
+  background: var(--hover);
+}
+.acc-task .t {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 「未确认：没有这条内容自己的链接」: a second line of a 最近汇报 row. */
+.acc-task .acc-unconfirmed {
+  display: block;
+  font-size: 12px;
+  color: var(--amber);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.acc-history {
+  padding-left: 8px;
+  border-left: 2px solid var(--line2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+.acc-part {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 1px 8px;
+  font-size: 13px;
+}
+.acc-part .k {
+  color: var(--fg3);
+}
+.acc-part .src {
+  grid-column: 2;
+  font-size: 12px;
+  color: var(--fg2);
+}
+.acc-pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 0;
+}
+
+/* option rows (the prototype's .opt) */
+.acc-opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--bg);
+  margin-bottom: 8px;
+}
+.acc-opt:hover:not([disabled]) {
+  background: var(--hover);
+}
+.acc-opt[disabled] {
+  opacity: 0.5;
+  cursor: default;
+}
+.acc-opt .grow {
+  flex: 1;
+  min-width: 0;
+}
+.acc-opt .t {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.acc-joinrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+.acc-joinrow > button.grow {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* the editor */
+.acc-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.acc-form .group-title {
+  font-weight: 600;
+  font-size: 13px;
+}
+.acc-form .sep {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.acc-picks {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.acc-picks .chip {
+  cursor: pointer;
+}
+.acc-inline {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+.acc-inline .input.narrow {
+  width: 80px;
+  flex: none;
+}
+.acc-inline .input.grow {
+  flex: 1;
+}
+.acc-subcard {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* founder section */
+.acc-prio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 4px 6px;
+  border-radius: 8px;
+  background: var(--bg2);
+  margin-bottom: 6px;
+}
+.acc-prio .n {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid var(--line2);
+  background: var(--bg);
+  flex: none;
+}
+.acc-prio .n.top {
+  background: var(--fg);
+  color: var(--bg);
+  border-color: var(--fg);
+}
+.acc-prio .nm {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.acc-pcard {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.linkbtn.red {
+  color: var(--red);
+}
+.linkbtn.plain {
+  color: var(--fg);
+  text-align: left;
+}
+
+/* incident picture */
+.acc-thumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--fg2);
+}
+.acc-thumb .box {
+  width: 72px;
+  height: 45px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  background: var(--bg2);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+.acc-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.acc-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.acc-lightbox figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  max-width: min(1280px, 100%);
+}
+.acc-lightbox figcaption,
+.acc-lightbox button {
+  color: var(--bg);
+  font-size: 13px;
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+:root[data-theme="dark"] .acc-lightbox figcaption,
+:root[data-theme="dark"] .acc-lightbox button {
+  color: var(--fg);
+}
+.acc-lightbox img {
+  max-width: 100%;
+  max-height: calc(100vh - 96px);
+  object-fit: contain;
+}
+
+.acc-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex: none;
+}
+.acc-dot.idle {
+  border: 1px solid var(--fg3);
+}
+.acc-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.acc-shot.sk {
+  height: auto;
+  margin: 0 0 4px;
+}
+
+/* The desktop at work, small, beside the timeline. */
+.acc-preview {
+  align-self: flex-start;
+  margin: 12px 12px 0 0;
+  width: 240px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  cursor: zoom-in;
+}
+.acc-preview .h {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.acc-preview .d {
+  font-size: 12px;
+  color: var(--fg2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.acc-preview .f {
+  position: relative;
+  height: 135px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg2);
+}
+.template-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+.template-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.template-pick {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+}
+.template-pick.on {
+  background: var(--fg);
+  color: var(--bg);
+  border-color: var(--fg);
+}
+.template-pick:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.acc-preview iframe {
+  position: absolute;
+  inset: 0;
+  width: 1024px;
+  height: 576px;
+  border: 0;
+  transform: scale(0.21875);
+  transform-origin: 0 0;
+  pointer-events: none;
+}
