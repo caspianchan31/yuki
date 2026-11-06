@@ -98,6 +98,8 @@ export const workspaceTools = [
   { name: "search_web", description: "Show public web search progress and sources" },
   { name: "browse_web", description: "Follow the agent as it reads a webpage" },
   { name: "use_desktop", description: "Show the agent working on the computer's desktop" },
+  // The open build's computer: a screenshot a member took, shown to the person.
+  { name: "computer_screenshot", description: "Show the screenshot a member took of the computer" },
   // A command that opens the desktop browser is a step of the desktop run.
   { name: "run_computer_command", description: "Show the desktop browser a command opened" },
   { name: "present_choices", description: "Show prepared choices for the conversation" },

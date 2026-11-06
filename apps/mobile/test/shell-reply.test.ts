@@ -27,7 +27,13 @@ test("a reply's result cards stay; reading, searching, the desktop and status re
     steps.map((item) => item.function.name),
     ["browse_web", "search_web", "use_desktop", "agent_status", "read_mail_thread"],
   );
-  for (const name of ["request_credential", "present_choices", "create_job", "redirect_task"])
+  for (const name of [
+    "request_credential",
+    "present_choices",
+    "create_job",
+    "redirect_task",
+    "computer_screenshot",
+  ])
     assert.ok(isResultTool(name), name);
   // A tool the client does not know is a step: it never stands as the reply's result.
   assert.equal(isResultTool("something_new"), false);

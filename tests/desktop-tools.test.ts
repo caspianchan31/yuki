@@ -11,6 +11,7 @@ import { readConfig } from "../apps/server/src/config.ts";
 import { createStore } from "../apps/server/src/db.ts";
 import { DesktopAgent } from "../apps/server/src/desktop-agent.ts";
 import { DesktopComputer, personDrivesNote } from "../apps/server/src/desktop-computer.ts";
+import { desktopScreenshotRoutes } from "../apps/server/src/desktop-screenshots.ts";
 import {
   browserActionOf,
   desktopInstructions,
@@ -158,10 +159,11 @@ test("the browser tool reads the page the desktop's browser shows", async () => 
   assert.equal(agent.running, true, "the browser step started the paused computer");
 });
 
-test("a screenshot comes back as text plus an image, for this step only", async () => {
-  const { call } = await setup();
+test("a screenshot comes back as text plus an image, and the chat can show the person the same picture", async () => {
+  const { call, computer } = await setup();
   const parts = (await call("computer_screenshot")) as unknown as {
     type: string;
+    content?: string;
     source?: { mimeType: string; value: string };
   }[];
   assert.deepEqual(
@@ -169,6 +171,21 @@ test("a screenshot comes back as text plus an image, for this step only", async 
     ["text", "image"],
   );
   assert.deepEqual([parts[1].source?.mimeType, parts[1].source?.value], ["image/png", "UE5H"]);
+  const { shotId } = JSON.parse(parts[0].content ?? "{}") as { shotId?: string };
+  assert.match(shotId ?? "", /^[A-Za-z0-9_-]{16,64}$/);
+  assert.deepEqual(computer.shotOf(shotId ?? ""), Buffer.from("UE5H", "base64"));
+});
+
+test("GET /api/computer/screenshots/:id answers the kept picture as PNG, an unknown one 404", async () => {
+  const { computer } = await setup();
+  const app = desktopScreenshotRoutes(() => computer);
+  const id = computer.keepShot(Buffer.from("png-bytes").toString("base64"));
+  const reply = await app.request(`/${id}`);
+  assert.equal(reply.status, 200);
+  assert.equal(reply.headers.get("content-type"), "image/png");
+  assert.equal(reply.headers.get("x-content-type-options"), "nosniff");
+  assert.equal(Buffer.from(await reply.arrayBuffer()).toString(), "png-bytes");
+  assert.equal((await app.request("/no-such-picture-0000")).status, 404);
 });
 
 // ---- the client of the computer container -----------------------------------------------------

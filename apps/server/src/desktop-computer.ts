@@ -19,6 +19,9 @@ import { AppError } from "./errors.ts";
 export const desktopProvider = "desktop";
 export const desktopReceipts = "computer-commands";
 const fileLimit = 256 * 1024;
+/** Screenshots kept for the person's chat: the newest ones, each for an hour. */
+export const keptShots = 20;
+export const shotTtlMs = 60 * 60_000;
 export const desktopCommandSchema = z.object({
   command: z.string().trim().min(1).max(16000),
   cwd: z.string().default("/workspace"),
@@ -348,6 +351,27 @@ export class DesktopComputer {
     await this.start();
     this.touch();
     return this.agent.screenshot();
+  }
+  private readonly shots = new Map<string, { png: string; at: number }>();
+  /** Keeps a screenshot (base64 PNG) so the person sees it in the chat
+   * (GET /api/computer/screenshots/:id); its id. The newest `keptShots` are kept, an hour each. */
+  keepShot(png: string): string {
+    const now = this.now();
+    for (const [key, shot] of this.shots) if (now - shot.at > shotTtlMs) this.shots.delete(key);
+    const id = randomBytes(16).toString("base64url");
+    this.shots.set(id, { png, at: now });
+    while (this.shots.size > keptShots) {
+      const oldest = this.shots.keys().next().value;
+      if (oldest === undefined) break;
+      this.shots.delete(oldest);
+    }
+    return id;
+  }
+  /** A kept screenshot's PNG bytes; null when unknown or older than an hour. */
+  shotOf(id: string): Buffer | null {
+    const shot = this.shots.get(id);
+    if (!shot || this.now() - shot.at > shotTtlMs) return null;
+    return Buffer.from(shot.png, "base64");
   }
   /** A member's step in the desktop's browser: the desktop starts when it is paused; nothing is
    * done while the person drives. */

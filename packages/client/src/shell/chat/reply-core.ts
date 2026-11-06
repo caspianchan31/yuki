@@ -7,6 +7,8 @@
 /** Tools whose card is what the reply did or asks: the work handed on, a job, a project, a card the
  * person answers, something saved. Every other tool is a step. */
 const resultTools = new Set([
+  // The picture a member took for the person (open build): shown, not folded into the steps.
+  "computer_screenshot",
   "delegate_task",
   "redirect_task",
   "pause_task",

@@ -22,6 +22,7 @@ import {
 } from "./ChatCards";
 import {
   BrowserToolCard,
+  ComputerShotCard,
   DesktopStepCard,
   JevToolCard,
   MailToolCard,
@@ -52,6 +53,10 @@ const renderers: Record<WorkspaceToolName, (props: RenderProps) => ReactElement 
   // (at the run's last step), never a card of its own; a command that opens the desktop browser
   // is a step of the same run.
   use_desktop: ({ toolCallId }) => <DesktopStepCard toolCallId={toolCallId} />,
+  // The open build's computer: a screenshot a member took is shown to the person.
+  computer_screenshot: ({ result, status }) => (
+    <ComputerShotCard result={result} loading={status !== "complete"} />
+  ),
   run_computer_command: ({ toolCallId }) => <DesktopStepCard toolCallId={toolCallId} />,
   present_choices: ({ result, status }) => (
     <JevToolCard result={result} loading={status !== "complete"} />

@@ -158,15 +158,19 @@ export function desktopTools(
     ),
     tool(
       "computer_screenshot",
-      "Look at the computer's screen now (the whole desktop). Read page words with computer_browser, not off a picture.",
+      "Look at the computer's screen now (the whole desktop). The person sees the same picture in the chat, so this is also how to show them the screen. Read page words with computer_browser, not off a picture.",
       z.object({}),
       async () => {
         const shot = await computer.screenshot();
+        // Kept for the chat: the person's card shows this picture (shotId), the model gets it here.
+        const shotId = computer.keepShot(shot);
         return [
           {
             type: "text" as const,
             content: JSON.stringify({
-              screenshot: "attached as an image for this step only",
+              screenshot:
+                "attached as an image for this step only; the person sees the same picture in the chat",
+              shotId,
               control: computer.drivenBy,
             }),
           },

@@ -22,6 +22,16 @@ export function toolResultError(value: unknown): string | undefined {
   return parsed.success ? parsed.data.error : undefined;
 }
 
+// ───────────────────────── computer_screenshot (open build) ─────────────────────────
+
+/** The id of the picture a computer_screenshot result names (the chat shows it), or null. */
+export function computerShotId(result: unknown): string | null {
+  const parsed = z
+    .object({ shotId: z.string().regex(/^[A-Za-z0-9_-]{16,64}$/) })
+    .safeParse(toolResultValue(result));
+  return parsed.success ? parsed.data.shotId : null;
+}
+
 // ───────────────────────────── use_desktop ─────────────────────────────
 
 const desktopSchema = z.object({

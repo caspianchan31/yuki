@@ -20,6 +20,7 @@ import { type DesktopRun, desktopRunView } from "@m/shell/chat/core";
 import { t } from "@m/shell/strings";
 import {
   browserObservation,
+  computerShotId,
   mailSearchResult,
   mailThreadResult,
   searchResult,
@@ -328,6 +329,40 @@ export function DesktopStepCard({ toolCallId }: { toolCallId: string }) {
         hold={reason}
       />
     </EnvironmentScope>
+  );
+}
+
+/** A screenshot a member took of the computer (computer_screenshot, open build): the picture
+ * itself, so 「截图给我看」 shows it. The server keeps it for an hour. */
+export function ComputerShotCard({ result, loading }: { result: unknown; loading: boolean }) {
+  const c = t.containerComputer;
+  const id = loading ? null : computerShotId(result);
+  const shot = useAuthedImage(id ? `/api/computer/screenshots/${encodeURIComponent(id)}` : null);
+  if (!loading && !id) return null;
+  return (
+    <div className="tcard" aria-busy={loading || shot.state === "loading"}>
+      <div className="th">
+        <span className="ic">
+          <Monitor size={16} />
+        </span>
+        <span className="grow">
+          <div className="t">{c.screenshot}</div>
+          {loading ? (
+            <div className="d">{c.shooting}</div>
+          ) : shot.state === "none" ? (
+            <div className="d">{c.shotGone}</div>
+          ) : null}
+        </span>
+        {loading ? <span className="spin" /> : null}
+      </div>
+      {shot.state === "image" ? (
+        <img className="shot" src={shot.src} alt={c.screenshot} onError={shot.fail} />
+      ) : loading || shot.state === "loading" ? (
+        <div className="ph">
+          <Skeleton lines={3} />
+        </div>
+      ) : null}
+    </div>
   );
 }
 

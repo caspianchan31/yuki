@@ -87,6 +87,10 @@ const zh = {
     frame: "电脑的实时画面",
     viewOnly: "这里只能看；要动手请先点「接手」。",
     starting: "正在打开电脑…",
+    /** A screenshot a member took, shown in the chat (computer_screenshot). */
+    screenshot: "电脑屏幕截图",
+    shooting: "正在截图…",
+    shotGone: "这张截图已过期（只保留一小时）",
     /** 设置 → 电脑. */
     pause: "暂停",
     start: "启动",
@@ -516,7 +520,7 @@ const zh = {
       trial: (until: string) => `试用到 ${until}`,
       trialEnded: "只读 · 试用已到期",
       active: (stores: number, usd: number, until: string) =>
-        `已订阅 ${stores} 个店铺 · ${usd} 美元/月 · 到 ${until}`,
+        `已订阅 ${stores} 个空间 · ${usd} 美元/月 · 到 ${until}`,
       grace: (until: string) => `续费失败 · 宽限到 ${until}`,
       lapsed: "只读 · 订阅已过期",
       canceled: (until: string) => `已取消 · 用到 ${until}`,

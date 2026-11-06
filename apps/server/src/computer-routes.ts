@@ -11,6 +11,7 @@ import {
   desktopPathSchema,
   desktopWriteSchema,
 } from "./desktop-computer.ts";
+import { desktopScreenshotRoutes } from "./desktop-screenshots.ts";
 import { AppError } from "./errors.ts";
 import type { Files } from "./files.ts";
 
@@ -33,6 +34,8 @@ export function computerRoutes(computer: ComputerService, _files: Files) {
   if (!desktopOf(computer)) return app;
   app.post("/start", async (c) => c.json(await computer.start(c.get("owner"))));
   app.post("/stop", async (c) => c.json(await computer.stop(c.get("owner"))));
+  // A screenshot a member took (computer_screenshot's shotId), for the chat's picture.
+  app.route("/screenshots", desktopScreenshotRoutes(desktop));
   // The live view's address (a ticket in its path) and who drives; 409 while the computer is paused.
   app.get("/desktop", async (c) => c.json(await desktop().liveView(c.get("owner"))));
   // 接手 ({"by": "person"}) and 交还 ({"by": "member"}).

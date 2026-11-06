@@ -281,3 +281,16 @@ test("desktopOf finds the container behind the open service and nothing else", a
   assert.equal(desktopOf({ container: {} }), null);
   assert.equal(desktopOf({}), null);
 });
+
+test("screenshots for the chat: the newest 20 are kept, each for an hour", async () => {
+  const { computer, advance } = await setup();
+  const ids = Array.from({ length: 21 }, (_, i) =>
+    computer.keepShot(Buffer.from(`png${i}`).toString("base64")),
+  );
+  assert.equal(new Set(ids).size, 21, "every picture has its own id");
+  assert.equal(computer.shotOf(ids[0]), null, "the oldest of 21 is no longer kept");
+  assert.equal(computer.shotOf(ids[20])?.toString(), "png20");
+  assert.equal(computer.shotOf("no-such-picture-0000"), null);
+  advance(61 * 60_000);
+  assert.equal(computer.shotOf(ids[20]), null, "an hour later it is gone");
+});
