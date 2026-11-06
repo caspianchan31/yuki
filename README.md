@@ -1,16 +1,16 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/yuki/banner-dark.svg">
-  <img alt="Yuki — AI teammates in your chat" src="assets/yuki/banner-light.svg" width="100%">
-</picture>
-
 <p align="center">
-  <a href="#quick-start"><b>Quick start</b></a> ·
-  <a href="#what-yuki-does"><b>What it does</b></a> ·
-  <a href="https://yukilab.si"><b>Hosted version</b></a> ·
-  <a href="README.zh-CN.md"><b>中文</b></a>
+  <a href="https://yukilab.si"><img src="assets/yuki/hero-en.webp" width="100%" alt="Yuki — AI teammates in your chat. Tell them what to do in one sentence. They do the work with your apps and ask you only when it's yours to decide."></a>
 </p>
 
-Yuki is an AI teammate that lives in a chat. Open it and Yuki is already there: tell it what you need in one sentence. Add more teammates when you want help, put them in a group, and they hand work to each other in the open. When something needs a decision, they come to you; nothing goes out in your name until you say so.
+<p align="center">
+  <strong>English</strong> · <a href="README.zh-CN.md">简体中文</a>
+</p>
+
+<p align="center">
+  <strong><a href="https://yukilab.si">Try it at yukilab.si</a></strong> &nbsp;·&nbsp; <a href="#quick-start">Run it yourself</a> &nbsp;·&nbsp; <a href="#what-yuki-does">What it does</a> &nbsp;·&nbsp; <a href="#core-and-hosted">Core and hosted</a>
+</p>
+
+Yuki is an **AI teammate that lives in a chat**. Open it and Yuki is already there: tell it what you need in one sentence. Add more teammates when you want help, put them in a group, and they hand work to each other in the open. When something needs a decision, they come to you; nothing goes out in your name until you say so.
 
 This repository is Yuki's source-available core: single-user, running on your own machine, under the Yuki Community License.
 
@@ -67,6 +67,18 @@ Allow once, always allow, or deny. Email and Slack messages are drafts until you
 </table>
 
 Conversations live in your own database (embedded PGlite, or your Postgres). Secrets are sealed with your own key and never shown to the model.
+
+## Core and hosted
+
+|  | Core (this repository) | [Hosted](https://yukilab.si) |
+|:--|:--|:--|
+| Chat, teammates, groups, routines, skills, apps, approvals | ✓ | ✓ |
+| A computer for teammates to work on | ✓ its own container, on your machine | Coming: a cloud computer |
+| Teams and shared spaces | — | Coming |
+
+The engine still holds some code from an earlier design (desktop accounts) that the app no longer reaches; a coming release removes it.
+
+---
 
 ## Quick start
 
@@ -127,9 +139,10 @@ Memory limits, the port and the idle pause are settings in `.env`. Details, limi
 - **MCP servers**: 设置 (Settings) → 连接的应用 → 添加自定义 MCP 服务, with the server's address and, if it needs one, its access token. A server on your own machine or network (`http://localhost:…`) works too.
 - **Your own mailbox**: ⌘K → 凭据 (Credentials) → 添加发信邮箱 (SMTP, and IMAP to read).
 - **Gmail and Google Calendar**: create a Google OAuth web client, set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, and register `http://localhost:8787/api/google/callback` as its redirect URI.
-- **Slack**: create your own Slack app and set `SLACK_CLIENT_ID` and `SLACK_CLIENT_SECRET`; the steps are [just below](#connect-slack).
+- **Slack**: create your own Slack app and set `SLACK_CLIENT_ID` and `SLACK_CLIENT_SECRET`; the steps are just below.
 
-#### Connect Slack
+<details>
+<summary><b>Connect Slack, step by step</b></summary>
 
 Slack needs an app of your own, made once. Then 设置 → 连接的应用 → Slack → 连接 takes you to Slack to allow it and brings you back, connected.
 
@@ -139,16 +152,7 @@ Slack needs an app of your own, made once. Then 设置 → 连接的应用 → S
 4. **Basic Information** → copy the **Client ID** and **Client Secret** into `.env` as `SLACK_CLIENT_ID` and `SLACK_CLIENT_SECRET`. Make sure `TOKEN_ENCRYPTION_KEY` is set too, then restart.
 5. In Slack, invite the app to each channel it should read (`/invite @your-app`); it can only read channels it is in. Teammates read and draft; a message goes out only when you press Send.
 
-## Core and hosted
-
-|  | Core (this repository) | [Hosted](https://yukilab.si) |
-|:--|:--|:--|
-| Chat, teammates, groups, routines, skills, apps, approvals | ✓ | ✓ |
-| A computer for teammates to work on | — | Cloud computer |
-| Teams, shared spaces, billing | — | ✓ |
-
-The core has no computer: teammates work through chat, your apps and routines.
-The engine still holds some code from an earlier design (desktop accounts and proxies) that the app no longer reaches; a coming release removes it.
+</details>
 
 ## License
 

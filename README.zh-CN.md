@@ -1,16 +1,16 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/yuki/banner-dark.svg">
-  <img alt="Yuki：聊天里的 AI 同事" src="assets/yuki/banner-light.svg" width="100%">
-</picture>
-
 <p align="center">
-  <a href="#快速上手"><b>快速上手</b></a> ·
-  <a href="#yuki-能做什么"><b>能做什么</b></a> ·
-  <a href="https://yukilab.si"><b>托管版</b></a> ·
-  <a href="README.md"><b>English</b></a>
+  <a href="https://yukilab.si"><img src="assets/yuki/hero-zh.webp" width="100%" alt="Yuki：聊天里的 AI 同事。一句话交代，它们用你的应用把活干完；只有该你拍板的事，才来问你。"></a>
 </p>
 
-Yuki 是聊天里的 AI 同事。打开就有 Yuki，第一句话告诉它做什么。需要帮手就加成员，拉进群里，它们在对话里互相交接。要你拍板时才来找你；没有你点头，不会以你的名义发出任何东西。
+<p align="center">
+  <a href="README.md">English</a> · <strong>简体中文</strong>
+</p>
+
+<p align="center">
+  <strong><a href="https://yukilab.si">在 yukilab.si 试用</a></strong> &nbsp;·&nbsp; <a href="#快速上手">自己部署</a> &nbsp;·&nbsp; <a href="#yuki-能做什么">能做什么</a> &nbsp;·&nbsp; <a href="#核心版和托管版">核心版和托管版</a>
+</p>
+
+Yuki 是**聊天里的 AI 同事**。打开就有 Yuki，第一句话告诉它做什么。需要帮手就加成员，拉进群里，它们在对话里互相交接。要你拍板时才来找你；没有你点头，不会以你的名义发出任何东西。
 
 这个仓库是 Yuki 的源码公开核心：单用户，跑在你自己的电脑上，采用 Yuki 社区许可证。
 
@@ -67,6 +67,18 @@ Gmail、谷歌日历、自己的邮箱、Slack，以及任何 MCP 服务，包�
 </table>
 
 对话存在你自己的数据库里（内置 PGlite，或你的 Postgres）。密钥用你自己的钥匙加密，模型永远看不到。
+
+## 核心版和托管版
+
+|  | 核心版（本仓库） | [托管版](https://yukilab.si) |
+|:--|:--|:--|
+| 聊天、成员、群、例行、技能、应用、审批 | ✓ | ✓ |
+| 给成员干活用的电脑 | ✓ 独立容器，跑在你的机器上 | 即将推出：云电脑 |
+| 团队、共享空间 | — | 即将推出 |
+
+引擎里还留着一些早期设计（桌面账号）的代码，应用里已经用不到，后续版本会清掉。
+
+---
 
 ## 快速上手
 
@@ -127,9 +139,10 @@ docker compose up -d --build   # 然后打开 http://localhost:8787
 - **MCP 服务**：设置 → 连接的应用 → 添加自定义 MCP 服务，填地址，需要的话填访问令牌。跑在你自己电脑或内网上的服务（`http://localhost:…`）也可以。
 - **自己的邮箱**：⌘K → 凭据 → 添加发信邮箱（SMTP，要收信再填 IMAP）。
 - **Gmail 和谷歌日历**：建一个 Google OAuth 网页客户端，设置 `GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`，回调地址登记为 `http://localhost:8787/api/google/callback`。
-- **Slack**：先建一个自己的 Slack 应用，再设置 `SLACK_CLIENT_ID`、`SLACK_CLIENT_SECRET`，步骤见[下面](#连接-slack)。
+- **Slack**：先建一个自己的 Slack 应用，再设置 `SLACK_CLIENT_ID`、`SLACK_CLIENT_SECRET`，步骤见下面。
 
-#### 连接 Slack
+<details>
+<summary><b>连接 Slack：一步步来</b></summary>
 
 Slack 要用你自己建的应用，建一次就行。之后在 设置 → 连接的应用 → Slack 点「连接」，去 Slack 允许一下就回来，已经连好。
 
@@ -139,16 +152,7 @@ Slack 要用你自己建的应用，建一次就行。之后在 设置 → 连�
 4. **Basic Information** 里复制 **Client ID** 和 **Client Secret**，填进 `.env` 的 `SLACK_CLIENT_ID`、`SLACK_CLIENT_SECRET`；确认 `TOKEN_ENCRYPTION_KEY` 也设了，然后重启。
 5. 在 Slack 里把应用邀请进要读的频道（`/invite @你的应用`）；它只能读自己在里面的频道。成员可以读和起草；消息只在你点发送时才发出。
 
-## 核心版和托管版
-
-|  | 核心版（本仓库） | [托管版](https://yukilab.si) |
-|:--|:--|:--|
-| 聊天、成员、群、例行、技能、应用、审批 | ✓ | ✓ |
-| 给成员干活用的电脑 | — | 云电脑 |
-| 团队、共享空间、计费 | — | ✓ |
-
-核心版不带电脑：成员通过聊天、你连接的应用和例行干活。
-引擎里还留着一些早期设计（桌面账号）的代码，应用里已经用不到，后续版本会清掉。
+</details>
 
 ## 许可证
 
