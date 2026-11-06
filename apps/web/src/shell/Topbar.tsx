@@ -6,9 +6,17 @@
 
 import { useProjects } from "@m/projects-state";
 import { useShellData } from "@m/shell/data";
+import {
+  openThreadMark,
+  subscribeThreadNames,
+  threadNames,
+  threadsArchived,
+} from "@m/shell/frame/thread-rows";
 import { useShellNav } from "@m/shell/nav";
 import { t } from "@m/shell/strings";
+import { useMuseThread } from "@m/threads-state";
 import { Ellipsis, Menu, Monitor, PanelRight } from "lucide-react";
+import { useSyncExternalStore } from "react";
 import { useTenancyUi } from "../tenancy-ui";
 import { cx } from "../ui/primitives";
 import { openMemberComputer } from "./member-computer";
@@ -38,6 +46,21 @@ export function Topbar() {
     setFrame({ platform: null });
     nav.setView("work");
   };
+  // v1.5.1: in Yuki's chat, a conversation that is not the main chat says which it is, archived or
+  // not, with the way back (11-06: an archived old chat looked just like the main one).
+  const threads = useMuseThread();
+  const names = useSyncExternalStore(subscribeThreadNames, threadNames);
+  const archived = useSyncExternalStore(subscribeThreadNames, threadsArchived);
+  const mark =
+    !frame.platform && !frame.peek && nav.view === "work"
+      ? openThreadMark({
+          selectedId: threads.selection.id,
+          mainId: threads.mainId,
+          visited: threads.visited,
+          names,
+          archived,
+        })
+      : null;
   return (
     <div className="topbar">
       <button
@@ -65,6 +88,19 @@ export function Topbar() {
           </>
         ) : memberName ? (
           <span className="crumb cur">{memberName}</span>
+        ) : mark ? (
+          <>
+            <span className="crumb-sep">/</span>
+            <span className="crumb cur">{mark.label}</span>
+            {mark.archived ? <span className="crumb-tag">{t.threads.archived}</span> : null}
+            <button
+              type="button"
+              className="crumb"
+              onClick={() => threads.select({ id: threads.mainId, existing: true })}
+            >
+              {t.threads.backToMain}
+            </button>
+          </>
         ) : null}
       </nav>
       {/* 账号 and 详情 are the project's; 平台管理 has none of them. */}

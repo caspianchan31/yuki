@@ -5,6 +5,7 @@
 // answers that there is none. With one configured (docs/computer-container.md) the same calls go to
 // the members' computer container through `DesktopComputer` (desktop-computer.ts).
 import type { ComputerCommand, ComputerSnapshot } from "../../../packages/domain/src/computer.ts";
+import { readAccountZone } from "./account-settings.ts";
 import type { Config } from "./config.ts";
 import type { Store } from "./db.ts";
 import { DesktopAgent } from "./desktop-agent.ts";
@@ -85,6 +86,8 @@ export class ComputerService {
             token: config.desktop.token,
             tokenFile: config.desktop.tokenFile,
           }),
+          // The desktop's clock follows the account's time zone (设置 → 通用 → 时区).
+          { zone: (owner) => readAccountZone(db, owner) },
         )
       : null;
     this.provider = this.container ? "desktop" : "none";
@@ -133,7 +136,7 @@ export class ComputerService {
     _options: { ensure?: () => Promise<void> } = {},
   ): Promise<ComputerSnapshot> {
     if (!this.container) throw noComputer();
-    await this.container.start();
+    await this.container.start(owner);
     return this.container.snapshot(owner);
   }
   async stop(owner: string): Promise<ComputerSnapshot> {

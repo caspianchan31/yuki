@@ -15,6 +15,7 @@ import {
 import { authClient } from "./api";
 import { setUnauthorizedHandler } from "./api-client";
 import { ApiError } from "./api-response";
+import { authErrorText } from "./auth-errors";
 import { isWeb } from "./platform-env";
 import {
   type AuthStatus,
@@ -50,7 +51,7 @@ export function platformStorage(): SessionStorage {
   return memorySessionStorage();
 }
 
-const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
+const message = authErrorText;
 
 /** Hands a sign-in or setup attempt to the gate: true once it opened a session. */
 export type AuthSubmit = (work: () => Promise<StoredSession>) => Promise<boolean>;
@@ -91,7 +92,16 @@ export function useAuthGate(): AuthGateState {
     };
   }, []);
   useEffect(() => writeStoredSession(storage, session), [storage, session]);
+  // Whether a session is open. A 401 that arrives after the session already ended (its requests
+  // were still on their way) leaves the gate alone: ending it again cleared the status the gate had
+  // just read and nothing read it again, so it said 连不上服务器 instead of the sign-in (v1.5.1).
+  const signedIn = useRef(session !== null);
+  useEffect(() => {
+    signedIn.current = session !== null;
+  }, [session]);
   const end = useCallback(() => {
+    if (!signedIn.current) return;
+    signedIn.current = false;
     setSession(null);
     setStatus(null);
   }, []);

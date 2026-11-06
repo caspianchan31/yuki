@@ -12,7 +12,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates curl git procps less nano python3 python3-websocket \
         xvfb x11-xserver-utils openbox tint2 xterm x11vnc novnc python3-websockify scrot \
-        chromium fonts-dejavu-core fonts-wqy-microhei \
+        chromium fonts-dejavu-core fonts-wqy-microhei tzdata \
         dbus at-spi2-core libatk-adaptor python3-pyatspi gir1.2-atspi-2.0 xdotool mousepad thunar \
     && rm -rf /var/lib/apt/lists/* /usr/share/doc/* /usr/share/man/* \
     && useradd --uid 1000 --home-dir /workspace --no-create-home --shell /bin/bash yuki \

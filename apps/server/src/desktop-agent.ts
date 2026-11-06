@@ -161,8 +161,9 @@ export class DesktopAgent {
   state() {
     return this.call<DesktopAgentState>("GET", "/state", undefined, { timeoutMs: 5000 });
   }
-  start() {
-    return this.call<DesktopAgentState>("POST", "/start", {}, { timeoutMs: 60000 });
+  /** Starts the desktop session, in the account's time zone when the service names one. */
+  start(options: { timezone?: string } = {}) {
+    return this.call<DesktopAgentState>("POST", "/start", options, { timeoutMs: 60000 });
   }
   stop() {
     return this.call<DesktopAgentState>("POST", "/stop", {}, { timeoutMs: 20000 });

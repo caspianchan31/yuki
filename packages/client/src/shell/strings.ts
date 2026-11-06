@@ -90,12 +90,44 @@ const zh = {
     /** A screenshot a member took, shown in the chat (computer_screenshot). */
     screenshot: "电脑屏幕截图",
     shooting: "正在截图…",
-    shotGone: "这张截图已过期（只保留一小时）",
+    shotGone: "这张截图已不在了（截图只保留一小时，服务重启后也会清掉）",
     /** 设置 → 电脑. */
     pause: "暂停",
     start: "启动",
     pausing: "正在暂停…",
     startingUp: "正在启动…",
+  },
+  /** v1.5.1: a step on the members' computer, one line in a reply's folded 过程
+   * (shell/chat/computer-steps.ts). */
+  computerSteps: {
+    status: "看了电脑的状态",
+    start: "打开了电脑",
+    stop: "暂停了电脑",
+    command: (command: string) => (command ? `在电脑里运行 ${command}` : "在电脑里运行了一条命令"),
+    list: (path: string) => `看了 ${path} 里有哪些文件`,
+    read: (path: string) => (path ? `读了 ${path}` : "读了一个文件"),
+    write: (path: string) => (path ? `写了 ${path}` : "写了一个文件"),
+    mkdir: (path: string) => (path ? `建了文件夹 ${path}` : "建了一个文件夹"),
+    importPdf: "把一份 PDF 放进了电脑",
+    exportPdf: (path: string) => (path ? `把 ${path} 存回了文件` : "把一份 PDF 存回了文件"),
+    browserOpen: (url: string) => (url ? `在浏览器里打开 ${url}` : "打开了浏览器"),
+    browserRead: "读了浏览器里的网页",
+    browserClick: (text: string) => (text ? `在网页上点了「${text}」` : "在网页上点了一下"),
+    browserType: (text: string) => (text ? `在网页上输入「${text}」` : "在网页上输入了文字"),
+    browserPress: (key: string) => (key ? `在网页上按了 ${key}` : "在网页上按了一个键"),
+    browserBack: "在浏览器里返回了上一页",
+    apps: "看了电脑上开着哪些软件",
+    open: (app: string, path: string) =>
+      app ? (path ? `用${app}打开 ${path}` : `打开了${app}`) : "打开了一个软件",
+    look: (app: string) => (app ? `看了${app}的界面` : "看了软件的界面"),
+    click: (n: string) => (n ? `在软件里点了第 ${n} 项` : "在软件里点了一下"),
+    type: (text: string) => (text ? `在软件里输入「${text}」` : "在软件里输入了文字"),
+    set: (text: string) => (text ? `把内容改成「${text}」` : "改了一处内容"),
+    press: (key: string) => (key ? `按了 ${key}` : "按了一个键"),
+    editor: "文本编辑器",
+    files: "文件管理器",
+    other: "在电脑上做了一步",
+    failed: "（没成功）",
   },
   /** v1.2: the profile card's own words. */
   memberCard: {
@@ -227,7 +259,7 @@ const zh = {
     memberProfile: (name: string) => `${name} 的资料`,
     /** v1.4: Yuki's own card in her chat (her routines). */
     yukiDetail: "Yuki 的资料",
-    yukiRole: "你的 AI 同事",
+    yukiRole: "你的 AI",
     signOut: "退出登录",
     switchSpace: (name: string) => `切换到 ${name}`,
     /** Back from a peeked account to the conversation's properties. */
@@ -405,6 +437,8 @@ const zh = {
     untitled: "未命名对话",
     newSide: "新侧聊",
     archived: "已归档",
+    /** v1.5.1: the top bar's way back from another conversation to the main chat. */
+    backToMain: "回到主聊天",
     showActive: "显示进行中",
     noSide: "这个群还没有侧聊。侧聊里派的任务，汇报回到侧聊。",
     noArchived: "没有已归档的对话。",
@@ -1186,12 +1220,15 @@ const zh = {
   /** Sign-in and first-run setup. */
   auth: {
     welcome: "欢迎使用 Yuki",
-    tagline: "每个项目一个工作台。",
+    tagline: "住在聊天里的 AI，能帮你干活，也能陪着你。",
     signIn: "登录",
     signingIn: "正在登录…",
     username: "用户名",
     password: "密码",
     missing: "请输入用户名和密码。",
+    /** v1.5.1: the page was opened at another address than the site's own (auth-errors.ts). */
+    wrongAddress: (url: string) => `这个地址打不开 Yuki，请用 ${url} 打开。`,
+    openAt: (url: string) => `打开 ${url}`,
     setupTitle: "创建管理员账号",
     setupHint: "这个工作台还没有账号。设一个用户名和密码；设置码印在服务器日志里。",
     usernamePlaceholder: "字母、数字、点、短横线、下划线",
@@ -1253,7 +1290,7 @@ const zh = {
     prefillSuggestion: "先说说要什么结果 ›",
     prefillText: "帮我 ……",
     defaultTitle: "Yuki",
-    defaultBody: "告诉 Yuki 你要它做什么。需要帮手时，在左上角加成员。",
+    defaultBody: "告诉 Yuki 你要它做什么。需要帮手时，可以新建一个成员。",
     openAccounts: "打开账号 ›",
     /** Web: the same place, now the new-member dialog. */
     newMember: "新建一个成员 ›",

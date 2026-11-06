@@ -539,6 +539,15 @@ input {
   color: var(--fg3);
   padding: 0 2px;
 }
+/* v1.5.1: 已归档 next to an archived conversation's name in the top bar. */
+.crumb-tag {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--fg3);
+  color: var(--fg2);
+  white-space: nowrap;
+}
 .tb-btn.phone-only {
   display: none;
 }

@@ -335,5 +335,59 @@ class DesktopApps(unittest.TestCase):
                 desktopd.workspace_item(path, kind)
 
 
+class ZoneAndRestore(unittest.TestCase):
+    """v1.5.1: the desktop's clock follows the account's zone; a paused browser comes back clean."""
+
+    def setUp(self):
+        self.zones = tempfile.mkdtemp()
+        for name in ("Asia/Shanghai", "UTC"):
+            os.makedirs(os.path.dirname(os.path.join(self.zones, name)), exist_ok=True)
+            open(os.path.join(self.zones, name), "w").close()
+        self.saved = (desktopd.ZONEINFO, desktopd.SESSION_ZONE)
+        desktopd.ZONEINFO = self.zones
+
+    def tearDown(self):
+        desktopd.ZONEINFO, desktopd.SESSION_ZONE = self.saved
+        shutil.rmtree(self.zones, ignore_errors=True)
+
+    def test_a_zone_the_system_knows_is_taken_others_are_not(self):
+        self.assertEqual(desktopd.valid_zone("Asia/Shanghai"), "Asia/Shanghai")
+        self.assertEqual(desktopd.valid_zone("UTC"), "UTC")
+        for bad in ("Asia/Nowhere", "../etc/passwd", "/etc/passwd", "Asia/../UTC", "", 8, None):
+            self.assertEqual(desktopd.valid_zone(bad), "", bad)
+
+    def test_start_reads_the_zone_from_its_body(self):
+        self.assertEqual(desktopd.start_zone(b'{"timezone": "Asia/Shanghai"}'), "Asia/Shanghai")
+        for raw in (b"", b"{}", b"not json", b'["Asia/Shanghai"]', b'{"timezone": "Mars/Base"}'):
+            self.assertEqual(desktopd.start_zone(raw), "", raw)
+
+    def test_the_session_runs_in_the_zone(self):
+        desktopd.SESSION_ZONE = "Asia/Shanghai"
+        self.assertEqual(desktopd.session_env()["TZ"], "Asia/Shanghai")
+        desktopd.SESSION_ZONE = ""
+        self.assertEqual(desktopd.session_env()["TZ"], os.environ.get("TZ", "UTC"))
+
+    def test_a_browser_ended_with_the_desktop_starts_without_restore_pages(self):
+        self.assertIn("--hide-crash-restore-bubble", desktopd.browser_argv(["about:blank"]))
+        folder = os.path.join(WORKSPACE, ".config", "yuki-browser", "Default")
+        os.makedirs(folder, exist_ok=True)
+        path = os.path.join(folder, "Preferences")
+        with open(path, "w") as target:
+            json.dump({"profile": {"exit_type": "Crashed", "exited_cleanly": False}, "kept": 1}, target)
+        desktopd.mark_browser_closed_cleanly()
+        with open(path) as source:
+            prefs = json.load(source)
+        self.assertEqual(prefs["profile"], {"exit_type": "Normal", "exited_cleanly": True})
+        self.assertEqual(prefs["kept"], 1)
+        # A profile it cannot read is left as it is; no profile at all is fine.
+        with open(path, "w") as target:
+            target.write("{not json")
+        desktopd.mark_browser_closed_cleanly()
+        with open(path) as source:
+            self.assertEqual(source.read(), "{not json")
+        os.remove(path)
+        desktopd.mark_browser_closed_cleanly()
+
+
 if __name__ == "__main__":
     unittest.main()

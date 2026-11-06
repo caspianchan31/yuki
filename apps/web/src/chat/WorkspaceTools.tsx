@@ -22,7 +22,9 @@ import {
 } from "./ChatCards";
 import {
   BrowserToolCard,
+  CommandStepCard,
   ComputerShotCard,
+  ComputerStepLine,
   DesktopStepCard,
   JevToolCard,
   MailToolCard,
@@ -35,6 +37,13 @@ type RenderProps = {
   result: unknown;
   status: string;
 };
+
+/** A step on the members' computer: one line, what the member did. */
+const step =
+  (name: string) =>
+  ({ args, result, status }: RenderProps) => (
+    <ComputerStepLine name={name} args={args} result={result} loading={status !== "complete"} />
+  );
 
 const renderers: Record<WorkspaceToolName, (props: RenderProps) => ReactElement | null> = {
   search_mail: ({ result, status }) => (
@@ -57,7 +66,26 @@ const renderers: Record<WorkspaceToolName, (props: RenderProps) => ReactElement 
   computer_screenshot: ({ result, status }) => (
     <ComputerShotCard result={result} loading={status !== "complete"} />
   ),
-  run_computer_command: ({ toolCallId }) => <DesktopStepCard toolCallId={toolCallId} />,
+  run_computer_command: ({ toolCallId, args, result, status }) => (
+    <CommandStepCard
+      toolCallId={toolCallId}
+      args={args}
+      result={result}
+      loading={status !== "complete"}
+    />
+  ),
+  // v1.5.1: the members' computer's steps, one line each in the reply's folded 过程.
+  computer_status: step("computer_status"),
+  start_computer: step("start_computer"),
+  stop_computer: step("stop_computer"),
+  list_computer_files: step("list_computer_files"),
+  read_computer_file: step("read_computer_file"),
+  write_computer_file: step("write_computer_file"),
+  mkdir_computer: step("mkdir_computer"),
+  import_computer_pdf: step("import_computer_pdf"),
+  export_computer_pdf: step("export_computer_pdf"),
+  computer_browser: step("computer_browser"),
+  computer_desktop: step("computer_desktop"),
   present_choices: ({ result, status }) => (
     <JevToolCard result={result} loading={status !== "complete"} />
   ),

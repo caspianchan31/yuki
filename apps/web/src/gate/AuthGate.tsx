@@ -4,6 +4,7 @@
  */
 
 import { API_URL, authClient } from "@m/api";
+import { wrongPageAddress } from "@m/auth-errors";
 import { AuthContext, type AuthSubmit, useAuthGate } from "@m/auth-state";
 import { passwordMin, type StoredSession, validPassword, validUsername } from "@m/session-core";
 import { t } from "@m/shell/strings";
@@ -37,15 +38,34 @@ export function AuthGate({
       ) : gate.status ? (
         <SignInForm gate={gate} initialUsername={username ?? ""} />
       ) : (
-        <>
-          <ErrorLine error={gate.error || a.unreachable} />
-          <Btn variant="pri" onClick={() => void gate.load()}>
-            {a.tryAgain}
-          </Btn>
-          <p className="hint">{a.serverHint(API_URL)}</p>
-        </>
+        <Unreachable gate={gate} />
       )}
     </Centered>
+  );
+}
+
+/** The server did not answer. A built page opened at another address than the one its API is built
+ * for (localhost for 127.0.0.1, a LAN address) cannot reach it from there: it says where to open
+ * Yuki, and goes there on a click (v1.5.1). In development the page and the API differ by design. */
+function Unreachable({ gate }: { gate: ReturnType<typeof useAuthGate> }) {
+  const there = import.meta.env.PROD ? wrongPageAddress(window.location.origin, API_URL) : null;
+  if (there)
+    return (
+      <>
+        <ErrorLine error={a.wrongAddress(there)} />
+        <Btn variant="pri" onClick={() => window.location.assign(there)}>
+          {a.openAt(there)}
+        </Btn>
+      </>
+    );
+  return (
+    <>
+      <ErrorLine error={gate.error || a.unreachable} />
+      <Btn variant="pri" onClick={() => void gate.load()}>
+        {a.tryAgain}
+      </Btn>
+      <p className="hint">{a.serverHint(API_URL)}</p>
+    </>
   );
 }
 

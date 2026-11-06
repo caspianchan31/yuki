@@ -16,6 +16,7 @@ import {
   retryChoiceAvailable,
   selectionText,
 } from "@m/jev-actions";
+import { computerStepFailed, computerStepText } from "@m/shell/chat/computer-steps";
 import { type DesktopRun, desktopRunView } from "@m/shell/chat/core";
 import { t } from "@m/shell/strings";
 import {
@@ -329,6 +330,48 @@ export function DesktopStepCard({ toolCallId }: { toolCallId: string }) {
         hold={reason}
       />
     </EnvironmentScope>
+  );
+}
+
+/** v1.5.1: a step on the members' computer, one line in a reply's folded 过程: what the member did
+ * there in plain words, and 没成功 when it did not. */
+export function ComputerStepLine({
+  name,
+  args,
+  result,
+  loading,
+}: {
+  name: string;
+  args: Record<string, unknown>;
+  result: unknown;
+  loading: boolean;
+}) {
+  const failed = !loading && computerStepFailed(result);
+  return (
+    <div className="hint" aria-busy={loading}>
+      {computerStepText(name, args)}
+      {failed ? t.computerSteps.failed : null}
+    </div>
+  );
+}
+
+/** A command: on the hosted desktop, a command that opened the desktop browser is a step of that
+ * desktop run (DesktopStepCard draws the run once); any other command is a line of its own. */
+export function CommandStepCard({
+  toolCallId,
+  args,
+  result,
+  loading,
+}: {
+  toolCallId: string;
+  args: Record<string, unknown>;
+  result: unknown;
+  loading: boolean;
+}) {
+  const { fold } = useContext(DesktopFoldContext);
+  if (fold.get(toolCallId)) return <DesktopStepCard toolCallId={toolCallId} />;
+  return (
+    <ComputerStepLine name="run_computer_command" args={args} result={result} loading={loading} />
   );
 }
 

@@ -48,6 +48,7 @@ import {
 } from "./conversation-run";
 import { confirmedJevSelection, displayJevUserMessage, latestJevPanelId } from "./jev-actions";
 import { connectThread, heldMayResume, lockRefusalAgent } from "./local-thread";
+import { computerStepTools } from "./shell/chat/computer-steps";
 import {
   desktopFold,
   latestNeedReportIds,
@@ -121,6 +122,8 @@ export const workspaceTools = [
   { name: "create_goal", description: "Display a saved goal" },
   { name: "watch_page", description: "Display a saved page watch" },
   { name: "remember_fact", description: "Display saved personal context" },
+  // v1.5.1: the members' computer's steps, one line each in a reply's folded 过程.
+  ...computerStepTools,
 ] as const;
 export type WorkspaceToolName = (typeof workspaceTools)[number]["name"];
 /** One of the chat's tools: its name and description, for useRenderTool. */

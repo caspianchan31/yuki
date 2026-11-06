@@ -71,8 +71,11 @@ export class FakeAgent {
     if (this.stateError) throw this.stateError;
     return this.snapshot();
   }
-  async start() {
+  /** What each start was asked (the account's time zone, when the service names one). */
+  readonly starts: { timezone?: string }[] = [];
+  async start(options: { timezone?: string } = {}) {
     this.calls.push("start");
+    this.starts.push(options);
     this.running = true;
     return this.snapshot();
   }

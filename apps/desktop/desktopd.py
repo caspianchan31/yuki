@@ -23,6 +23,7 @@ Nothing here starts a browser session that is not on the desktop the person can 
 import hmac
 import json
 import os
+import re
 import secrets
 import signal
 import subprocess
@@ -94,6 +95,29 @@ def clip(data: bytes) -> tuple[str, bool]:
     return data[:OUTPUT_LIMIT].decode("utf-8", errors="replace"), truncated
 
 
+# The desktop session's time zone: the account's, sent by the service with /start (v1.5.1: the
+# clock said UTC whatever 设置 said). It applies from the next start; a running desktop keeps its own.
+ZONEINFO = os.environ.get("DESKTOP_ZONEINFO", "/usr/share/zoneinfo")
+ZONE_NAME = re.compile(r"^[A-Za-z]+(?:/[A-Za-z0-9_+-]+){0,2}$")
+SESSION_ZONE = ""
+
+
+def valid_zone(value) -> str:
+    """An IANA zone name the system knows (its zoneinfo file exists), else ""."""
+    if not isinstance(value, str) or not ZONE_NAME.match(value):
+        return ""
+    return value if os.path.isfile(os.path.join(ZONEINFO, value)) else ""
+
+
+def start_zone(raw: bytes) -> str:
+    """The zone a /start names, or "" (an empty or unreadable body names none)."""
+    try:
+        body = json.loads(raw or b"{}")
+    except ValueError:
+        return ""
+    return valid_zone(body.get("timezone")) if isinstance(body, dict) else ""
+
+
 def session_env() -> dict:
     env = {
         "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
@@ -101,7 +125,7 @@ def session_env() -> dict:
         "LANG": os.environ.get("LANG", "C.UTF-8"),
         "USER": os.environ.get("USER", "yuki"),
         "DISPLAY": DISPLAY,
-        "TZ": os.environ.get("TZ", "UTC"),
+        "TZ": SESSION_ZONE or os.environ.get("TZ", "UTC"),
         # The desktop's menu and panel come first; the window manager's defaults after.
         "XDG_CONFIG_DIRS": f"{HERE}/xdg:/etc/xdg",
         # Every app of the session (a member's command's too) joins the session's bus, through which
@@ -269,10 +293,13 @@ class Session:
         else:
             log("the accessibility bus did not start: the desktop's apps cannot be read")
 
-    def start(self) -> dict:
+    def start(self, zone: str = "") -> dict:
+        global SESSION_ZONE
         with self.lock:
             if self.running():
                 return {"desktop": "running"}
+            if zone:
+                SESSION_ZONE = zone
             self._stop_locked()
             if not SESSION:
                 raise RuntimeError("This computer runs without a desktop session")
@@ -314,6 +341,7 @@ class Session:
                 ["websockify", "--web", NOVNC, "--token-plugin", "TokenFile", "--token-source", tokens_path, f"0.0.0.0:{LIVE_PORT}"],
                 "live",
             )
+            mark_browser_closed_cleanly()
             self.spawn(browser_argv(["about:blank"]), "browser")
             if not wait_for(devtools_ready, 30):
                 self._stop_locked()
@@ -334,6 +362,7 @@ class Session:
             if devtools_ready():
                 return
             self.processes = [p for p in self.processes if p.args[0] != browser_binary() or p.poll() is None]
+            mark_browser_closed_cleanly()
             self.spawn(browser_argv(["about:blank"]), "browser")
         if not wait_for(devtools_ready, 30):
             raise RuntimeError("The browser did not start")
@@ -390,6 +419,30 @@ def browser_binary() -> str:
     return os.environ.get("DESKTOP_BROWSER", "/usr/bin/chromium")
 
 
+def mark_browser_closed_cleanly() -> None:
+    """The browser is ended with the desktop (an idle pause, a stop), so its profile says it crashed
+    and the next start shows 「Restore pages?」 over the page, in every screenshot (v1.5.1). Its
+    profile is told it closed cleanly before it starts; an unreadable profile is left alone."""
+    path = os.path.join(WORKSPACE, ".config", "yuki-browser", "Default", "Preferences")
+    try:
+        with open(path, encoding="utf-8") as source:
+            prefs = json.load(source)
+    except (OSError, ValueError):
+        return
+    profile = prefs.get("profile") if isinstance(prefs, dict) else None
+    if not isinstance(profile, dict):
+        return
+    if profile.get("exit_type") == "Normal" and profile.get("exited_cleanly") is True:
+        return
+    profile["exit_type"] = "Normal"
+    profile["exited_cleanly"] = True
+    try:
+        with open(path, "w", encoding="utf-8") as target:
+            json.dump(prefs, target)
+    except OSError:
+        pass
+
+
 def browser_argv(urls: list) -> list:
     width, height = SIZE.split("x")
     return [
@@ -399,6 +452,8 @@ def browser_argv(urls: list) -> list:
         "--remote-debugging-address=127.0.0.1",
         "--no-first-run",
         "--no-default-browser-check",
+        # It is ended with the desktop (a pause, a stop): no 「Restore pages?」 over the next page.
+        "--hide-crash-restore-bubble",
         "--disable-dev-shm-usage",
         "--password-store=basic",
         "--disable-features=Translate",
@@ -777,7 +832,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             raw = self.body()
             if self.path == "/start":
-                SESSION_STATE.start()
+                SESSION_STATE.start(start_zone(raw))
                 return self.reply(200, SESSION_STATE.state())
             if self.path == "/stop":
                 SESSION_STATE.stop()

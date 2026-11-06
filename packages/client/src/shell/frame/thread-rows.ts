@@ -90,35 +90,70 @@ export function threadBarLabel(input: {
   return index >= 0 ? t.threads.sideNumbered(index + 1) : t.threads.side;
 }
 
+/**
+ * v1.5.1: the top bar's mark of the conversation open in Yuki's chat when it is not the main chat
+ * (11-06: an archived old chat looked just like the main one): its label, and whether it is
+ * archived. Null for the main chat.
+ */
+export function openThreadMark(input: {
+  selectedId: string;
+  mainId: string;
+  visited: readonly { id: string }[];
+  names: ReadonlyMap<string, string | null>;
+  /** The saved threads known to be archived. */
+  archived: ReadonlySet<string>;
+}): { label: string; archived: boolean } | null {
+  if (input.selectedId === input.mainId) return null;
+  return { label: threadBarLabel(input), archived: input.archived.has(input.selectedId) };
+}
+
 // ───────────────────────────── names the switcher read ─────────────────────────────
 
 const names = new Map<string, string | null>();
 let snapshot: ReadonlyMap<string, string | null> = new Map();
+const archivedIds = new Set<string>();
+let archivedSnapshot: ReadonlySet<string> = new Set();
 const listeners = new Set<() => void>();
 
-/** Records the saved threads' names (called by the switcher whenever its list changes). */
-export function rememberThreads(threads: readonly Pick<SavedThread, "id" | "name">[]) {
+/** Records the saved threads' names, and which are archived (called by the switcher whenever its
+ * list changes). */
+export function rememberThreads(
+  threads: readonly (Pick<SavedThread, "id" | "name"> & { archived?: boolean })[],
+) {
   let changed = false;
+  let archivedChanged = false;
   for (const thread of threads) {
     const name = thread.name ?? null;
     if (!names.has(thread.id) || names.get(thread.id) !== name) {
       names.set(thread.id, name);
       changed = true;
     }
+    if (typeof thread.archived === "boolean" && thread.archived !== archivedIds.has(thread.id)) {
+      if (thread.archived) archivedIds.add(thread.id);
+      else archivedIds.delete(thread.id);
+      archivedChanged = true;
+    }
   }
-  if (!changed) return;
-  snapshot = new Map(names);
+  if (!changed && !archivedChanged) return;
+  if (changed) snapshot = new Map(names);
+  if (archivedChanged) archivedSnapshot = new Set(archivedIds);
   for (const listener of listeners) listener();
 }
 /** The names known so far; a new object after every change (useSyncExternalStore). */
 export function threadNames(): ReadonlyMap<string, string | null> {
   return snapshot;
 }
+/** The saved threads known to be archived; a new object after every change. */
+export function threadsArchived(): ReadonlySet<string> {
+  return archivedSnapshot;
+}
 /** Forgets every name (sign-out: the next session may be another account's threads). */
 export function forgetThreadNames() {
-  if (!names.size) return;
+  if (!names.size && !archivedIds.size) return;
   names.clear();
+  archivedIds.clear();
   snapshot = new Map();
+  archivedSnapshot = new Set();
   for (const listener of listeners) listener();
 }
 export function subscribeThreadNames(listener: () => void): () => void {

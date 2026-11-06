@@ -219,7 +219,16 @@ export async function createApp(
   const origins = new Set([...config.allowedOrigins, new URL(config.publicUrl).origin]);
   app.use("*", async (c, next) => {
     const origin = c.req.header("origin");
-    if (origin && !origins.has(origin)) return c.json({ error: "Origin is not allowed" }, 403);
+    // A page's own files (the app, its scripts, styles and pictures) are public and change nothing:
+    // they load at whatever address the site is opened at, so a wrong address (localhost for
+    // 127.0.0.1, a LAN address) shows the page instead of a blank one (11-06). The API keeps the
+    // check, and its refusal names the site's address for the sign-in to show (auth-errors.ts).
+    const pageFile =
+      (c.req.method === "GET" || c.req.method === "HEAD") &&
+      c.req.path !== "/api" &&
+      !c.req.path.startsWith("/api/");
+    if (origin && !origins.has(origin) && !pageFile)
+      return c.json({ error: "Origin is not allowed", publicUrl: config.publicUrl }, 403);
     c.header("X-Content-Type-Options", "nosniff");
     c.header("Referrer-Policy", "no-referrer");
     c.header("Cache-Control", "no-store");

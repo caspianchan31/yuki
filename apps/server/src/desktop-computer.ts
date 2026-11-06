@@ -81,13 +81,23 @@ export class DesktopComputer {
   private readonly idleMs: number;
   private sweep?: ReturnType<typeof setInterval>;
   private starting: Promise<void> | null = null;
+  /** The account time zone of an owner (v1.5.1: the desktop's clock follows it). */
+  private readonly zone?: (owner: string) => Promise<string | null>;
+  /** The owner who used the computer last: a start without one runs in that owner's zone. */
+  private zoneOwner: string | null = null;
   constructor(
     readonly db: Store,
     readonly config: Config,
     readonly agent: DesktopAgent,
-    options: { now?: () => number; idleMs?: number; sweepMs?: number | null } = {},
+    options: {
+      now?: () => number;
+      idleMs?: number;
+      sweepMs?: number | null;
+      zone?: (owner: string) => Promise<string | null>;
+    } = {},
   ) {
     this.now = options.now ?? Date.now;
+    this.zone = options.zone;
     this.idleMs = options.idleMs ?? (config.desktop?.idleMinutes ?? 15) * 60_000;
     if (options.sweepMs !== null) {
       this.sweep = setInterval(
@@ -115,6 +125,7 @@ export class DesktopComputer {
     return (await this.agent.state()).desktop === "running";
   }
   async snapshot(owner: string): Promise<ComputerSnapshot> {
+    this.zoneOwner = owner;
     const base = {
       enabled: true,
       provider: desktopProvider,
@@ -144,18 +155,26 @@ export class DesktopComputer {
     const all = await this.db.list<ComputerCommand>(owner, desktopReceipts);
     return all.sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, 20);
   }
-  /** Starts the desktop session; one start at a time, the others wait for it. */
-  async start(): Promise<void> {
+  /** Starts the desktop session; one start at a time, the others wait for it. The session runs in
+   * the account time zone of the owner who started it or used the computer last (v1.5.1); a
+   * running desktop keeps its own until it pauses. */
+  async start(owner?: string): Promise<void> {
+    if (owner) this.zoneOwner = owner;
     this.touch();
     if (!this.starting)
       this.starting = (async () => {
         try {
-          if (!(await this.running())) await this.agent.start();
+          if (!(await this.running())) await this.agent.start(await this.startOptions());
         } finally {
           this.starting = null;
         }
       })();
     await this.starting;
+  }
+  private async startOptions(): Promise<{ timezone?: string }> {
+    if (!this.zone || !this.zoneOwner) return {};
+    const timezone = await this.zone(this.zoneOwner).catch(() => null);
+    return timezone ? { timezone } : {};
   }
   /** Ends the session (the computer pauses); the person's control ends with it. */
   async stop(): Promise<void> {
@@ -262,6 +281,7 @@ export class DesktopComputer {
     raw: unknown,
     options: { idempotencyKey?: string; signal?: AbortSignal } = {},
   ): Promise<ComputerCommand> {
+    this.zoneOwner = owner;
     const args = desktopCommandSchema.parse(raw);
     const cwd = workspacePath(args.cwd);
     const id = options.idempotencyKey
