@@ -427,12 +427,17 @@ const zh = {
     moreError: "更多对话没读到",
     /** Archive the main chat and start an empty one. */
     newMain: "开新主聊天",
+    /** The same in ⌘K / 更多, in the owner's words. */
+    startOver: "从头开始",
     /** The entry's hint
      * in ⌘K / 更多 and the phone's 「+」, where the owner looks for 清空对话. */
     newMainHint: "清空对话：把现在的主聊天归档，从一条空的开始",
-    newMainDone: "旧的主聊天已归档，在「已归档」里能找回",
+    /** ⌘K / 更多: the conversations panel (主聊天, 侧聊, 已归档). */
+    history: "以前的对话",
+    historyHint: "主聊天、侧聊和已归档的旧对话",
+    newMainDone: "旧的主聊天已归档，在「更多 → 以前的对话」里能找回",
     /** Another member started a new main chat: this page now shows it. */
-    mainMoved: "主聊天换成了新的一条，旧的在「已归档」里",
+    mainMoved: "主聊天换成了新的一条，旧的在「更多 → 以前的对话」里",
     /** The name a replaced main chat gets when it has none: 「旧主聊天 · 到 2026-10-12」. */
     formerMainName: (day: string) => `旧主聊天 · 到 ${day}`,
   },

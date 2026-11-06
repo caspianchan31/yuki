@@ -2,11 +2,14 @@
 // ledger, her routines). With no computer container configured a chat reply drives no desktop, so
 // it has no computer tools; with one (docs/computer-container.md) it gets the tools of
 // desktop-tools.ts on the members' shared computer.
+import type { BaseEvent } from "@ag-ui/core";
+import type { Observable } from "rxjs";
 import { type RunStep, taskTitle } from "../../../packages/domain/src/agent.ts";
 import type { EnvironmentRef } from "../../../packages/domain/src/environments.ts";
 import type { ComputerService } from "./computer.ts";
 import { desktopOf } from "./desktop-computer.ts";
-import { desktopInstructions, desktopTools } from "./desktop-tools.ts";
+import { screenshotPromiseGuard } from "./desktop-shot-guard.ts";
+import { desktopInstructions, desktopRules, desktopTools } from "./desktop-tools.ts";
 import {
   type ActiveEnvironment,
   type EnvironmentService,
@@ -50,6 +53,14 @@ export class ChatEnvironment {
   ownerOf = () => (this.current.kind === "env" ? this.current.owner : this.owner);
   ref = (): EnvironmentRef | null => (this.current.kind === "env" ? this.current.ref : null);
   before = async () => {};
+  /** v1.5: this version's rules, said again before the person's latest words
+   * (engine/current-rules.ts): with the computer, how to show the person its screen. */
+  rules = (): readonly string[] => (desktopOf(this.computer) ? desktopRules : []);
+  /** v1.5: a reply that says it shows a screenshot but took none gets one (desktop-shot-guard.ts). */
+  afterReply = (events: Observable<BaseEvent>): Observable<BaseEvent> => {
+    const desktop = desktopOf(this.computer);
+    return desktop ? events.pipe(screenshotPromiseGuard(desktop)) : events;
+  };
   typedFromFile = (_text: string) => {};
   logSteps = <T>(definition: T): T => definition;
   /** delegate_task arguments: work asked of a member in her conversation is hers (her id and a

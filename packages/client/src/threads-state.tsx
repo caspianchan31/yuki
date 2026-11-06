@@ -130,15 +130,30 @@ export function ThreadsProvider({ children }: { children: ReactNode }) {
   const restart = useMemo(() => ({ api, attempt }), [api, attempt]);
   usePoll(readMain, pollMs.reports, enabled, restart);
   async function startNewMain() {
-    const main = await api.request<{ threadId: string }>("/api/main-thread/new", {
-      replacing: mainId,
-      formerName: t.threads.formerMainName(localDay()),
-    });
-    // Another member's switch came first: this is the main chat they made, now open here too.
-    moveMain(main.threadId);
+    // What it replaces is the main chat the server names now, when this page has not had the
+    // server's word yet (a click right after opening, or only this device's remembered one): a
+    // placeholder or a stale id would read as another member's switch and archive nothing.
+    const confirmed = known.current !== null && !fromCache.current;
+    const replacing = confirmed
+      ? (known.current as string)
+      : (await api.request<{ threadId: string }>("/api/main-thread")).threadId;
+    const main = await api.request<{ threadId: string; switched?: boolean }>(
+      "/api/main-thread/new",
+      { replacing, formerName: t.threads.formerMainName(localDay()) },
+    );
+    if (known.current === null) {
+      known.current = main.threadId;
+      setMainId(main.threadId);
+      setVisited([{ id: main.threadId, existing: true }]);
+      setLoading(false);
+      setError("");
+    } else moveMain(main.threadId);
+    fromCache.current = false;
     setSelection({ id: main.threadId, existing: true });
     navigate("chat");
-    notify(t.threads.newMainDone);
+    // Not switched: another member's switch came first. This is the main chat they made, now
+    // open here too, and this click archived nothing.
+    notify(main.switched === false ? t.threads.mainMoved : t.threads.newMainDone);
   }
   function select(next: Selection) {
     setSelection(next);

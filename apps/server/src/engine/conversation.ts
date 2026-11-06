@@ -59,6 +59,7 @@ import { createJevAdapter, type JevAdapter } from "../jev/adapter.ts";
 import { JevService } from "../jev/service.ts";
 import { presentChoicesTool } from "../jev/tools.ts";
 import { searchDescription, searchInputSchema, searchInstructions } from "../search.ts";
+import { currentRulesMiddleware, olderRepliesRule } from "./current-rules.ts";
 import {
   type HallGate,
   hallGateMiddleware,
@@ -1070,6 +1071,12 @@ export class ConversationAgent extends AbstractAgent {
             // Every hall reply first says whose the request is.
             if (inHall) tools.push(this.routeTool(gate));
             if (cancelled) return;
+            // v1.5: this version's rules again right before the person's latest words, so an
+            // older reply in a long conversation does not teach otherwise (current-rules.ts).
+            const currentRules = currentRulesMiddleware(() => [
+              olderRepliesRule,
+              ...environment.rules(),
+            ]);
             const options = {
               model:
                 modelSpec(this.config.model, this.config.fallbackModel) ?? "openai/unconfigured",
@@ -1104,18 +1111,19 @@ export class ConversationAgent extends AbstractAgent {
               stepLimitNote:
                 "I reached my step limit for this reply before finishing. Say “continue” and I’ll pick up where I left off.",
               tools,
-              ...(inHall
-                ? {
-                    middleware: [
+              middleware: [
+                currentRules,
+                ...(inHall
+                  ? [
                       hallGateMiddleware(
                         gate,
                         chatCompletionsRoute(
                           modelSpec(this.config.model, this.config.fallbackModel) ?? "",
                         ),
                       ),
-                    ],
-                  }
-                : {}),
+                    ]
+                  : []),
+              ],
               prompt:
                 (memberThread
                   ? (speaking
@@ -1187,13 +1195,18 @@ export class ConversationAgent extends AbstractAgent {
                 // uses whichever model is in force now. The hall's gate calls that same model.
                 options.model =
                   modelSpec(this.config.model, this.config.fallbackModel) ?? "openai/unconfigured";
-                if (inHall)
-                  options.middleware = [
-                    hallGateMiddleware(gate, chatCompletionsRoute(options.model)),
-                  ];
+                options.middleware = [
+                  currentRules,
+                  ...(inHall
+                    ? [hallGateMiddleware(gate, chatCompletionsRoute(options.model))]
+                    : []),
+                ];
                 agent = tanstackAgent(options);
-                // A routing for no project is not shown.
-                return inHall ? hideUnroutedCalls(agent.run(attempt), gate) : agent.run(attempt);
+                // A routing for no project is not shown; what the reply's words promise it shows
+                // (a screenshot) is in it (v1.5, the environment's afterReply).
+                return environment.afterReply(
+                  inHall ? hideUnroutedCalls(agent.run(attempt), gate) : agent.run(attempt),
+                );
               },
               { ...input, tools: input.tools.filter((t) => t.name === "open_workspace") },
               {

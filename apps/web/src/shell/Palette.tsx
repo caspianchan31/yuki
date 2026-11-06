@@ -15,6 +15,8 @@ import { useShellData } from "@m/shell/data";
 import { useProjectRows } from "@m/shell/frame/useProjectRows";
 import { useShellNav } from "@m/shell/nav";
 import { t } from "@m/shell/strings";
+import { useMuseThread } from "@m/threads-state";
+import { useWorkspace } from "@m/workspace";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type PaletteItem, useTenancyUi } from "../tenancy-ui";
 import { cx } from "../ui/primitives";
@@ -42,6 +44,9 @@ export function Palette() {
   const { accounts, entries } = useShellData();
   // The tenancy layer's commands (平台管理 and its tabs) and space switches, when it has any.
   const extra = useTenancyUi().usePaletteItems();
+  // 从头开始 and 以前的对话: the main chat's commands, when conversations are kept on the server.
+  const { enabled: threadsOn, startNewMain } = useMuseThread();
+  const { notify } = useWorkspace();
   const [query, setQuery] = useState(frame.paletteQuery);
   const [mode, setMode] = useState<Group | null>(frame.paletteGroup);
   const [index, setIndex] = useState(0);
@@ -57,6 +62,31 @@ export function Palette() {
       setFrame({ platform: null });
       nav.setView(view);
     };
+    // v1.5: back in 更多 (lost with the pro view on 11-02). 从头开始 archives the main chat and
+    // opens an empty one, nothing lost; 以前的对话 is the conversations panel with 已归档.
+    const conversations: Option[] = threadsOn
+      ? [
+          {
+            key: "start-over",
+            group: "commands",
+            label: t.threads.startOver,
+            hint: t.threads.newMainHint,
+            run: () =>
+              void startNewMain().catch((error: unknown) =>
+                notify(
+                  `${t.common.errorPrefix}${error instanceof Error ? error.message : String(error)}`,
+                ),
+              ),
+          },
+          {
+            key: "threads",
+            group: "commands",
+            label: t.threads.history,
+            hint: t.threads.historyHint,
+            run: () => nav.openPanel({ kind: "threads" }),
+          },
+        ]
+      : [];
     const commands: Option[] = [
       {
         key: "new-member",
@@ -76,6 +106,7 @@ export function Palette() {
         label: t.notes.title,
         run: () => nav.openPanel({ kind: "notes" }),
       },
+      ...conversations,
       {
         key: "settings",
         group: "commands",
@@ -117,7 +148,7 @@ export function Palette() {
       run: () => nav.openPanel({ kind: "task", taskId: task.id }),
     }));
     return [...commands, ...projects, ...accountOptions, ...taskOptions, ...extra.spaces];
-  }, [nav, rows, select, accounts.value, entries, extra, signOut]);
+  }, [nav, rows, select, accounts.value, entries, extra, signOut, threadsOn, startNewMain, notify]);
 
   const typed = parse(query);
   const group = typed.group ?? mode;
