@@ -1,16 +1,16 @@
 <p align="center">
-  <a href="https://yukilab.si"><img src="assets/yuki/hero-zh.webp" width="100%" alt="Yuki：聊天里的 AI 同事。一句话交代，它们用你的应用把活干完；只有该你拍板的事，才来问你。"></a>
+  <a href="https://yukilab.si"><img src="assets/yuki/hero-zh.webp" width="100%" alt="Yuki：住在聊天里的 AI，能帮你干活，也能陪着你。一句话告诉它做谁，越养越懂你；只有该你拍板的事，才来问你。"></a>
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> · <strong>简体中文</strong>
+  <a href="README.md">English</a> · <strong>简体中文</strong> · <a href="README.ja.md">日本語</a>
 </p>
 
 <p align="center">
   <strong><a href="https://yukilab.si">在 yukilab.si 试用</a></strong> &nbsp;·&nbsp; <a href="#快速上手">自己部署</a> &nbsp;·&nbsp; <a href="#yuki-能做什么">能做什么</a> &nbsp;·&nbsp; <a href="#核心版和托管版">核心版和托管版</a>
 </p>
 
-Yuki 是**聊天里的 AI 同事**。打开就有 Yuki，第一句话告诉它做什么。需要帮手就加成员，拉进群里，它们在对话里互相交接。要你拍板时才来找你；没有你点头，不会以你的名义发出任何东西。
+Yuki 是**住在聊天里的 AI，能帮你干活，也能陪着你**。打开就有 Yuki，一句话告诉它做谁，越养越懂你。需要帮手就加成员，拉进群里，它们在对话里互相交接。要你拍板时才来找你；没有你点头，不会以你的名义发出任何东西。
 
 这个仓库是 Yuki 的源码公开核心：单用户，跑在你自己的电脑上，采用 Yuki 社区许可证。
 

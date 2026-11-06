@@ -1,16 +1,16 @@
 <p align="center">
-  <a href="https://yukilab.si"><img src="assets/yuki/hero-en.webp" width="100%" alt="Yuki — AI teammates in your chat. Tell them what to do in one sentence. They do the work with your apps and ask you only when it's yours to decide."></a>
+  <a href="https://yukilab.si"><img src="assets/yuki/hero-en.webp" width="100%" alt="Yuki — your AI, in your chat. It works with you, or keeps you company. Tell it who to be in one sentence, and raise it your way. It asks you only when it's yours to decide."></a>
 </p>
 
 <p align="center">
-  <strong>English</strong> · <a href="README.zh-CN.md">简体中文</a>
+  <strong>English</strong> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.ja.md">日本語</a>
 </p>
 
 <p align="center">
   <strong><a href="https://yukilab.si">Try it at yukilab.si</a></strong> &nbsp;·&nbsp; <a href="#quick-start">Run it yourself</a> &nbsp;·&nbsp; <a href="#what-yuki-does">What it does</a> &nbsp;·&nbsp; <a href="#core-and-hosted">Core and hosted</a>
 </p>
 
-Yuki is an **AI teammate that lives in a chat**. Open it and Yuki is already there: tell it what you need in one sentence. Add more teammates when you want help, put them in a group, and they hand work to each other in the open. When something needs a decision, they come to you; nothing goes out in your name until you say so.
+Yuki is **your AI, in your chat: it works with you, or keeps you company**. Open it and Yuki is already there: tell it who to be in one sentence, then raise it your way. Add more teammates when you want help, put them in a group, and they hand work to each other in the open. When something needs a decision, they come to you; nothing goes out in your name until you say so.
 
 This repository is Yuki's source-available core: single-user, running on your own machine, under the Yuki Community License.
 
