@@ -32,5 +32,9 @@ test("the computer's files helper stays inside /workspace and follows no symlink
 });
 
 test("the computer's control agent needs the token, refuses an Origin and bounds commands", (t) => {
-  runPython(t, "test_desktopd.py", 19);
+  runPython(t, "test_desktopd.py", 24);
+});
+
+test("the computer's desktop apps helper names keys, finds an element again and answers in JSON", (t) => {
+  runPython(t, "test_apps.py", 5);
 });

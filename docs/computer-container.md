@@ -112,8 +112,16 @@ docker compose down -v       # stop and delete every volume: conversations, file
 Under the tool names a conversation already knows: `computer_status`, `start_computer`,
 `stop_computer`, `run_computer_command`, `list_computer_files`, `read_computer_file`,
 `write_computer_file`, `mkdir_computer`, plus `computer_browser` (open, read, click, type, press
-a key, back) and `computer_screenshot`. Commands run in `/workspace`, for up to 30 seconds, with
-capped output, and every one leaves a receipt.
+a key, back), `computer_desktop` and `computer_screenshot`. Commands run in `/workspace`, for up to
+30 seconds, with capped output, and every one leaves a receipt.
+
+`computer_desktop` works the desktop's apps. A text editor and a file manager come installed (a
+member opens them by name, with a file or folder in `/workspace`), and any app on the screen can be
+looked at. A look lists the app's buttons, fields and menus with a number each, and a field's text;
+a member clicks one, types into it or sets its text by number, presses keys (Enter, ctrl+s), and
+gets a fresh look back. The apps are read through the desktop's accessibility bus: an app that does
+not report its controls there (the terminal, for one) can still be seen with a screenshot. The file
+manager opens in its detailed list, where every file is a row a member can read.
 
 There is no approval flow of its own: the container is the sandbox. What leaves it is reviewed
 the way everything else is. Email and Slack messages are drafts until you press send, and action

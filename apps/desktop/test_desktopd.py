@@ -198,6 +198,11 @@ class Door(unittest.TestCase):
         status, state = call(self.base, "k" * 48, "POST", "/stop", {})
         self.assertEqual((status, state["desktop"]), (200, "stopped"))
 
+    def test_desktop_apps_need_a_running_desktop(self):
+        status, body = call(self.base, "k" * 48, "POST", "/desktop", {"action": "apps"})
+        self.assertEqual(status, 400)
+        self.assertIn("not running", body["error"])
+
 
 class Browser(unittest.TestCase):
     def test_the_browser_is_started_for_the_container_and_pointed_at_one_profile(self):
@@ -244,6 +249,90 @@ class Browser(unittest.TestCase):
             self.assertIn("Page.navigate", pages[-1].calls)
         finally:
             desktopd.Page = original
+
+
+class DesktopApps(unittest.TestCase):
+    """The desktop's apps (/desktop): checked here, read and used by apps.py on a running desktop."""
+
+    def setUp(self):
+        self.requests = []
+        self.original = desktopd.run_apps
+
+        def fake(request, timeout=45):
+            self.requests.append(request)
+            return {
+                "app": "mousepad",
+                "elements": [{"n": 1, "role": "menu", "name": "File"}, {"n": 2, "role": "text", "name": ""}],
+            }
+
+        desktopd.run_apps = fake
+
+    def tearDown(self):
+        desktopd.run_apps = self.original
+
+    def test_actions_are_checked_before_any_app_is_touched(self):
+        for body in (
+            {"action": "nope"},
+            {"action": "look"},
+            {"action": "look", "app": "  "},
+            {"action": "open", "app": "chromium"},
+            {"action": "click", "snapshot": "gone", "n": 1},
+            {"action": "press"},
+        ):
+            with self.assertRaises(ValueError, msg=body):
+                desktopd.desktop_action(body)
+        self.assertEqual(self.requests, [])
+
+    def test_a_look_is_remembered_and_its_numbers_checked(self):
+        key = desktopd.desktop_action({"action": "look", "app": "mousepad"})["snapshot"]
+        for body in (
+            {"action": "click", "snapshot": key, "n": 3},
+            {"action": "click", "snapshot": key, "n": True},
+            {"action": "type", "snapshot": key, "n": 2},
+        ):
+            with self.assertRaises(ValueError, msg=body):
+                desktopd.desktop_action(body)
+        desktopd.desktop_action({"action": "type", "snapshot": key, "n": 2, "text": "hi"})
+        self.assertEqual(
+            self.requests[-1],
+            {"op": "type", "app": "mousepad", "n": 2, "expect": {"role": "text", "name": ""}, "text": "hi"},
+        )
+        # Only the newest looks keep their numbers.
+        for _ in range(desktopd.KEPT_SNAPSHOTS):
+            desktopd.desktop_action({"action": "look", "app": "mousepad"})
+        with self.assertRaises(ValueError):
+            desktopd.desktop_action({"action": "click", "snapshot": key, "n": 1})
+
+    def test_apps_that_ended_are_collected_and_running_ones_kept(self):
+        session = desktopd.Session()
+        ended = session.helper(["true"], "test-ended")
+        running = session.helper(["sleep", "30"], "test-running")
+        try:
+            deadline = time.time() + 5
+            while ended.poll() is None and time.time() < deadline:
+                time.sleep(0.05)
+            session.reap()
+            self.assertEqual(session.helpers, [running])
+        finally:
+            running.kill()
+            running.wait()
+
+    def test_a_file_or_folder_to_open_stays_inside_the_workspace(self):
+        os.makedirs(os.path.join(WORKSPACE, "notes"), exist_ok=True)
+        self.assertEqual(
+            desktopd.workspace_item("/workspace/notes/a.txt", "file"), os.path.join(WORKSPACE, "notes", "a.txt")
+        )
+        self.assertEqual(desktopd.workspace_item("notes", "folder"), os.path.join(WORKSPACE, "notes"))
+        for path, kind in (
+            ("/etc/passwd", "file"),
+            ("../x.txt", "file"),
+            ("/workspace/missing/a.txt", "file"),
+            ("/workspace/notes/..", "file"),
+            ("/tmp", "folder"),
+            ("", "file"),
+        ):
+            with self.assertRaises(ValueError, msg=path):
+                desktopd.workspace_item(path, kind)
 
 
 if __name__ == "__main__":

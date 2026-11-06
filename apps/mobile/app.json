@@ -10,6 +10,7 @@
     "ios": { "supportsTablet": true, "bundleIdentifier": "app.openmuse.mobile" },
     "android": { "package": "app.openmuse.mobile" },
     "web": { "bundler": "metro", "name": "OpenMuse" },
+    "experiments": { "tsconfigPaths": false },
     "plugins": [
       "expo-document-picker",
       "@config-plugins/react-native-blob-util",

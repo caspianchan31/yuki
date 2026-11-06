@@ -14,6 +14,7 @@ import { DesktopComputer, personDrivesNote } from "../apps/server/src/desktop-co
 import { desktopScreenshotRoutes } from "../apps/server/src/desktop-screenshots.ts";
 import {
   browserActionOf,
+  desktopAppActionOf,
   desktopInstructions,
   desktopTools,
 } from "../apps/server/src/desktop-tools.ts";
@@ -33,10 +34,11 @@ async function setup() {
   return { agent, computer, tools, call };
 }
 
-test("the tools keep the product's computer tool names, and add the browser and the screen", async () => {
+test("the tools keep the product's computer tool names, and add the browser, the apps and the screen", async () => {
   const { tools } = await setup();
   assert.deepEqual(tools.map((tool) => tool.name).sort(), [
     "computer_browser",
+    "computer_desktop",
     "computer_screenshot",
     "computer_status",
     "list_computer_files",
@@ -96,6 +98,7 @@ test("while the person drives, tools that change anything wait and say why; look
     ["mkdir_computer", { path: "d" }],
     ["stop_computer", {}],
     ["computer_browser", { action: "open", url: "https://example.com" }],
+    ["computer_desktop", { action: "open", app: "editor" }],
   ] as const) {
     const result = await call(name, args);
     assert.equal(result.error, personDrivesNote, name);
@@ -157,6 +160,72 @@ test("the browser tool reads the page the desktop's browser shows", async () => 
   assert.deepEqual([page.title, page.text], ["Example", "Example Domain"]);
   assert.deepEqual(agent.browserActions, [{ action: "open", url: "https://example.com" }]);
   assert.equal(agent.running, true, "the browser step started the paused computer");
+});
+
+test("the desktop apps tool turns a call into one action and checks what that action needs", () => {
+  assert.deepEqual(desktopAppActionOf({ action: "apps", text: "ignored" }), { action: "apps" });
+  assert.deepEqual(
+    desktopAppActionOf({ action: "open", app: "editor", path: " /workspace/note.txt " }),
+    { action: "open", app: "editor", path: "/workspace/note.txt" },
+  );
+  assert.deepEqual(desktopAppActionOf({ action: "open", app: "files" }), {
+    action: "open",
+    app: "files",
+  });
+  assert.deepEqual(desktopAppActionOf({ action: "look", app: " mousepad " }), {
+    action: "look",
+    app: "mousepad",
+  });
+  assert.deepEqual(desktopAppActionOf({ action: "click", snapshot: "s1", n: 3, text: "x" }), {
+    action: "click",
+    snapshot: "s1",
+    n: 3,
+  });
+  assert.deepEqual(desktopAppActionOf({ action: "set", snapshot: "s1", n: 2, text: "" }), {
+    action: "set",
+    snapshot: "s1",
+    n: 2,
+    text: "",
+  });
+  assert.deepEqual(desktopAppActionOf({ action: "press", key: " ctrl+s ", app: "mousepad" }), {
+    action: "press",
+    key: "ctrl+s",
+    app: "mousepad",
+  });
+  assert.deepEqual(desktopAppActionOf({ action: "press", key: "Escape" }), {
+    action: "press",
+    key: "Escape",
+  });
+  for (const bad of [
+    { action: "open" },
+    { action: "open", app: "chromium" },
+    { action: "look" },
+    { action: "click", n: 1 },
+    { action: "click", snapshot: "s1" },
+    { action: "type", snapshot: "s1", n: 1 },
+    { action: "press" },
+  ])
+    assert.throws(() => desktopAppActionOf(bad as never), JSON.stringify(bad));
+});
+
+test("the desktop apps tool starts a paused computer and answers with the app's numbered look", async () => {
+  const { agent, call } = await setup();
+  const view = (await call("computer_desktop", {
+    action: "open",
+    app: "editor",
+    path: "/workspace/note.txt",
+  })) as { app: string; snapshot: string; elements: { role: string }[] };
+  assert.deepEqual(
+    [view.app, view.snapshot, view.elements.map((element) => element.role)],
+    ["mousepad", "s1", ["menu", "text"]],
+  );
+  assert.deepEqual(agent.appActions, [
+    { action: "open", app: "editor", path: "/workspace/note.txt" },
+  ]);
+  assert.equal(agent.running, true, "the step started the paused computer");
+  const refused = await call("computer_desktop", { action: "click", n: 2 });
+  assert.match(String(refused.error), /snapshot and n/);
+  assert.equal(agent.appActions.length, 1, "a call without its fields reaches no app");
 });
 
 test("a screenshot comes back as text plus an image, and the chat can show the person the same picture", async () => {

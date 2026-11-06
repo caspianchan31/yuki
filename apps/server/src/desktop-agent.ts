@@ -32,6 +32,40 @@ export type BrowserAction =
   | { action: "press"; key: string }
   | { action: "back" };
 
+/** A member's step with the desktop's apps (apps.py behind the agent's /desktop): a look numbers an
+ * app's buttons, fields and menus; click, type and set name one by the look's snapshot and n. */
+export type DesktopAppAction =
+  | { action: "apps" }
+  | { action: "open"; app: "editor" | "files"; path?: string }
+  | { action: "look"; app: string }
+  | { action: "click"; snapshot: string; n: number }
+  | { action: "type" | "set"; snapshot: string; n: number; text: string }
+  | { action: "press"; key: string; app?: string };
+
+/** One numbered element of an app's look; `text` is a field's content. */
+export interface DesktopAppElement {
+  n: number;
+  role: string;
+  name: string;
+  state?: string[];
+  text?: string;
+}
+
+/** What the desktop's apps answer: the open apps (apps), or one app's look (every other action). */
+export interface DesktopAppsView {
+  apps?: { name: string; windows: string[] }[];
+  app?: string;
+  snapshot?: string;
+  windows?: string[];
+  elements?: DesktopAppElement[];
+  texts?: string[];
+  /** Interactive elements past the first 150, not numbered. */
+  more?: number;
+  /** A key pressed with no app named. */
+  pressed?: string;
+  note?: string;
+}
+
 export interface DesktopAgentOptions {
   /** The agent's address, e.g. http://desktop:7070 (DESKTOP_URL). */
   url: string;
@@ -161,5 +195,14 @@ export class DesktopAgent {
         signal,
       })
     ).page;
+  }
+  /** The desktop's apps; an app being opened may take the agent up to about a minute. */
+  async desktopApps(action: DesktopAppAction, signal?: AbortSignal): Promise<DesktopAppsView> {
+    return (
+      await this.call<{ view: DesktopAppsView }>("POST", "/desktop", action, {
+        timeoutMs: 90000,
+        signal,
+      })
+    ).view;
   }
 }

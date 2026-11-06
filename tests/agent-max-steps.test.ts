@@ -68,7 +68,7 @@ async function app(t: TestContext, overrides: Partial<Config>) {
 }
 
 for (const [overrides, steps] of [
-  [{}, 6],
+  [{}, 16],
   [{ agentMaxSteps: 3 }, 3],
 ] as const) {
   test(`a chat reply that keeps calling tools stops after ${steps} model steps`, async (t) => {

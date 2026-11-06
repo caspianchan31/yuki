@@ -1,4 +1,4 @@
-# The desktop's panel: a browser and a terminal launcher, the open windows, a clock.
+# The desktop's panel: launchers (browser, terminal, text editor, files), the open windows, a clock.
 panel_items = LTC
 panel_size = 100% 34
 panel_position = bottom center horizontal
@@ -18,6 +18,8 @@ launcher_padding = 4 2 4
 launcher_icon_size = 24
 launcher_item_app = /opt/yuki-desktop/xdg/browser.desktop
 launcher_item_app = /opt/yuki-desktop/xdg/terminal.desktop
+launcher_item_app = /opt/yuki-desktop/xdg/editor.desktop
+launcher_item_app = /opt/yuki-desktop/xdg/files.desktop
 taskbar_mode = single_desktop
 taskbar_padding = 4 2 4
 task_text = 1

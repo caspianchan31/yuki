@@ -3,7 +3,8 @@
 // the person's own machine. This class is what the open ComputerService does with it:
 //   - state, start and stop of the desktop session (the container itself always runs; a stopped
 //     session is the computer paused), and the pause after `idleMs` without anyone using it;
-//   - commands with receipts, the files helper, browser actions on the desktop's browser;
+//   - commands with receipts, the files helper, browser actions on the desktop's browser, and the
+//     desktop's apps (a text editor, a file manager, any app on the screen) by numbered looks;
 //   - the live view: a ticket per owner in the iframe's path (an iframe cannot send the session's
 //     bearer token), view-only unless the person took the computer over; the websocket proxy
 //     (desktop-live.ts) picks the VNC server by who drives at the moment it connects.
@@ -13,7 +14,13 @@ import { z } from "zod";
 import type { ComputerCommand, ComputerSnapshot } from "../../../packages/domain/src/computer.ts";
 import type { Config } from "./config.ts";
 import type { Store } from "./db.ts";
-import type { BrowserAction, DesktopAgent, DesktopPage } from "./desktop-agent.ts";
+import type {
+  BrowserAction,
+  DesktopAgent,
+  DesktopAppAction,
+  DesktopAppsView,
+  DesktopPage,
+} from "./desktop-agent.ts";
 import { AppError } from "./errors.ts";
 
 export const desktopProvider = "desktop";
@@ -382,5 +389,15 @@ export class DesktopComputer {
     const page = await this.agent.browser(action, signal);
     this.touch();
     return page;
+  }
+  /** A member's step with the desktop's apps: the desktop starts when it is paused; nothing is
+   * done while the person drives. */
+  async useApps(action: DesktopAppAction, signal?: AbortSignal): Promise<DesktopAppsView> {
+    this.assertMembersDrive();
+    await this.start();
+    this.assertMembersDrive();
+    const view = await this.agent.desktopApps(action, signal);
+    this.touch();
+    return view;
   }
 }

@@ -5,6 +5,8 @@ import type {
   BrowserAction,
   DesktopAgent,
   DesktopAgentState,
+  DesktopAppAction,
+  DesktopAppsView,
   DesktopExecResult,
   DesktopPage,
 } from "../../apps/server/src/desktop-agent.ts";
@@ -37,6 +39,17 @@ export class FakeAgent {
   stateError: Error | null = null;
   page: DesktopPage = { url: "https://example.com/", title: "Example", text: "Example Domain" };
   browserActions: BrowserAction[] = [];
+  /** What the desktop's apps answer, and what was asked of them. */
+  appsView: DesktopAppsView = {
+    app: "mousepad",
+    snapshot: "s1",
+    windows: ["note.txt - Mousepad"],
+    elements: [
+      { n: 1, role: "menu", name: "File" },
+      { n: 2, role: "text", name: "", text: "first line\n" },
+    ],
+  };
+  appActions: DesktopAppAction[] = [];
   readonly live = { view: "v".repeat(32), control: "c".repeat(32), port: 6080 };
 
   asAgent() {
@@ -87,5 +100,10 @@ export class FakeAgent {
   async screenshot() {
     this.calls.push("screenshot");
     return "UE5H";
+  }
+  async desktopApps(action: DesktopAppAction) {
+    this.calls.push("desktop");
+    this.appActions.push(action);
+    return this.appsView;
   }
 }

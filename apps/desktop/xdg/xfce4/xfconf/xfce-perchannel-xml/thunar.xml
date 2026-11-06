@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The file manager opens in its detailed list: each file is a row the members can read and use by
+     number (/desktop, apps.py). Its icon view does not show its files on the accessibility bus. -->
+<channel name="thunar" version="1.0">
+  <property name="last-view" type="string" value="ThunarDetailsView"/>
+</channel>

@@ -14,6 +14,8 @@ is read from DESKTOP_TOKEN_FILE (made on first start when missing, mode 0600) an
   POST /files             the files helper's request (files.py), passed through
   POST /browser           {"action": "open"|"read"|"click"|"type"|"press"|"back", ...}
   POST /screenshot        the whole screen as a PNG, base64 in {"png": ...}
+  POST /desktop           {"action": "apps"|"open"|"look"|"click"|"type"|"set"|"press", ...}: the
+                          desktop's apps through the accessibility bus (apps.py), numbered by a look
 
 Nothing here starts a browser session that is not on the desktop the person can watch.
 """
@@ -40,6 +42,8 @@ SIZE = os.environ.get("DESKTOP_SIZE", "1280x800")
 DEVTOOLS = 9222
 VIEW_VNC, CONTROL_VNC = 5900, 5901
 NOVNC = os.environ.get("DESKTOP_NOVNC", "/usr/share/novnc")
+# The desktop session's own D-Bus: the accessibility bus is found through it (/desktop, apps.py).
+BUS = os.path.join(RUN_DIR, "session-bus")
 OUTPUT_LIMIT = 64 * 1024
 MAX_TIMEOUT = 120
 # Session processes are started only when this is not "off" (the tests run the agent without
@@ -100,6 +104,10 @@ def session_env() -> dict:
         "TZ": os.environ.get("TZ", "UTC"),
         # The desktop's menu and panel come first; the window manager's defaults after.
         "XDG_CONFIG_DIRS": f"{HERE}/xdg:/etc/xdg",
+        # Every app of the session (a member's command's too) joins the session's bus, through which
+        # the accessibility bus is found: its buttons and fields can be read and used (/desktop).
+        "DBUS_SESSION_BUS_ADDRESS": f"unix:path={BUS}",
+        "QT_ACCESSIBILITY": "1",
     }
     return env
 
@@ -179,6 +187,8 @@ class Session:
     def __init__(self):
         self.lock = threading.Lock()
         self.processes: list[subprocess.Popen] = []
+        # Processes of the session whose end does not end it: the accessibility bus, the apps opened.
+        self.helpers: list[subprocess.Popen] = []
         self.started_at: float | None = None
         self.tokens: dict | None = None
 
@@ -213,6 +223,52 @@ class Session:
         self.processes.append(process)
         return process
 
+    def helper(self, argv: list, name: str) -> subprocess.Popen:
+        """A process of the session whose end does not end it; stopped with the session."""
+        os.makedirs(RUN_DIR, exist_ok=True)
+        log_file = open(os.path.join(RUN_DIR, f"{name}.log"), "ab")
+        process = subprocess.Popen(
+            argv,
+            env=session_env(),
+            cwd=WORKSPACE,
+            stdin=subprocess.DEVNULL,
+            stdout=log_file,
+            stderr=log_file,
+            start_new_session=True,
+        )
+        log_file.close()
+        self.helpers = [p for p in self.helpers if p.poll() is None] + [process]
+        return process
+
+    def reap(self) -> None:
+        """Collects the apps that ended (a member or the person closed them), so none lingers in the
+        process table; skipped while a start or a stop holds the lock."""
+        if self.lock.acquire(blocking=False):
+            try:
+                self.helpers = [p for p in self.helpers if p.poll() is None]
+            finally:
+                self.lock.release()
+
+    def launch(self, argv: list, name: str) -> None:
+        """An app a member opens (/desktop open): on the running desktop, closed with it."""
+        with self.lock:
+            if not self.running():
+                raise RuntimeError("The desktop is not running")
+            self.helper(argv, name)
+
+    def start_accessibility(self) -> None:
+        """The accessibility bus. Without it the desktop still works; /desktop then says the apps
+        cannot be read."""
+        launcher = a11y_launcher()
+        if not launcher:
+            log("no accessibility bus launcher: the desktop's apps cannot be read")
+            return
+        self.helper([launcher, "--launch-immediately"], "a11y")
+        if wait_for(a11y_ready, 10):
+            enable_a11y()
+        else:
+            log("the accessibility bus did not start: the desktop's apps cannot be read")
+
     def start(self) -> dict:
         with self.lock:
             if self.running():
@@ -233,6 +289,17 @@ class Session:
                 self._stop_locked()
                 raise RuntimeError("The virtual screen did not start")
             subprocess.run(["xsetroot", "-solid", "#2b3a4a"], env=session_env(), check=False)
+            # The session's bus first, then the accessibility bus behind it: every app started from
+            # here on (and by a member's command) can be read and used through /desktop.
+            try:
+                os.unlink(BUS)
+            except FileNotFoundError:
+                pass
+            self.spawn(["dbus-daemon", "--session", "--nofork", "--nopidfile", f"--address=unix:path={BUS}"], "bus")
+            if not wait_for(lambda: os.path.exists(BUS), 10):
+                self._stop_locked()
+                raise RuntimeError("The desktop's session bus did not start")
+            self.start_accessibility()
             self.spawn(["openbox"], "openbox")
             self.spawn(["tint2", "-c", os.path.join(HERE, "xdg/tint2/tint2rc")], "panel")
             view, control = secrets.token_urlsafe(24), secrets.token_urlsafe(24)
@@ -272,14 +339,16 @@ class Session:
             raise RuntimeError("The browser did not start")
 
     def _stop_locked(self) -> None:
-        for process in reversed(self.processes):
+        # The apps and the accessibility bus first, then the session's own processes.
+        everything = self.processes + self.helpers
+        for process in reversed(everything):
             if process.poll() is None:
                 try:
                     os.killpg(process.pid, signal.SIGTERM)
                 except ProcessLookupError:
                     pass
         deadline = time.time() + 5
-        for process in self.processes:
+        for process in everything:
             try:
                 process.wait(timeout=max(0.1, deadline - time.time()))
             except subprocess.TimeoutExpired:
@@ -288,6 +357,7 @@ class Session:
                 except ProcessLookupError:
                     pass
         self.processes = []
+        self.helpers = []
         self.tokens = None
         self.started_at = None
 
@@ -297,6 +367,9 @@ class Session:
             # processes) ends with it: everything in the session's groups, then the browser.
             self._stop_locked()
             subprocess.run(["pkill", "-u", str(os.getuid()), "-f", browser_binary()], check=False)
+            # An app that handed its window to an earlier instance of itself ends here too.
+            for name in APP_PROCESSES:
+                subprocess.run(["pkill", "-u", str(os.getuid()), "-x", name], check=False)
             log("desktop stopped")
             return {"desktop": "stopped"}
 
@@ -343,6 +416,151 @@ def browser_argv(urls: list) -> list:
 def devtools_ready() -> bool:
     with urllib.request.urlopen(f"http://127.0.0.1:{DEVTOOLS}/json/version", timeout=1) as reply:
         return reply.status == 200
+
+
+# ───────────────────────────── the desktop's apps (apps.py) ─────────────────────────────
+
+# The apps a member opens by name, and what each opens: a file (its folder must exist) or a folder.
+APPS = {
+    "editor": {"argv": ["mousepad"], "name": "mousepad", "path": "file"},
+    "files": {"argv": ["thunar"], "name": "thunar", "path": "folder"},
+}
+APP_PROCESSES = ("mousepad", "thunar")
+# The numbers of the latest looks: their app and each element's role and name, never the app's
+# objects (apps.py runs fresh each time and finds an element again by walking the same way).
+SNAPSHOTS: dict = {}
+KEPT_SNAPSHOTS = 20
+
+
+def a11y_launcher() -> str | None:
+    for path in ("/usr/libexec/at-spi-bus-launcher", "/usr/lib/at-spi2-core/at-spi-bus-launcher"):
+        if os.access(path, os.X_OK):
+            return path
+    return None
+
+
+def dbus_send(*args: str) -> bool:
+    run = subprocess.run(["dbus-send", "--session", "--print-reply", *args], env=session_env(), capture_output=True, timeout=5)
+    return run.returncode == 0
+
+
+def a11y_ready() -> bool:
+    return dbus_send("--dest=org.a11y.Bus", "/org/a11y/bus", "org.a11y.Bus.GetAddress")
+
+
+def enable_a11y() -> None:
+    """What a screen reader does when it starts: tells the apps someone reads them."""
+    dbus_send(
+        "--dest=org.a11y.Bus",
+        "/org/a11y/bus",
+        "org.freedesktop.DBus.Properties.Set",
+        "string:org.a11y.Status",
+        "string:IsEnabled",
+        "variant:boolean:true",
+    )
+
+
+def run_apps(request: dict, timeout: float = 45) -> dict:
+    """One request of apps.py, in the desktop session's environment."""
+    process = subprocess.run(
+        [sys.executable, "-I", os.path.join(HERE, "apps.py")],
+        input=json.dumps(request).encode("utf-8"),
+        capture_output=True,
+        timeout=timeout,
+        env=session_env(),
+    )
+    try:
+        reply = json.loads(process.stdout.decode("utf-8") or "{}")
+    except json.JSONDecodeError:
+        reply = {}
+    if isinstance(reply.get("error"), str):
+        raise ValueError(reply["error"])
+    if "result" not in reply:
+        detail = reply.get("failure") or process.stderr.decode("utf-8", errors="replace").strip()[-300:]
+        raise RuntimeError(detail or "The desktop's apps could not be read")
+    return reply["result"]
+
+
+def remember(view: dict) -> dict:
+    """Names a look so the next action can refer to its numbers; the newest KEPT_SNAPSHOTS stay."""
+    elements = view.get("elements")
+    if not isinstance(elements, list):
+        return view
+    key = secrets.token_urlsafe(6)
+    SNAPSHOTS[key] = {
+        "app": view.get("app"),
+        "elements": [{"role": e.get("role"), "name": e.get("name")} for e in elements],
+    }
+    while len(SNAPSHOTS) > KEPT_SNAPSHOTS:
+        SNAPSHOTS.pop(next(iter(SNAPSHOTS)))
+    view["snapshot"] = key
+    return view
+
+
+def workspace_item(path, kind: str) -> str:
+    """A file (its folder must exist) or a folder inside /workspace, for an app to open."""
+    if not isinstance(path, str) or not path.strip():
+        raise ValueError("Give a path inside /workspace")
+    path = path.strip()
+    if kind == "folder":
+        return inside_workspace(path)
+    folder, name = os.path.split(path)
+    if not name or name in (".", ".."):
+        raise ValueError("Give a file inside /workspace")
+    return os.path.join(inside_workspace(folder or WORKSPACE), name)
+
+
+def desktop_action(body: dict) -> dict:
+    """A member's step with the desktop's apps; every action but apps answers with a fresh look."""
+    SESSION_STATE.reap()
+    action = body.get("action")
+    if action == "apps":
+        return run_apps({"op": "apps"})
+    if action == "open":
+        spec = APPS.get(body.get("app"))
+        if not spec:
+            raise ValueError("app must be editor (a text editor) or files (a file manager)")
+        argv = list(spec["argv"])
+        if body.get("path"):
+            argv.append(workspace_item(body["path"], spec["path"]))
+        SESSION_STATE.launch(argv, spec["name"])
+        deadline = time.time() + 20
+        while True:
+            try:
+                return remember(run_apps({"op": "look", "app": spec["name"]}))
+            except ValueError:
+                if time.time() > deadline:
+                    raise
+                time.sleep(0.5)
+    if action == "look":
+        app = body.get("app")
+        if not isinstance(app, str) or not app.strip():
+            raise ValueError("look needs app, a name from apps")
+        return remember(run_apps({"op": "look", "app": app.strip()[:80]}))
+    if action in ("click", "type", "set"):
+        snapshot = SNAPSHOTS.get(str(body.get("snapshot") or ""))
+        if not snapshot:
+            raise ValueError("That look is gone: look at the app again")
+        n = body.get("n")
+        count = len(snapshot["elements"])
+        if not isinstance(n, int) or isinstance(n, bool) or not 1 <= n <= count:
+            raise ValueError(f"n must be a number from that look, 1 to {count}")
+        request = {"op": action, "app": snapshot["app"], "n": n, "expect": snapshot["elements"][n - 1]}
+        if action != "click":
+            text = body.get("text")
+            if not isinstance(text, str):
+                raise ValueError(f"{action} needs text")
+            request["text"] = text[:5000]
+        return remember(run_apps(request))
+    if action == "press":
+        key = body.get("key")
+        if not isinstance(key, str) or not key.strip():
+            raise ValueError("press needs key, such as Enter or ctrl+s")
+        request = {"op": "press", "key": key.strip()[:40]}
+        if isinstance(body.get("app"), str) and body["app"].strip():
+            request["app"] = body["app"].strip()[:80]
+        return remember(run_apps(request))
+    raise ValueError("Unknown desktop action")
 
 
 # ───────────────────────────── the browser, over DevTools ─────────────────────────────
@@ -506,6 +724,7 @@ SESSION_STATE = Session()
 TOKEN = ""
 EXEC_LOCK = threading.Semaphore(4)
 BROWSER_LOCK = threading.Lock()
+DESKTOP_LOCK = threading.Lock()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -582,6 +801,11 @@ class Handler(BaseHTTPRequestHandler):
                 with BROWSER_LOCK:
                     SESSION_STATE.ensure_browser()
                     return self.reply(200, {"page": browser_action(body)})
+            if self.path == "/desktop":
+                with DESKTOP_LOCK:
+                    if not SESSION_STATE.running():
+                        raise ValueError("The desktop is not running")
+                    return self.reply(200, {"view": desktop_action(body)})
             return self.reply(404, {"error": "Not found"})
         except (ValueError, json.JSONDecodeError) as error:
             return self.reply(400, {"error": str(error)})

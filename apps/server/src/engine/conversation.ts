@@ -1104,7 +1104,8 @@ export class ConversationAgent extends AbstractAgent {
                   );
               },
               maxSteps:
-                (this.config.agentMaxSteps ?? 6) +
+                // Open core: the computer's apps take a step per click or key too (computer_desktop).
+                (this.config.agentMaxSteps ?? 16) +
                 // Saying whose a request is takes no step of the work.
                 (inHall ? 1 : 0),
               keepScreenshots: this.config.agentKeepScreenshots,
