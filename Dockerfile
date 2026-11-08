@@ -1,6 +1,7 @@
 # The Yuki service (docker-compose.yml, service `yuki`): the API and the web app on one port.
 # The members' computer is the other container (apps/desktop); see docs/computer-container.md.
 #   docker build --build-arg PUBLIC_API_URL=http://localhost:8787 -t yuki-service .
+# BUILD_ID (optional) is the commit the web shows as its version (same as VITE_BUILD on a plain build).
 FROM node:24-bookworm-slim AS build
 RUN npm install -g pnpm@11.19.0
 WORKDIR /app
@@ -11,9 +12,10 @@ RUN pnpm install --frozen-lockfile --filter openmuse \
     && pnpm build:server
 # The address the person's browser reaches the service at; it is built into the web app.
 ARG PUBLIC_API_URL=http://localhost:8787
+ARG BUILD_ID=
 WORKDIR /app/apps/web
 RUN pnpm install --frozen-lockfile \
-    && VITE_API_URL="$PUBLIC_API_URL" npx vite build --outDir /app/web-dist --emptyOutDir
+    && VITE_API_URL="$PUBLIC_API_URL" VITE_BUILD="$BUILD_ID" npx vite build --outDir /app/web-dist --emptyOutDir
 
 FROM node:24-bookworm-slim
 RUN apt-get update \

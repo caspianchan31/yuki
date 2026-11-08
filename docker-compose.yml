@@ -14,6 +14,8 @@ services:
       args:
         # The address your browser opens Yuki at; it is built into the web app.
         PUBLIC_API_URL: ${YUKI_PUBLIC_URL:-http://localhost:${YUKI_PORT:-8787}}
+        # Shown as the web app's version when set (a commit id, say); empty shows none.
+        BUILD_ID: ${YUKI_BUILD:-}
     init: true
     restart: unless-stopped
     env_file:

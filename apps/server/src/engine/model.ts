@@ -50,6 +50,7 @@ import { looksUnauthorized } from "../apps/mcp.ts";
 import { DesktopHeldError, DesktopSession, desktopConflict } from "../computer.ts";
 import { readSignIns, waitingForOwner } from "../credentials/facts.ts";
 import { taskEnvironment } from "../environment-tools.ts";
+import { taskDesktopLine, taskDesktopTools } from "../environment-tools.ts";
 import { scopeOfOwner } from "../environments.ts";
 import type { RunToolContext } from "../extensions.ts";
 import { type ClaimSources, checkClaims } from "../mail/claim-check.ts";
@@ -740,6 +741,11 @@ async function runModelTask(
     : [];
   const appsLine = (await service.apps?.promptLine(owner)) ?? "";
   const tools = [
+    ...taskDesktopTools(service.computer, {
+      scope: `task:${task.id}`,
+      owner: () => environment?.owner ?? owner,
+      signal: ctx.signal,
+    }).map(logSteps),
     // The person reads the steps on the task card and the task detail
     // (reportInstructions says how everything the person reads is written). Its description is
     // written for the model, so its timeline event is its own: 「Plan set」 with the steps.
@@ -1293,7 +1299,7 @@ async function runModelTask(
   // On the default desktop, the project's own saved logins (never a value),
   // so a plan can tell which of its sites still need one.
   let projectLoginsBlock = "";
-  const computerLine = "";
+  const computerLine = taskDesktopLine(service.computer);
   // A standing task's own plan beside what it did (the data's
   // `planAndActions`), from its ledger.
   const activity = await standingActivity(service.db, owner, task);

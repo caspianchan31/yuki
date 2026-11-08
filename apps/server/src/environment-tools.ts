@@ -97,6 +97,24 @@ export class ChatEnvironment {
   }
 }
 
+/**
+ * v1.6 fix: a background task drives the members' shared computer with the same tools as a chat
+ * reply (none without a computer container). Until this fix the open core gave a task no
+ * computer tools at all (only chat had them), so a member on a task said she had no browser.
+ */
+export function taskDesktopTools(
+  computer: ComputerService,
+  options: { scope: string; owner: () => string; signal?: AbortSignal },
+) {
+  const desktop = desktopOf(computer);
+  return desktop ? desktopTools(desktop, options) : [];
+}
+
+/** What a task's prompt says about the computer: the desktop's instructions when there is one. */
+export function taskDesktopLine(computer: ComputerService): string {
+  return desktopOf(computer) ? ` ${desktopInstructions}` : "";
+}
+
 /** The member a task is given to (`environmentId`), or null for the group's own work. */
 export async function taskEnvironment(
   environments: EnvironmentService,
