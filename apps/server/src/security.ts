@@ -17,7 +17,7 @@ export const envKeep = new Set(
     .split(" "),
 );
 const urlWithPassword = /:\/\/[^/@:\s"']+:[^/@\s"']+@/;
-const urlWithPasswordSql = String.raw`://[^/@:[:space:]"']+:[^/@[:space:]"']+@`;
+const urlWithPasswordSql = `://[^/@:[:space:]"']+:[^/@[:space:]"']+@`;
 
 /** How many lines of an env file hold a secret: a setting outside `envKeep`, or a kept one with
  * credentials in a URL, whose value is neither empty nor <redacted>. */
