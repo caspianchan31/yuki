@@ -154,7 +154,7 @@ import {
 } from "./chat-reports.ts";
 import { analyzeSpending } from "./finance.ts";
 import { executeModelTask, runEndedWithoutCompletion, stoppedIncidentKind } from "./model.ts";
-import { modelSpec, takeBackup } from "./model-fallback.ts";
+import { backupState, backupWords, modelSpec, takeBackup } from "./model-fallback.ts";
 import {
   countPageDiff,
   describePageDiff,
@@ -331,6 +331,16 @@ export function waitingRowFor(
 function isNewIncident(next: TaskIncident | null, current: TaskIncident | null) {
   return !!next && (next.kind !== current?.kind || next.since !== current?.since);
 }
+/** v1.7 启动链瘦身: the snapshot's worker field. The heartbeat time moves every few seconds and
+ * would make every poll a new body (no 304); the page only reads it once the worker is down
+ * (the down bar says since when), so a running worker gives its state alone. */
+function workerField(
+  running: boolean,
+  lastTickAt: string | undefined,
+): { running: boolean; lastTickAt?: string } {
+  return running ? { running } : { running, ...(lastTickAt ? { lastTickAt } : {}) };
+}
+
 export class AgentService {
   readonly worker: TaskWorker;
   readonly search: SearchService;
@@ -701,6 +711,37 @@ export class AgentService {
       tone: "warm",
     });
   }
+  /** v1.7 模型兜底: the primary and backup model strings and the backup in force now. */
+  modelState(): {
+    primary: string | null;
+    fallback: string | null;
+    backup: ReturnType<typeof backupState>;
+  } {
+    return {
+      primary: this.config.model ?? null,
+      fallback: this.config.fallbackModel ?? null,
+      backup: backupState(this.config.fallbackModel),
+    };
+  }
+  /** The tasks' routine fields only (status, repeat, the account they are bound to): what the
+   * roster reads for the projects not open (v1.7 启动链瘦身). */
+  async routineRows(owner: string): Promise<
+    {
+      status: AgentTask["status"];
+      repeatMinutes: number | null;
+      input: { environmentId?: string };
+    }[]
+  > {
+    const tasks = await this.db.list<AgentTask>(owner, "tasks");
+    return tasks.map((task) => {
+      const environmentId = (task.input as { environmentId?: unknown } | undefined)?.environmentId;
+      return {
+        status: task.status,
+        repeatMinutes: typeof task.repeatMinutes === "number" ? task.repeatMinutes : null,
+        input: typeof environmentId === "string" && environmentId ? { environmentId } : {},
+      };
+    });
+  }
   async snapshot(owner: string): Promise<AgentWorkspace> {
     await this.ensure(owner);
     const [tasks, goals, monitors, ideas, memories, artifacts, notifications, identity] =
@@ -726,12 +767,11 @@ export class AgentService {
       identity: identity
         ? { ...identity, name: identityName(identity.name) }
         : { name: "Yuki", tone: "warm" },
-      worker: {
-        running:
-          this.worker.running ||
+      worker: workerField(
+        this.worker.running ||
           Boolean(heartbeat && Date.now() - Date.parse(heartbeat.lastTickAt) < 15000),
-        lastTickAt: heartbeat?.lastTickAt ?? this.worker.lastTickAt,
-      },
+        heartbeat?.lastTickAt ?? this.worker.lastTickAt,
+      ),
     };
   }
   async getTask(owner: string, id: string) {
@@ -2742,10 +2782,12 @@ export class AgentService {
     event: (title: string, detail: string) => Promise<void>,
   ) {
     const model = this.config.fallbackModel ?? "";
+    const state = backupState(model);
+    const words = backupWords(state.reason ?? "quota", model, state.until);
     await this.notify(
       owner,
-      "主钥匙额度用完",
-      `已改用备用模型 ${model}。这一轮停在这里，下一轮用备用钥匙。`,
+      words.title,
+      `${words.text}这一轮停在这里，下一轮用备用模型。`,
       taskId,
       `model-fallback:${owner}`,
     );

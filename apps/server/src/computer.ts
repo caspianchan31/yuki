@@ -36,7 +36,8 @@ export class ComputerSettings {
   }
 }
 
-/** The run that holds a desktop. With no computer nothing is ever held. */
+/** The run that holds the shared computer's desktop (v1.7 抢电脑的规则): a task or a chat reply
+ * driving it. One computer per install, so one hold, kept under the system owner. */
 export interface DesktopHold {
   id: "hold";
   holder: string;
@@ -53,16 +54,37 @@ export class DesktopHeldError extends AppError {
 export function desktopConflict(message: string) {
   return message.startsWith("Desktop in use by ") || message.startsWith("Computer is busy");
 }
-/** One run's hold on the desktops it uses. With no computer there is nothing to hold: a run on a
- * member takes "her desktop" at its start and goes on; no run ever waits for another. */
+export const desktopHoldMs = 10 * 60 * 1000;
+/** The holder name of the person's own turn (the hosted build's hand-off card uses it). */
+export const ownerHolder = "owner";
+export const desktopBusyMessage = "Computer is busy. Wait for the current operation to finish.";
+/** Where the one shared computer's hold is kept: not per owner (a project's task and the hall's
+ * chat drive the same screen), under the system owner. */
+const holdOwner = "system";
+/** One run's hold on the shared computer: the same run takes it again freely (and renews the
+ * hold); the run releases it at its end. `DesktopHeldError` while another run holds it. */
 export class DesktopSession {
+  private taken = false;
   constructor(
-    readonly computer: unknown,
+    private readonly computer: Pick<ComputerService, "hold" | "releaseHold">,
     readonly holder: string,
     readonly title: string,
   ) {}
-  async take(_owner: string) {}
-  async release() {}
+  async take(owner: string) {
+    await this.computer.hold(owner, this.holder, this.title);
+    this.taken = true;
+  }
+  async release() {
+    if (!this.taken) return;
+    this.taken = false;
+    await this.computer.releaseHold("", this.holder).catch((error: unknown) => {
+      console.warn({
+        timestamp: new Date().toISOString(),
+        context: { phase: "computer" },
+        warning: `A run's hold on the desktop could not be released; it is over by itself in ${desktopHoldMs / 60000} minutes (${error instanceof Error ? error.message : "unknown error"})`,
+      });
+    });
+  }
 }
 /** Moved desktops' earlier owners; with no computer there are none. */
 export async function loadDesktopIdentities(_db: Store): Promise<Map<string, string>> {
@@ -214,8 +236,40 @@ export class ComputerService {
     if (!this.container) throw noComputer();
     return this.container.execute(owner, raw, options);
   }
+  /** The run holding the shared computer now; null when it is free (v1.7 抢电脑的规则). */
   async holdOf(_owner: string): Promise<DesktopHold | null> {
-    return null;
+    const hold = await this.db.get<DesktopHold>(holdOwner, "computer-state", "hold");
+    return hold && Date.parse(hold.until) > Date.now() ? hold : null;
+  }
+  /** Takes the shared computer for the run `holder` (or renews its hold) until `desktopHoldMs`
+   * from now. `DesktopHeldError` while another run's hold stands; a hold that ran out (a run that
+   * died) is taken. Atomic across processes: the first hold is an insert, a renewal or a
+   * replacement a swap on what was read. `over` takes it from a standing hold too. */
+  async hold(_owner: string, holder: string, title: string, options: { over?: boolean } = {}) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const until = new Date(Date.now() + desktopHoldMs).toISOString();
+      const hold: DesktopHold = { id: "hold", holder, title, until };
+      const previous = await this.db.get<DesktopHold>(holdOwner, "computer-state", "hold");
+      if (!previous) {
+        if (await this.db.insertIfAbsent(holdOwner, "computer-state", hold)) return;
+        continue;
+      }
+      if (previous.holder !== holder && !options.over && Date.parse(previous.until) > Date.now())
+        throw new DesktopHeldError(previous);
+      const taken = await this.db.compareAndSwap<DesktopHold>(
+        holdOwner,
+        "computer-state",
+        "hold",
+        { holder: previous.holder, until: previous.until },
+        { holder, title, until },
+      );
+      if (taken) return;
+    }
+    throw new AppError(desktopBusyMessage, 409);
+  }
+  /** Releases `holder`'s hold; another run's is left alone. */
+  async releaseHold(_owner: string, holder: string) {
+    await this.db.removeMatching(holdOwner, "computer-state", "hold", { holder });
   }
   /** The desktop's picture now, for an incident: there is none. */
   async incidentScreenshot(_owner: string): Promise<Uint8Array | null> {

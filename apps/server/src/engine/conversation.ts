@@ -82,7 +82,7 @@ import {
   routeRequestSchema,
 } from "./hall-gate.ts";
 import { stoppedByInfrastructure } from "./model.ts";
-import { modelSpec, takeBackup } from "./model-fallback.ts";
+import { backupState, backupWords, modelSpec, takeBackup } from "./model-fallback.ts";
 import { recordAccountUsage, recordModelUsage } from "./model-usage.ts";
 import { replyRetryDelayMs, withOneRetry } from "./reply-retry.ts";
 import type { AgentService } from "./service.ts";
@@ -241,14 +241,14 @@ export class ConversationAgent extends AbstractAgent {
    * try once more on the backup. The same key is used as a task's notice, so it is said once. */
   private switchToBackup(message: string): boolean {
     if (!takeBackup(message, this.config.fallbackModel)) return false;
+    const state = backupState(this.config.fallbackModel);
+    const words = backupWords(
+      state.reason ?? "quota",
+      this.config.fallbackModel ?? "",
+      state.until,
+    );
     void this.service
-      .notify(
-        this.owner,
-        "主钥匙额度用完",
-        `已改用备用模型 ${this.config.fallbackModel}。`,
-        undefined,
-        `model-fallback:${this.owner}`,
-      )
+      .notify(this.owner, words.title, words.text, undefined, `model-fallback:${this.owner}`)
       .catch(() => {});
     return true;
   }
@@ -384,6 +384,7 @@ export class ConversationAgent extends AbstractAgent {
       this.service.computer,
       this.owner,
       input.threadId,
+      { waitMs: (this.config.desktop?.waitSeconds ?? 0) * 1000 },
     );
     // The space's own conversation (not a project's).
     const hall = !parseOwner(this.owner).projectId;

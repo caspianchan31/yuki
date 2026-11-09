@@ -421,8 +421,26 @@ export class WorkspaceService {
       return { mail: stored, events };
     }
   }
-  async snapshot(owner: string, query?: string): Promise<Workspace> {
-    const { mail, events, connected } = await this.sourceSections(owner, true, true, query);
+  /**
+   * v1.7 启动链瘦身: the shell reads the snapshot on every opening and needs its mode, connections,
+   * runtime and the actions awaiting review; nothing on screen reads the mail, the calendar or
+   * the activity log any more, and the mail read is a round trip to Google (a second or more).
+   * So the route asks for a light one (`light`): those three come back empty and Google is not
+   * asked. Everything else (the ideas, the members' tools, `?full=1`, a mail search `q`) reads
+   * the whole snapshot as before.
+   */
+  async snapshot(
+    owner: string,
+    query?: string,
+    options: { light?: boolean } = {},
+  ): Promise<Workspace> {
+    const everything = !options.light || Boolean(query);
+    const { mail, events, connected } = await this.sourceSections(
+      owner,
+      everything,
+      everything,
+      query,
+    );
     const tokens = this.config.mode === "live" ? await this.googleAuth.tokens(owner) : null;
     return {
       mode: this.config.mode,
@@ -435,7 +453,7 @@ export class WorkspaceService {
       files: await this.files.list(owner),
       browsers: await this.db.list<BrowserSession>(owner, "browsers"),
       actions: await this.db.list<ActionProposal>(owner, "actions"),
-      activity: await this.db.list<ActivityEntry>(owner, "activity"),
+      activity: everything ? await this.db.list<ActivityEntry>(owner, "activity") : [],
       connections: [
         // The project's own mailbox, when it has one.
         ...(await this.mailboxConnection(owner)),

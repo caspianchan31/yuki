@@ -934,3 +934,16 @@
   animation: hit-glow 3s ease-out;
   border-radius: 10px;
 }
+
+/* v1.7 打开对话不重放整条历史: the line at the top that loads the earlier messages */
+.chat-screen .older {
+  display: flex;
+  justify-content: center;
+  padding: 6px 0 10px;
+}
+
+/* v1.7 模型兜底: the backup model in force, above the composer */
+.chat-screen .model-banner {
+  margin: 0 16px 6px;
+  color: var(--amber, #b26a00);
+}

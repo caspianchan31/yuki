@@ -191,6 +191,37 @@ test("chat errors read by kind: the lock in Chinese, the agent's own error as it
   const agentSaid = { error: new Error("模型额度用完了"), code: replayedRunError };
   assert.equal(chatErrorKind(agentSaid), "agent");
   assert.equal(chatErrorText(agentSaid), "模型额度用完了");
+  // v1.7 出错时页面直说: the provider's own failures read in plain words, never its English line
+  const quota = {
+    error: new Error(
+      "429 You have exceeded the monthly usage quota. It will reset at 2026-11-26 23:59:59 +0800 CST. Request id: 0217",
+    ),
+    code: replayedRunError,
+  };
+  assert.match(chatErrorText(quota), /^主模型的额度用完了，11月2[67]日 \d\d:\d\d 才重置/);
+  assert.equal(
+    chatErrorText({ error: new Error("insufficient_quota"), code: replayedRunError }),
+    words.chat.modelQuota(null),
+  );
+  assert.equal(
+    chatErrorText({ error: new Error("401 Incorrect API key provided"), code: replayedRunError }),
+    words.chat.modelKeyRefused,
+  );
+  assert.equal(
+    chatErrorText({ error: new Error("502 Bad Gateway from upstream"), code: replayedRunError }),
+    words.chat.serviceFailed,
+  );
+  assert.equal(
+    chatErrorText({ error: new Error("The browser did not start"), code: replayedRunError }),
+    words.chat.desktopDown,
+  );
+  assert.equal(
+    chatErrorText({
+      error: new Error("桌面正被「对话」用着，等它结束再来"),
+      code: replayedRunError,
+    }),
+    "桌面正被「对话」用着，等它结束再来",
+  );
   const connect = {
     error: new Error("REST connect request failed: Bad Gateway"),
     code: "agent_connect_failed",

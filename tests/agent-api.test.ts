@@ -597,3 +597,43 @@ test("a change watch alerts on a change past the saved lines", async () => {
     await read(`/monitors/${monitor.id}/control`, { action: "stop" });
   }
 });
+
+// v1.7 启动链瘦身 (last: these make tasks of their own, which the tests above must not see)
+test("v1.7 启动链瘦身: /api/agent/routines is the tasks' routine fields only", async () => {
+  await read<AgentTask>("/tasks", { prompt: "Water the plants", repeatMinutes: 1440 }, 201);
+  const rows = await read<{ tasks: Record<string, unknown>[] }>("/routines");
+  assert.ok(rows.tasks.length >= 1);
+  for (const row of rows.tasks) {
+    assert.deepEqual(Object.keys(row).sort(), ["input", "repeatMinutes", "status"]);
+    assert.ok(Object.keys(row.input as object).every((key) => key === "environmentId"));
+  }
+  assert.ok(rows.tasks.some((row) => row.repeatMinutes === 1440));
+  // and it is a fraction of the snapshot
+  const full = await request("");
+  const light = await request("/routines");
+  assert.ok((await light.text()).length < (await full.text()).length);
+});
+
+test("v1.7 启动链瘦身: the polled snapshot carries an ETag and revalidates to a 304", async () => {
+  const first = await request("");
+  assert.equal(first.status, 200);
+  const tag = first.headers.get("etag");
+  assert.ok(tag, "an ETag");
+  assert.equal(first.headers.get("cache-control"), "private, no-cache");
+  const again = await server.app.request("/api/agent", {
+    headers: { ...headers(), "If-None-Match": tag as string },
+  });
+  assert.equal(again.status, 304);
+  assert.equal(await again.text(), "");
+  // a change gives a new tag and a body again
+  await read<AgentTask>("/tasks", { prompt: "Buy milk" }, 201);
+  const changed = await server.app.request("/api/agent", {
+    headers: { ...headers(), "If-None-Match": tag as string },
+  });
+  assert.equal(changed.status, 200);
+  assert.notEqual(changed.headers.get("etag"), tag);
+  // a POST and a stream are left alone
+  const create = await request("/tasks", { prompt: "Call mom" });
+  assert.equal(create.status, 201);
+  assert.equal(create.headers.get("etag"), null);
+});

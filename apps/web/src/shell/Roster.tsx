@@ -71,7 +71,7 @@ export function Roster() {
     void Promise.all(
       ids.map(async (id) => {
         try {
-          return bucketsFromAgent(await data.apiFor(id).request<unknown>("/api/agent"));
+          return bucketsFromAgent(await data.apiFor(id).request<unknown>("/api/agent/routines"));
         } catch {
           return new Map<string, RoutineBucket>();
         }

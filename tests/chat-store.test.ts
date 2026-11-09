@@ -712,3 +712,40 @@ test("a search over ten thousand messages answers within a second", async () => 
   await chats.searchMessages("bulky", "王子");
   assert.ok(performance.now() - beganPrefix < 1000);
 });
+
+test("v1.7 打开对话不重放整条历史: a connect replays the newest runs; the older ones page back", async () => {
+  await chats.ensureThread("alice", "page-1", "default");
+  for (let i = 1; i <= 6; i++)
+    await storeRun("page-1", `pr-${i}`, `reply ${i}`, { userText: `ask ${i}` });
+  // the newest two runs only
+  const two = await chats.connectHistory("page-1", undefined, { lastRuns: 2 });
+  assert.equal(two.closed.length, 2);
+  const texts = (runs: BaseEvent[][]) =>
+    runs
+      .flat()
+      .filter((e) => e.type === EventType.TEXT_MESSAGE_CONTENT)
+      .map((e) => (e as unknown as { delta: string }).delta);
+  assert.deepEqual(texts(two.closed), ["reply 5", "reply 6"]);
+  // everything without a limit, and with 0
+  assert.equal((await chats.connectHistory("page-1")).closed.length, 6);
+  assert.equal((await chats.connectHistory("page-1", undefined, { lastRuns: 0 })).closed.length, 6);
+  // the page before the oldest replayed message (ask 5): two runs, then two more, then nothing
+  const first = await chats.olderRuns("alice", "page-1", "pr-5-user", { limit: 2 });
+  assert.ok(first);
+  assert.deepEqual(texts(first.runs), ["reply 3", "reply 4"]);
+  assert.equal(first.more, true);
+  const second = await chats.olderRuns("alice", "page-1", "pr-3-user", { limit: 2 });
+  assert.deepEqual(texts(second?.runs ?? []), ["reply 1", "reply 2"]);
+  assert.equal(second?.more, false);
+  // back to a given message in one go (a jump from the search)
+  const until = await chats.olderRuns("alice", "page-1", "pr-6-user", { untilMessageId: "pr-2-a" });
+  assert.deepEqual(texts(until?.runs ?? []), ["reply 2", "reply 3", "reply 4", "reply 5"]);
+  assert.equal(until?.more, true);
+  // an assistant message id anchors too; an unknown one or another owner gives null
+  assert.deepEqual(
+    texts((await chats.olderRuns("alice", "page-1", "pr-2-a", { limit: 5 }))?.runs ?? []),
+    ["reply 1"],
+  );
+  assert.equal(await chats.olderRuns("alice", "page-1", "nope"), null);
+  assert.equal(await chats.olderRuns("bob", "page-1", "pr-5-user"), null);
+});

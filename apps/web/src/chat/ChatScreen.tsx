@@ -18,7 +18,9 @@ import {
   type ChatToolMessage as ToolMessage,
   useChatSession,
 } from "@m/chat-state";
+import { localTime } from "@m/conversation-run";
 import { isComposingKey } from "@m/ime";
+import { useModelState } from "@m/model-state";
 import { useProjects } from "@m/projects-state";
 import { normalizeAccountOperating } from "@m/shell/accounts/operating-core";
 import { latestNeedReportIds } from "@m/shell/chat/core";
@@ -59,7 +61,15 @@ import {
   ThumbsDown,
   ThumbsUp,
 } from "lucide-react";
-import { Fragment, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import {
+  Fragment,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   attachmentsOf,
   deliveredPaths,
@@ -377,6 +387,48 @@ function Conversation({
     awayFromLatest,
     setAwayFromLatest,
   } = chat;
+  // v1.7 打开对话不重放整条历史: older messages go in front; the view keeps its place (the distance
+  // from the bottom is restored once they are drawn), and the top line loads the next page by
+  // itself once the person has scrolled up there.
+  const older = chat.older;
+  // v1.7 模型兜底: the backup in force shows above the composer; read again after a failed reply.
+  const { state: model, refresh: refreshModel } = useModelState(active);
+  // Read again when a reply ends (the switch happens during one) and when one fails.
+  const failedReplies = error ? 1 : 0;
+  useEffect(() => {
+    if (failedReplies || !replying) void refreshModel();
+  }, [failedReplies, replying, refreshModel]);
+  const olderLine = useRef<HTMLDivElement>(null);
+  const keepFromBottom = useRef<number | null>(null);
+  const loadOlderKeepingPlace = useCallback(async () => {
+    const el = list.current;
+    if (!el || older.loading || !older.more) return;
+    followLatest.current = false;
+    keepFromBottom.current = el.scrollHeight - el.scrollTop;
+    const added = await older.load();
+    if (!added) keepFromBottom.current = null;
+  }, [older, followLatest]);
+  useLayoutEffect(() => {
+    const el = list.current;
+    if (keepFromBottom.current === null || !el) return;
+    el.scrollTop = el.scrollHeight - keepFromBottom.current;
+    programmaticTop.current = el.scrollTop;
+    keepFromBottom.current = null;
+  }, [transcript.length]);
+  useEffect(() => {
+    const line = olderLine.current;
+    const root = list.current;
+    if (!line || !root || !older.more) return;
+    const watcher = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting) && !followLatest.current)
+          void loadOlderKeepingPlace();
+      },
+      { root },
+    );
+    watcher.observe(line);
+    return () => watcher.disconnect();
+  }, [older.more, loadOlderKeepingPlace, followLatest]);
   // v1.2: opening a member uses that member's desktop for the next reply. Not during a reply.
   useEffect(() => {
     const next = desktopForOpenMember(false, frame.peek, threadEnv.environment?.id ?? null);
@@ -408,6 +460,18 @@ function Conversation({
       `[data-message="${CSS.escape(jump.messageId)}"]`,
     );
     if (!target) {
+      // v1.7: the message may be in the part of the history not loaded yet: load back to it.
+      if (older.more && !older.loading) {
+        followLatest.current = false;
+        void older.load(jump.messageId).then((added) => {
+          if (!added) {
+            setFrame({ jump: null });
+            notify(t.chat.search.notFound);
+          }
+        });
+        return;
+      }
+      if (older.loading) return;
       const giveUp = window.setTimeout(() => {
         setFrame({ jump: null });
         notify(t.chat.search.notFound);
@@ -421,7 +485,7 @@ function Conversation({
     // Not cleared by this effect's cleanup: clearing the jump below re-runs it at once.
     window.setTimeout(() => target.classList.remove("hit"), 3000);
     setFrame({ jump: null });
-  }, [jump, chat.threadId, loaded, drawn, followLatest, setAwayFromLatest, notify]);
+  }, [jump, chat.threadId, loaded, drawn, followLatest, setAwayFromLatest, notify, older]);
   /** Puts text in the input without sending it (prefills), and focuses it. */
   const prefill = useCallback((text: string) => {
     setDraft(text);
@@ -471,6 +535,13 @@ function Conversation({
           }}
         >
           <div className="col" ref={column}>
+            {older.more && transcript.length ? (
+              <div className="older" ref={olderLine}>
+                <Btn className="sm" onClick={loadOlderKeepingPlace} disabled={older.loading}>
+                  {older.loading ? t.chat.loadingOlder : t.chat.loadOlder}
+                </Btn>
+              </div>
+            ) : null}
             <MemberNeeds items={topNeeds} />
             {routineLines.map((line) => (
               <div key={line.id} className={line.result ? "receipt stack" : "receipt"}>
@@ -583,6 +654,17 @@ function Conversation({
             </Btn>
           ) : null}
         </div>
+        {model.backup.active && model.backup.reason ? (
+          <div className="receipt model-banner" role="status">
+            <span>
+              {t.chat.backupBanner(
+                model.backup.reason,
+                model.fallback ?? "",
+                localTime(model.backup.until),
+              )}
+            </span>
+          </div>
+        ) : null}
         <Composer
           chat={chat}
           draft={draft}

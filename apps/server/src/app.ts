@@ -5,6 +5,7 @@ import { MessageSchema } from "@ag-ui/core";
 import { type Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
+import { etag } from "hono/etag";
 import { z } from "zod";
 import { attachmentRetentionDays } from "../../../packages/domain/src/chat-attachments.ts";
 import {
@@ -84,6 +85,10 @@ const signedRoutePattern =
 function signedRequest(c: Context) {
   return signedRoutePattern.test(c.req.path) && Boolean(c.req.query("signature"));
 }
+
+/** The GET answers the shell polls or reads at every opening (v1.7 启动链瘦身): they get an ETag. */
+const polledJson =
+  /^\/api\/(agent(\/(routines|brief|model))?|workspace|chat-reports|environments(\/everyone)?|topology|projects(\/overview)?|me|billing|skills|apps|main-thread|account-settings|credentials\/(sign-ins|guides)|copilotkit\/(info|threads\/[^/]+\/(turns|superseded|feedback|speakers)))$/;
 
 export async function createApp(
   db: Store,
@@ -515,9 +520,22 @@ export async function createApp(
       (owner, action, subject, detail) => tenancy.record(owner, action, subject, detail),
     ),
   );
+  // v1.7 启动链瘦身: the JSON the shell polls (the agent snapshot every 3 s, the reports, a
+  // thread's turns) carries an ETag and asks the browser to revalidate, so an unchanged answer
+  // costs a 304 and no body on the wire.
+  const revalidated = etag({ weak: true });
+  app.use("/api/*", async (c, next) => {
+    if (c.req.method !== "GET" || !polledJson.test(c.req.path)) return next();
+    await revalidated(c, async () => {
+      await next();
+      c.header("Cache-Control", "private, no-cache");
+    });
+  });
   app.get("/api/workspace", async (c) => {
     const [snapshot, reachable] = await Promise.all([
-      workspace.snapshot(c.get("owner"), c.req.query("q")),
+      workspace.snapshot(c.get("owner"), c.req.query("q"), {
+        light: c.req.query("full") !== "1",
+      }),
       browser.reachable(),
     ]);
     snapshot.browsers = snapshot.browsers.map((s) => browser.decorate(c.get("owner"), s));

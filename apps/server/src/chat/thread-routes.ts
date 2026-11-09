@@ -7,7 +7,7 @@ import { shotIdsOf } from "../desktop-shots-store.ts";
 import { AppError } from "../errors.ts";
 import { attachmentIdsOf } from "./attachment-store.ts";
 import { CursorError } from "./chat-store.ts";
-import { messagesFromEvents, stateFromEvents, toWireMessages } from "./events.ts";
+import { compactLeniently, messagesFromEvents, stateFromEvents, toWireMessages } from "./events.ts";
 import { chatAgentId } from "./main-thread.ts";
 import { replayFrames } from "./replay.ts";
 import type { ReplayShares } from "./replay-shares.ts";
@@ -48,6 +48,11 @@ const patchBody = z.object({
 });
 const messageId = z.string().min(1).max(256, "Message id is too long");
 const supersedeBody = z.object({ messageId });
+const olderQuery = z.object({
+  before: messageId,
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  until: messageId.optional(),
+});
 const feedbackBody = z.object({ verdict: z.enum(["up", "down"]).nullable() });
 
 /** v1.6 聊天基础动作: the 404 for a message no live run of the thread brought in. */
@@ -148,6 +153,27 @@ export function threadRoutes(
   routes.get("/:threadId/messages", async (c) => {
     const events = await eventsOf(c.get("owner"), c.req.param("threadId"));
     return c.json({ messages: view.messages(events) });
+  });
+  // v1.7 打开对话不重放整条历史: the messages before `before` (the oldest the page holds), as the
+  // agent holds them (the shape of the replayed events); `limit` closed runs at a time, or with
+  // `until` everything back to the run that brought that message in (a jump from the search).
+  routes.get("/:threadId/older", async (c) => {
+    const query = parse(olderQuery, c.req.query());
+    const page = await threads.olderRuns?.(
+      c.get("owner"),
+      parse(threadId, c.req.param("threadId")),
+      query.before,
+      {
+        ...(query.limit ? { limit: query.limit } : {}),
+        ...(query.until ? { untilMessageId: query.until } : {}),
+      },
+    );
+    if (page === undefined) throw new AppError("Older messages are not available here", 404);
+    if (page === null) throw new AppError(messageNotFoundMessage, 404);
+    return c.json({
+      messages: messagesFromEvents(compactLeniently(page.runs.flat())),
+      more: page.more,
+    });
   });
   routes.get("/:threadId/events", async (c) =>
     c.json({ events: await eventsOf(c.get("owner"), c.req.param("threadId")) }),

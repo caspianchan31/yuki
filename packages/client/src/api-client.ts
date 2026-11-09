@@ -73,20 +73,41 @@ export class MuseApiClient {
       ...projectHeaders(this.projectId),
     };
   }
+  /** v1.7 启动链瘦身: the ETag and body of each GET answered with one, so the next read of the same
+   * path asks "only if it changed" and a 304 costs no body (the browser's own cache does not do
+   * this for requests carrying Authorization). Per client: another project or space is another
+   * client. At most `conditionalKeep` entries, the oldest dropped. */
+  private readonly conditional = new Map<string, { etag: string; payload: unknown }>();
+  private static readonly conditionalKeep = 64;
   async request<T>(path: string, body?: unknown, method?: string): Promise<T> {
+    const verb = method ?? (body === undefined ? "GET" : "POST");
+    const kept = verb === "GET" ? this.conditional.get(path) : undefined;
     const response = await fetch(`${this.baseUrl}${path}`, {
-      method: method ?? (body === undefined ? "GET" : "POST"),
+      method: verb,
       headers: {
         ...this.headers(),
         ...(body === undefined || body instanceof FormData
           ? {}
           : { "Content-Type": "application/json" }),
+        ...(kept ? { "If-None-Match": kept.etag } : {}),
       },
       body: body === undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body),
     });
     if (response.status === 401) unauthorized?.();
     else if (spaceLost && (await isSpaceLost(response))) spaceLost();
+    if (kept && response.status === 304) return kept.payload as T;
     const payload = await readApiPayload<T>(response);
+    if (verb === "GET") {
+      const etag = response.headers.get("etag");
+      if (etag && response.ok) {
+        this.conditional.delete(path);
+        this.conditional.set(path, { etag, payload });
+        if (this.conditional.size > MuseApiClient.conditionalKeep) {
+          const oldest = this.conditional.keys().next().value;
+          if (oldest !== undefined) this.conditional.delete(oldest);
+        }
+      } else if (this.conditional.has(path)) this.conditional.delete(path);
+    }
     return payload;
   }
   url(path: string) {

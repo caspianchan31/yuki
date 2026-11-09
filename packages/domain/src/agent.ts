@@ -387,6 +387,29 @@ export const providerQuotaPattern =
 /** A relay's own words that the failure is upstream of it (`Upstream request failed`,
  * `"type":"upstream_error"`), as opposed to a refusal of the request itself. */
 export const gatewayUpstreamPattern = /\bupstream[ _](?:request|error)\b/i;
+
+/** v1.7 模型兜底 / 出错时页面直说: what went wrong with the model, in three words the server's
+ * backup switch and the chat's error line both use: `quota` (the key's balance, quota or
+ * billing; often a 429), `auth` (the key itself refused: wrong, revoked, expired), `outage` (no
+ * usable answer: a 5xx, a relay's upstream failure, a connection that failed, a rate limit that
+ * is not a quota). The desktop, the browser, a proxy or the sandbox failing is never the model's
+ * doing: null. */
+export type ModelFailureKind = "quota" | "auth" | "outage";
+const notTheModel = /\b(desktop|computer|browser|sandbox|proxy|xdotool|scrot|vnc)\b/i;
+const refusedKey =
+  /\b(401|403)\b|invalid (?:api[ _-]?key|token|x-api-key)|incorrect api key|unauthorized|authentication (?:failed|error)|forbidden|api key.{0,20}(?:invalid|not valid|expired)/i;
+const noAnswer =
+  /\b(500|502|503|504|529)\b|overloaded|service unavailable|bad gateway|gateway time-?out|fetch failed|ECONNRESET|ECONNREFUSED|ETIMEDOUT|socket hang up|\b429\b|rate[ _-]?limit|too many requests|concurrency/i;
+export function modelFailureKind(detail: string): ModelFailureKind | null {
+  if (providerQuotaPattern.test(detail) || /usage quota/i.test(detail)) return "quota";
+  if (notTheModel.test(detail)) return null;
+  if (refusedKey.test(detail)) return "auth";
+  if (gatewayUpstreamPattern.test(detail) || noAnswer.test(detail)) return "outage";
+  return null;
+}
+/** v1.7 出错时页面直说: the desktop (its browser, its screen) did not start or was not there. */
+export const desktopDownPattern =
+  /The (?:browser|virtual screen|desktop's session bus) did not start|desktop (?:did not start|is not running|timed out)|Start the computer/i;
 /** Whether what stopped a run (a task's, or a chat
  * reply) is the infrastructure, which goes away by itself, rather than a setting only the person
  * can fix. Going away by itself: the run's own deadline (`runDeadline`, a desktop that stopped

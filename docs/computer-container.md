@@ -81,6 +81,18 @@ session); only the screen's websocket is relayed to the computer. Both are on th
 computer's own ports are not published. View only is enforced on the computer's side, not just in
 the page: the view-only connection cannot send input at all.
 
+## Update it
+
+`deploy/update.sh <tag>` updates a running stack in place: it fetches the tag (with `--force`, so a
+tag the project re-pointed still comes through), builds, stops the service, backs up the data and
+key volumes to `backups/<time>/`, starts, and checks the health answer. Since v1.7 it then starts
+the desktop through the computer's daemon and waits for it to say `running` (its browser came up);
+when the health or the desktop check fails it puts the previous image and the backed-up volumes
+back. `deploy/update.sh --status` shows what runs, `--check` runs only the two checks.
+Settings: `YUKI_ROOT` (default `/opt/yuki-self`, holding `src/` and `backups/`), `YUKI_PROJECT`
+(the compose project, default `yuki-self`), `YUKI_PORT` (the published port, default 8787),
+`YUKI_DESKTOP_CHECK=off` for a stack without a computer.
+
 ## Pause and resume
 
 A running desktop that nobody used for `DESKTOP_IDLE_MINUTES` is paused: its processes (browser

@@ -124,6 +124,14 @@ export interface ThreadStore {
   superseded?(owner: string, threadId: string): Promise<SupersededSegment[] | null>;
   /** v1.6 聊天基础动作: the verdicts on the thread's replies; null when missing or another owner's. */
   feedback?(owner: string, threadId: string): Promise<Record<string, FeedbackVerdict> | null>;
+  /** v1.7 打开对话不重放整条历史: the closed runs before the one holding `beforeMessageId`
+   * (ChatStore `olderRuns`); null when missing, another owner's, or the message unknown. */
+  olderRuns?(
+    owner: string,
+    threadId: string,
+    beforeMessageId: string,
+    options?: { limit?: number; untilMessageId?: string },
+  ): Promise<{ runs: BaseEvent[][]; more: boolean } | null>;
   /** v1.6 搜对话内容: the owner's messages holding the typed words, newest first (ChatStore). */
   searchMessages?(
     owner: string,
@@ -172,6 +180,9 @@ export interface RunControl {
 export interface LocalRunnerOptions {
   /** Identifies this process's locks; default randomUUID(). start() recovers locks left under it. */
   instanceId?: string;
+  /** v1.7 打开对话不重放整条历史: how many of the newest closed runs a connect replays (the rest
+   * load as the person scrolls up); default 40; 0 replays everything. */
+  replayRuns?: number;
   /** Lock heartbeat interval; default 5000. */
   heartbeatMs?: number;
   /** A lock without a heartbeat for this long is recovered; default 30000. */

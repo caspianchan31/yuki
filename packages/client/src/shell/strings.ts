@@ -905,6 +905,9 @@ const zh = {
     },
     working: (assistant: string) => `${assistant} 正在处理`,
     latest: "回到最新",
+    /** v1.7 打开对话不重放整条历史 */
+    loadOlder: "加载更早的对话",
+    loadingOlder: "正在加载更早的对话…",
     /** v1.6 聊天基础动作: what one can do with a message. */
     actions: {
       copy: "复制",
@@ -957,6 +960,16 @@ const zh = {
     transportRetrying: "聊天服务暂时连不上，我在重试。",
     /** 重新回复 refused because another reply still holds the conversation. */
     threadBusy: "上一条回复还没结束，等它结束再点重新回复。",
+    /** v1.7 出错时页面直说: the model's own failures, in plain words. */
+    modelQuota: (reset: string | null) =>
+      reset
+        ? `主模型的额度用完了，${reset} 才重置；配了备用模型的话下一条会自动改用它。`
+        : "主模型的额度用完了；配了备用模型的话下一条会自动改用它。",
+    modelKeyRefused: "主模型拒绝了钥匙（钥匙错了、过期或被收回），去设置里检查模型钥匙。",
+    desktopDown: "成员电脑的桌面没起来，去「电脑」页重新启动一次；再不行看服务器上的电脑容器日志。",
+    /** v1.7 模型兜底: the line above the composer while the backup model answers. */
+    backupBanner: (reason: "quota" | "auth" | "outage", model: string, until: string | null) =>
+      `主模型${reason === "quota" ? "额度用完" : reason === "auth" ? "拒绝了钥匙" : "不通"}，正在用备用模型 ${model}${until ? `，${until} 再试主模型` : ""}。`,
     /** Without rich threads (no conversation list): the latest results under the chat. */
     recentResults: "最近结果",
     hideRecentResults: "收起最近结果",

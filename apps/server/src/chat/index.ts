@@ -40,6 +40,10 @@ export async function createLocalChat(input: {
     // Embedded PGlite (no DATABASE_URL) runs inside this process only, so a lock found at startup
     // is a reply the previous process left unfinished: it is recovered at once.
     exclusive: !input.databaseUrl,
+    // v1.7 打开对话不重放整条历史: CHAT_REPLAY_RUNS (default 40, 0 = everything).
+    ...(process.env.CHAT_REPLAY_RUNS?.trim()
+      ? { replayRuns: Math.max(0, Number(process.env.CHAT_REPLAY_RUNS) || 0) }
+      : {}),
     ...input.runner,
   });
   await runner.start();

@@ -586,6 +586,72 @@ export function useChatSession({
   const severalMembers = spaces.members >= 2 || new Set(Object.values(speakers)).size >= 2;
   const userMessages = messages.filter((m) => m.role === "user").length;
   const settling = busy || agent.isRunning;
+  // v1.7 打开对话不重放整条历史: the connect replays only the newest runs; whether older ones exist
+  // is asked once the replay is over, and they are loaded a page at a time (or back to one
+  // message, for a jump from the search) and put in front of what the agent holds.
+  const [older, setOlder] = useState<{ thread: string; more: boolean | null; loading: boolean }>({
+    thread: "",
+    more: null,
+    loading: false,
+  });
+  const olderLoading = useRef(false);
+  const firstMessageId = messages[0]?.id ?? null;
+  const olderKnown = older.thread === threadId && older.more !== null;
+  useEffect(() => {
+    if (!richThreads || !loaded || syncing || !firstMessageId || olderKnown) return;
+    let live = true;
+    api
+      .request<{ messages: unknown[]; more: boolean }>(
+        `/api/copilotkit/threads/${encodeURIComponent(threadId)}/older?before=${encodeURIComponent(firstMessageId)}&limit=1`,
+      )
+      .then((page) => {
+        if (live)
+          setOlder({
+            thread: threadId,
+            more: page.messages.length > 0 || page.more,
+            loading: false,
+          });
+      })
+      .catch(() => {
+        if (live) setOlder({ thread: threadId, more: false, loading: false });
+      });
+    return () => {
+      live = false;
+    };
+  }, [richThreads, loaded, syncing, firstMessageId, olderKnown, threadId, api]);
+  const loadOlder = useCallback(
+    async (until?: string): Promise<number> => {
+      const first = agent.messages?.[0]?.id;
+      if (!richThreads || !first || olderLoading.current || agent.isRunning) return 0;
+      olderLoading.current = true;
+      setOlder((held) => ({
+        thread: threadId,
+        more: held.thread === threadId ? held.more : null,
+        loading: true,
+      }));
+      try {
+        const page = await api.request<{ messages: Message[]; more: boolean }>(
+          `/api/copilotkit/threads/${encodeURIComponent(threadId)}/older?before=${encodeURIComponent(first)}${
+            until ? `&until=${encodeURIComponent(until)}` : "&limit=20"
+          }`,
+        );
+        if (page.messages.length) agent.setMessages([...page.messages, ...(agent.messages ?? [])]);
+        setOlder({ thread: threadId, more: page.more, loading: false });
+        return page.messages.length;
+      } catch {
+        setOlder((held) => ({
+          thread: threadId,
+          more: held.thread === threadId ? held.more : null,
+          loading: false,
+        }));
+        return 0;
+      } finally {
+        olderLoading.current = false;
+      }
+    },
+    [agent, api, richThreads, threadId],
+  );
+  const olderHere = older.thread === threadId ? older : null;
   const sharedSpace = spaces.shared;
   useEffect(() => {
     if (!sharedSpace || !richThreads || !loaded || settling || !userMessages) return;
@@ -618,8 +684,10 @@ export function useChatSession({
     return messages.some((m) => m.role === "user" && !recorded.has(m.id));
   }, [turnsHere, messages]);
   const turnsKey = unrecorded ? messages.length : 0;
+  // v1.7 启动链瘦身: not while the history is still replaying (`syncing`): the messages arrive
+  // in pieces and each piece re-ran these reads.
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded || syncing) return;
     if (!richThreads || !userMessages) {
       setTurnTimes({ thread: threadId, turns: null });
       return;
@@ -639,7 +707,7 @@ export function useChatSession({
     return () => {
       live = false;
     };
-  }, [richThreads, loaded, settling, userMessages, turnsKey, threadId, api]);
+  }, [richThreads, loaded, syncing, settling, userMessages, turnsKey, threadId, api]);
   const moments = useMemo(
     () => (turnsHere ? messageMoments(messages, turnsHere.turns) : null),
     [turnsHere, messages],
@@ -657,7 +725,7 @@ export function useChatSession({
   }>({ thread: "", given: {} });
   const [backVersion, setBackVersion] = useState(0);
   useEffect(() => {
-    if (!richThreads || !loaded || !userMessages) return;
+    if (!richThreads || !loaded || syncing || !userMessages) return;
     let live = true;
     api
       .request<unknown>(`/api/copilotkit/threads/${encodeURIComponent(threadId)}/superseded`)
@@ -668,9 +736,9 @@ export function useChatSession({
     return () => {
       live = false;
     };
-  }, [richThreads, loaded, settling, userMessages, backVersion, threadId, api]);
+  }, [richThreads, loaded, syncing, settling, userMessages, backVersion, threadId, api]);
   useEffect(() => {
-    if (!richThreads || !loaded || !userMessages) return;
+    if (!richThreads || !loaded || syncing || !userMessages) return;
     let live = true;
     api
       .request<unknown>(`/api/copilotkit/threads/${encodeURIComponent(threadId)}/feedback`)
@@ -681,7 +749,7 @@ export function useChatSession({
     return () => {
       live = false;
     };
-  }, [richThreads, loaded, userMessages, backVersion, threadId, api]);
+  }, [richThreads, loaded, syncing, userMessages, backVersion, threadId, api]);
   const superseded = useMemo(
     () =>
       supersededPlacement(
@@ -1067,6 +1135,8 @@ export function useChatSession({
     transcript,
     grouped,
     turns,
+    /** v1.7: older messages not loaded yet (`more`: null until known), and how to load them. */
+    older: { more: olderHere?.more ?? null, loading: olderHere?.loading ?? false, load: loadOlder },
     /** Each item's moment, for the need cards placed among them (guide-state `usePendingGuides`). */
     timeline,
     latestNeeds,

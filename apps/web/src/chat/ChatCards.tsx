@@ -10,7 +10,7 @@
  *   JobToolCard        create_job / assign_job / update_job / close_job in the capybara's words
  *   ProjectToolCard    create_project (the hall): the project made, and the way to it
  */
-import { useAgentWorkspace } from "@m/agent-workspace";
+import { useAgentFetchedAt } from "@m/agent-workspace";
 import { useProjects } from "@m/projects-state";
 import { type ControlAction, useTaskActions } from "@m/shell/actions";
 import {
@@ -104,7 +104,7 @@ export function TaskCard({
  * task still lacks it, 「这个任务已经不在了」. The card never reads the list itself. */
 export function DelegatedTaskCard({ result, loading }: { result: unknown; loading: boolean }) {
   const { entryById, accountById } = useShellData();
-  const { fetchedAt } = useAgentWorkspace();
+  const fetchedAt = useAgentFetchedAt();
   const ref = toolResultRef(result);
   const entry = ref.id ? entryById.get(ref.id) : undefined;
   // When this card first looked for its task and did not find it.

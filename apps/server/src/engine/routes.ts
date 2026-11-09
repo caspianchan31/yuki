@@ -31,6 +31,11 @@ const goalPatchSchema = z.object({
 export function agentRoutes(service: AgentService): Hono<{ Variables: { owner: string } }> {
   const app = new Hono<{ Variables: { owner: string } }>();
   app.get("/", async (c) => c.json(await service.snapshot(c.get("owner"))));
+  // v1.7 启动链瘦身: what the roster needs of another project's tasks (their routine bucket),
+  // instead of that project's whole snapshot.
+  app.get("/routines", async (c) => c.json({ tasks: await service.routineRows(c.get("owner")) }));
+  // v1.7 模型兜底 / 出错时页面直说: which model answers now, and whether the backup is in force.
+  app.get("/model", (c) => c.json(service.modelState()));
   app.post("/tasks", async (c) => {
     // `typed` says the person typed the prompt (the new-task form); it is
     // not part of createTaskSchema, so the chat's delegate_task can never claim it.

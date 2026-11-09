@@ -347,6 +347,7 @@ test("DESKTOP_URL connects a computer, needs its token, and nothing is connected
       token: undefined,
       tokenFile: "/secrets/token",
       idleMinutes: 15,
+      waitSeconds: 0,
     });
     set({
       DESKTOP_URL: "http://localhost:7070/",

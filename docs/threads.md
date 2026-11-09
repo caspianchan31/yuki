@@ -118,6 +118,25 @@ the current main chat, restart), `tests/cloud-migration.test.ts` (a fake cloud t
 Intelligence client: pages, archived, unlisted ids, partial failure, ordering, idempotence,
 counts, the start-up decision).
 
+## Opening a long conversation (v1.7 打开对话不重放整条历史)
+
+A connect used to replay every event of the thread, so a conversation used for months took as
+long to open as it was long (a 25 000-event thread: a 3.3 MB stream and 30 seconds, then every
+message drawn). Now `LocalAgentRunner` replays only the newest `replayRuns` closed runs (40 by
+default; `CHAT_REPLAY_RUNS`, 0 for everything): `ChatStore.connectHistory(threadId, excludeRunId,
+{ lastRuns })` reads them in one statement, newest first and limited, then in order. The older
+runs come through `GET /api/copilotkit/threads/:id/older?before=<messageId>&limit=<runs>`: the
+closed runs before the one whose `message_ids` holds `before`, oldest first, `limit` of them (20
+by default) as the agent's messages (`messagesFromEvents`), with `more` saying whether older runs
+remain; `&until=<messageId>` instead returns every run back to the one that brought that message
+in, for a jump from the search to a message not loaded yet. The client (`chat-state`'s `older`)
+asks once after the replay whether anything older exists (`limit=1`), the chat shows 加载更早的对话
+at the top, loads the next page when the person has scrolled up to it, and keeps the view where
+it was (the distance from the bottom is restored once the earlier messages are drawn). The model's
+history is the server's as before (`ChatStore.history`), never the client's partial copy. Tests:
+`tests/chat-store.test.ts` (the limited replay, the pages, `until`, the anchors), and the staging
+check `workflows/acceptance/history-e2e.mjs`.
+
 ## Going back on a conversation (v1.6 聊天基础动作)
 
 The journal is append-only, so 编辑再发 and 重答 never delete a run. `POST

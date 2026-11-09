@@ -346,6 +346,7 @@ test("a refused or failed request reads in plain Chinese, never the raw English 
     chatErrorText({
       error: new Error("429 insufficient_quota: check your plan and billing details"),
     }),
-    "429 insufficient_quota: check your plan and billing details",
+    // v1.7 出错时页面直说: the provider's quota line reads in plain words now
+    "主模型的额度用完了；配了备用模型的话下一条会自动改用它。",
   );
 });

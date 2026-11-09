@@ -123,6 +123,9 @@ export interface DesktopConfig {
   tokenFile?: string;
   /** Minutes without use before the desktop session pauses (DESKTOP_IDLE_MINUTES, default 15). */
   idleMinutes: number;
+  /** v1.7 抢电脑的规则: how long a chat reply waits for the desktop another run holds before it
+   * gives up with the one-sentence refusal (DESKTOP_WAIT_SECONDS, default 0: no wait, as before). */
+  waitSeconds: number;
 }
 
 /** Pinned so live rankings do not shift when TypeSafe moves the `jev-latest` alias. */
@@ -169,6 +172,9 @@ export function readConfig(): Config {
     !(/^\d+$/.test(desktopIdle) && Number(desktopIdle) >= 1 && Number(desktopIdle) <= 1440)
   )
     throw new Error("DESKTOP_IDLE_MINUTES must be a whole number from 1 to 1440");
+  const desktopWait = process.env.DESKTOP_WAIT_SECONDS?.trim();
+  if (desktopWait && !(/^\d+$/.test(desktopWait) && Number(desktopWait) <= 600))
+    throw new Error("DESKTOP_WAIT_SECONDS must be a whole number from 0 to 600");
   const maxSteps = process.env.AGENT_MAX_STEPS?.trim();
   if (maxSteps && !(/^\d+$/.test(maxSteps) && Number(maxSteps) >= 1 && Number(maxSteps) <= 1000))
     throw new Error("AGENT_MAX_STEPS must be a whole number from 1 to 1000");
@@ -250,6 +256,7 @@ export function readConfig(): Config {
           token: desktopToken,
           tokenFile: desktopTokenFile,
           idleMinutes: desktopIdle ? Number(desktopIdle) : 15,
+          waitSeconds: desktopWait ? Number(desktopWait) : 0,
         }
       : undefined,
     webDir: process.env.WEB_DIR?.trim() ? resolve(process.env.WEB_DIR.trim()) : undefined,

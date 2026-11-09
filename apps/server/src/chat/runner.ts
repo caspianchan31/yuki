@@ -149,7 +149,10 @@ export class LocalAgentRunner extends AgentRunner implements RunControl {
     this.staleAfterMs = options.staleAfterMs ?? 30000;
     this.sweepMs = options.sweepMs ?? 15000;
     this.flushMs = options.flushMs ?? 250;
+    this.replayRuns = options.replayRuns ?? 40;
   }
+  /** v1.7 打开对话不重放整条历史: the newest closed runs a connect replays (0: all). */
+  readonly replayRuns: number;
 
   // ---- AgentRunner ----
 
@@ -702,7 +705,9 @@ export class LocalAgentRunner extends AgentRunner implements RunControl {
       for (let read = 1; ; read++) {
         const begins = watch.begins;
         const live = this.active.get(threadId);
-        const history = await this.store.connectHistory(threadId, live?.runId);
+        const history = await this.store.connectHistory(threadId, live?.runId, {
+          lastRuns: this.replayRuns,
+        });
         const beginning = this.beginning.get(threadId);
         if (watch.begins === begins && !beginning) return { live, history };
         if (read >= this.historyReadLimit)

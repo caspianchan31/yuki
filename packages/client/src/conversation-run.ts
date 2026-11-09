@@ -1,4 +1,8 @@
-import { stoppedByInfrastructure } from "../../../packages/domain/src/agent";
+import {
+  desktopDownPattern,
+  modelFailureKind,
+  stoppedByInfrastructure,
+} from "../../../packages/domain/src/agent";
 import { t } from "./shell/strings";
 
 type RunError = { error: unknown; code?: string; context?: { agentId?: string } };
@@ -112,10 +116,16 @@ export function chatErrorText(event: Pick<RunError, "error" | "code">): string {
     return httpStatus(event.error) === 429 ? t.chat.tooManyRequests : t.chat.transportFailed;
   if (kind === "locked") return t.chat.threadBusy;
   const message = event.error instanceof Error ? event.error.message : String(event.error);
+  // v1.7 出错时页面直说: the model's own failures and the desktop not starting read in plain words
+  // (what happened, and what one can do), never the provider's English line.
+  const failure = modelFailureKind(message);
+  if (failure === "quota") return t.chat.modelQuota(localTime(statedReset(message)));
+  if (failure === "auth") return t.chat.modelKeyRefused;
+  if (desktopDownPattern.test(message)) return t.chat.desktopDown;
   // What the
   // infrastructure stopped (the server already tried the reply once more) reads in Chinese; the
   // model's or the server's own words (already Chinese, or the person's to read) stay.
-  return stoppedByInfrastructure(message) ? t.chat.serviceFailed : message;
+  return failure === "outage" || stoppedByInfrastructure(message) ? t.chat.serviceFailed : message;
 }
 
 /** `chatErrorText` for an error a turn threw (a `ConversationTurnError` carries its code). */
@@ -221,4 +231,25 @@ export async function runConversationTurn(
     subscription.unsubscribe();
     lock?.unsubscribe();
   }
+}
+
+/** An ISO time as the person reads it (local clock, 24 h), or null. */
+export function localTime(iso: string | null): string | null {
+  if (!iso) return null;
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return null;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${at.getMonth() + 1}月${at.getDate()}日 ${pad(at.getHours())}:${pad(at.getMinutes())}`;
+}
+
+/** The reset time a provider's quota line states (`reset at 2026-11-26 23:59:59 +0800`), as ISO;
+ * null when it states none. For the words only: whether to trust it is the server's business. */
+export function statedReset(detail: string): string | null {
+  const said =
+    /\breset(?:s)? at (\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2}) ?([+-]\d{2}):?(\d{2})/i.exec(
+      detail,
+    );
+  if (!said) return null;
+  const at = Date.parse(`${said[1]}T${said[2]}${said[3]}:${said[4]}`);
+  return Number.isNaN(at) ? null : new Date(at).toISOString();
 }

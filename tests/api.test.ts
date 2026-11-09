@@ -186,7 +186,14 @@ test("sample workspace serves a real PDF and filling creates a new version", asy
   assert.equal(response.status, 200);
   const workspace: Workspace = await response.json();
   assert.equal(workspace.mode, "sample");
-  assert.equal(workspace.mail.length, 4);
+  // v1.7 启动链瘦身: the default snapshot is light (no mail, calendar or activity: nothing on
+  // screen reads them and the mail is a round trip); ?full=1 reads everything as before.
+  assert.equal(workspace.mail.length, 0);
+  assert.equal(workspace.activity.length, 0);
+  const everything: Workspace = await (
+    await app.request("/api/workspace?full=1", { headers: headers() })
+  ).json();
+  assert.equal(everything.mail.length, 4);
   const original = workspace.files[0];
   assert.equal(original.pageCount, 2);
   const signed = await app.request(original.url);

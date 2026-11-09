@@ -951,19 +951,27 @@ export class ChatStore implements ThreadStore {
    * (whichever instance holds it). excludeRunId (the live run the caller tails) is left out of both.
    * Two statements could miss a run that another process saves between them.
    */
-  async connectHistory(threadId: string, excludeRunId?: string): Promise<ConnectHistory> {
+  async connectHistory(
+    threadId: string,
+    excludeRunId?: string,
+    options: { lastRuns?: number } = {},
+  ): Promise<ConnectHistory> {
+    // v1.7 打开对话不重放整条历史: only the newest `lastRuns` closed runs (null: all of them); the
+    // older ones come through olderRuns() as the person scrolls up.
+    const limit = options.lastRuns && options.lastRuns > 0 ? Math.floor(options.lastRuns) : null;
     const rows = await this.sql<{ events: BaseEvent[] | null; journal: BaseEvent[] | null }>(
-      `/* chat:connect-history */ SELECT r.events, NULL::jsonb AS journal, r.position
+      `/* chat:connect-history */ (SELECT r.events, NULL::jsonb AS journal, r.position
       FROM chat_runs r
       WHERE r.thread_id=$1 AND ${live} AND ($2::text IS NULL OR r.run_id<>$2)
+      ORDER BY r.position DESC LIMIT $3)
       UNION ALL
-      SELECT NULL, coalesce((
+      (SELECT NULL, coalesce((
         SELECT jsonb_agg(e.event ORDER BY e.seq) FROM chat_events e WHERE e.run_id=r.run_id
       ), '[]'::jsonb), NULL
       FROM chat_threads t JOIN chat_runs r ON r.run_id=t.run_id AND r.status='running'
-      WHERE t.id=$1 AND ($2::text IS NULL OR r.run_id<>$2)
+      WHERE t.id=$1 AND ($2::text IS NULL OR r.run_id<>$2))
       ORDER BY position NULLS LAST`,
-      [threadId, excludeRunId ?? null],
+      [threadId, excludeRunId ?? null, limit],
     );
     const closed: BaseEvent[][] = [];
     let running: BaseEvent[] | null = null;
@@ -972,6 +980,53 @@ export class ChatStore implements ThreadStore {
       else if (row.events) closed.push(row.events);
     }
     return { closed, running };
+  }
+
+  /**
+   * v1.7 打开对话不重放整条历史: the closed runs before the one that brought `beforeMessageId` in,
+   * oldest first: the newest `limit` of them, or, with `untilMessageId`, every run back to (and
+   * including) the one that brought that message in. `more` says whether older runs remain.
+   * null when the thread is missing, another owner's, or the message is in no live run of it.
+   */
+  async olderRuns(
+    owner: string,
+    threadId: string,
+    beforeMessageId: string,
+    options: { limit?: number; untilMessageId?: string } = {},
+  ): Promise<{ runs: BaseEvent[][]; more: boolean } | null> {
+    const limit = options.untilMessageId
+      ? null
+      : Math.max(1, Math.min(200, Math.floor(options.limit ?? 20)));
+    const rows = await this.sql<{
+      found: number;
+      runs: BaseEvent[][] | null;
+      remaining: number;
+    }>(
+      `/* chat:older-runs */ WITH target AS (
+        SELECT id FROM chat_threads WHERE id=$1 AND owner=$2
+      ), anchor AS (
+        SELECT min(r.position) AS position FROM chat_runs r, target
+        WHERE r.thread_id=target.id AND ${live} AND r.message_ids ? $3
+      ), floor_run AS (
+        SELECT min(r.position) AS position FROM chat_runs r, target
+        WHERE r.thread_id=target.id AND ${live} AND $5::text IS NOT NULL AND r.message_ids ? $5
+      ), page AS (
+        SELECT r.events, r.position FROM chat_runs r, target, anchor, floor_run
+        WHERE r.thread_id=target.id AND ${live} AND r.position < anchor.position
+          AND ($5::text IS NULL OR floor_run.position IS NULL OR r.position >= floor_run.position)
+        ORDER BY r.position DESC LIMIT $4
+      )
+      SELECT (SELECT count(*)::int FROM anchor WHERE position IS NOT NULL) AS found,
+        (SELECT jsonb_agg(p.events ORDER BY p.position) FROM page p) AS runs,
+        (SELECT count(*)::int FROM chat_runs r, target, anchor
+          WHERE r.thread_id=target.id AND ${live} AND r.position < anchor.position
+            AND r.position < coalesce((SELECT min(p.position) FROM page p), anchor.position)
+        ) AS remaining`,
+      [threadId, owner, beforeMessageId, limit, options.untilMessageId ?? null],
+    );
+    const row = rows[0];
+    if (!row || !row.found) return null;
+    return { runs: row.runs ?? [], more: row.remaining > 0 };
   }
 
   /**
