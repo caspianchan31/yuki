@@ -77,6 +77,42 @@ class Token(unittest.TestCase):
             del os.environ["DESKTOP_TOKEN"]
 
 
+class BrowserLocks(unittest.TestCase):
+    """v1.6.1: the stale singleton locks a replaced container leaves in the profile are removed
+    before the browser starts, and nothing else in the profile is touched."""
+
+    def setUp(self):
+        self.profile = os.path.join(WORKSPACE, ".config", "yuki-browser")
+        shutil.rmtree(self.profile, ignore_errors=True)
+
+    def test_stale_locks_go_and_the_rest_stays(self):
+        os.makedirs(os.path.join(self.profile, "Default"))
+        os.symlink("5e1b04a38932-59878", os.path.join(self.profile, "SingletonLock"))
+        os.symlink("/tmp/org.chromium.Chromium.x/SingletonSocket", os.path.join(self.profile, "SingletonSocket"))
+        os.symlink("17913942725093670622", os.path.join(self.profile, "SingletonCookie"))
+        with open(os.path.join(self.profile, "Default", "Preferences"), "w") as target:
+            target.write("{}")
+        desktopd.clear_browser_locks()
+        for name in ("SingletonLock", "SingletonSocket", "SingletonCookie"):
+            self.assertFalse(os.path.lexists(os.path.join(self.profile, name)), name)
+        self.assertTrue(os.path.exists(os.path.join(self.profile, "Default", "Preferences")))
+
+    def test_no_profile_yet_is_fine(self):
+        desktopd.clear_browser_locks()
+        self.assertFalse(os.path.exists(self.profile))
+
+    def test_start_clears_them_right_before_the_browser(self):
+        # With the session off start() refuses before it gets there, so the order is read off the
+        # source: the locks go, the profile is marked closed cleanly, then the browser is spawned.
+        with open(os.path.join(HERE, "desktopd.py"), encoding="utf-8") as source:
+            text = source.read()
+        a = text.index("clear_browser_locks()\n", text.index("def start("))
+        b = text.index("mark_browser_closed_cleanly()", a)
+        c = text.index('self.spawn(browser_argv(["about:blank"]), "browser")', b)
+        self.assertLess(a, b)
+        self.assertLess(b, c)
+
+
 class Commands(unittest.TestCase):
     def test_inside_workspace_only(self):
         os.makedirs(os.path.join(WORKSPACE, "sub"), exist_ok=True)

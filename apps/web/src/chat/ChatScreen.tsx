@@ -22,6 +22,7 @@ import { isComposingKey } from "@m/ime";
 import { useProjects } from "@m/projects-state";
 import { normalizeAccountOperating } from "@m/shell/accounts/operating-core";
 import { latestNeedReportIds } from "@m/shell/chat/core";
+import { scrollIntent } from "@m/shell/chat/follow-latest";
 import { type GroupTurn, inGroupChat } from "@m/shell/chat/group-core";
 import { routineCreatedLine } from "@m/shell/chat/handoff";
 import {
@@ -315,6 +316,51 @@ function Conversation({
   const input = useRef<HTMLTextAreaElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const column = useRef<HTMLDivElement>(null);
+  // v1.6.1: where the follower last put the scroll, so its own scroll event is not read as the
+  // person leaving the end (the content keeps growing during a history replay).
+  const programmaticTop = useRef<number | null>(null);
+  // Only a gesture of the person's (wheel, touch, a scrollbar drag, a paging key) may stop the
+  // following: the browser moves the scroll by itself too (scroll anchoring while a block above
+  // changes height), and that is nobody leaving.
+  const gesture = useRef(false);
+  const dragging = useRef(false);
+  const gestureTimer = useRef<number | undefined>(undefined);
+  const noteGesture = useCallback(() => {
+    gesture.current = true;
+    window.clearTimeout(gestureTimer.current);
+    gestureTimer.current = window.setTimeout(() => {
+      gesture.current = false;
+    }, 400);
+  }, []);
+  useEffect(() => {
+    const scroller = list.current;
+    if (!scroller) return;
+    const down = () => {
+      dragging.current = true;
+    };
+    const up = () => {
+      dragging.current = false;
+    };
+    const keys = (e: KeyboardEvent) => {
+      if (["PageUp", "PageDown", "ArrowUp", "ArrowDown", "Home", "End"].includes(e.key))
+        noteGesture();
+    };
+    scroller.addEventListener("wheel", noteGesture, { passive: true });
+    scroller.addEventListener("touchmove", noteGesture, { passive: true });
+    scroller.addEventListener("pointerdown", down);
+    scroller.addEventListener("keydown", keys);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    return () => {
+      scroller.removeEventListener("wheel", noteGesture);
+      scroller.removeEventListener("touchmove", noteGesture);
+      scroller.removeEventListener("pointerdown", down);
+      scroller.removeEventListener("keydown", keys);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      window.clearTimeout(gestureTimer.current);
+    };
+  }, [noteGesture]);
   const {
     agent,
     isReady,
@@ -388,7 +434,9 @@ function Conversation({
     const content = column.current;
     if (!scroller || !content) return;
     const follow = () => {
-      if (active && hasItems && followLatest.current) scroller.scrollTop = scroller.scrollHeight;
+      if (!active || !hasItems || !followLatest.current) return;
+      scroller.scrollTop = scroller.scrollHeight;
+      programmaticTop.current = scroller.scrollTop;
     };
     follow();
     const observer = new ResizeObserver(follow);
@@ -412,10 +460,14 @@ function Conversation({
           className="content"
           ref={list}
           onScroll={(e) => {
-            const el = e.currentTarget;
-            const nearEnd = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
-            followLatest.current = nearEnd;
-            setAwayFromLatest(transcript.length > 0 && !nearEnd);
+            const intent = scrollIntent(e.currentTarget, programmaticTop.current);
+            if (intent === "near") {
+              followLatest.current = true;
+              setAwayFromLatest(false);
+            } else if (intent === "away" && (gesture.current || dragging.current)) {
+              followLatest.current = false;
+              setAwayFromLatest(transcript.length > 0);
+            }
           }}
         >
           <div className="col" ref={column}>

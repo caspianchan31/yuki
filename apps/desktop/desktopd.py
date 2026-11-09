@@ -352,6 +352,7 @@ class Session:
                 ["websockify", "--web", NOVNC, "--token-plugin", "TokenFile", "--token-source", tokens_path, f"0.0.0.0:{LIVE_PORT}"],
                 "live",
             )
+            clear_browser_locks()
             mark_browser_closed_cleanly()
             self.spawn(browser_argv(["about:blank"]), "browser")
             if not wait_for(devtools_ready, 30):
@@ -452,6 +453,23 @@ def mark_browser_closed_cleanly() -> None:
             json.dump(prefs, target)
     except OSError:
         pass
+
+
+def clear_browser_locks() -> None:
+    """The browser's profile lives in /workspace, which outlives this container; the browser does
+    not. When the container is replaced (an update, a restart) with the browser running, the
+    profile keeps its singleton lock, named after the old container and process, and the next
+    browser refuses the profile as "in use on another computer" and never starts (v1.6.1). Only a
+    browser this daemon spawned uses the profile, and none is running when the desktop starts, so
+    the locks left in it are stale and go. A profile that is not there yet is fine."""
+    folder = os.path.join(WORKSPACE, ".config", "yuki-browser")
+    for name in ("SingletonLock", "SingletonSocket", "SingletonCookie"):
+        try:
+            os.unlink(os.path.join(folder, name))
+        except FileNotFoundError:
+            pass
+        except OSError as error:
+            log(f"could not remove the browser's stale {name}: {error}")
 
 
 def browser_argv(urls: list) -> list:
