@@ -96,6 +96,9 @@ importers:
       '@types/mailparser':
         specifier: ^3.9.0
         version: 3.9.0
+      '@types/markdown-it':
+        specifier: 14.1.2
+        version: 14.1.2
       '@types/node':
         specifier: ^24.0.0
         version: 24.13.4
@@ -108,6 +111,9 @@ importers:
       ajv:
         specifier: 8.20.0
         version: 8.20.0
+      markdown-it:
+        specifier: 14.1.0
+        version: 14.1.0
       tsx:
         specifier: ^4.20.0
         version: 4.23.13

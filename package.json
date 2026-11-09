@@ -57,10 +57,12 @@
     "@copilotkit/aimock": "1.42.0",
     "@copilotkit/core": "1.70.1",
     "@types/mailparser": "^3.9.0",
+    "@types/markdown-it": "14.1.2",
     "@types/node": "^24.0.0",
     "@types/nodemailer": "^8.0.2",
     "@types/pg": "^8.15.5",
     "ajv": "8.20.0",
+    "markdown-it": "14.1.0",
     "tsx": "^4.20.0",
     "typescript": "~5.9.2"
   }
