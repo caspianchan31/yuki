@@ -18,6 +18,8 @@ export interface PaletteItem {
   key: string;
   group: PaletteGroup;
   label: string;
+  /** v1.6 搜对话内容: the label with the words found marked (a search hit). */
+  parts?: { before: string; match: string; after: string };
   hint?: string;
   run: () => void;
 }

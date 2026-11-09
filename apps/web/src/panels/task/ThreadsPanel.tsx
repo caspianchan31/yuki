@@ -8,12 +8,15 @@
  */
 
 import { useThreads } from "@copilotkit/react-native/headless";
+import { activeSpaceId } from "@m/api-client";
 import { rememberThreads, sideThreadRows, type ThreadRowModel } from "@m/shell/frame/thread-rows";
 import { useProjectTitle } from "@m/shell/store-space";
 import { t } from "@m/shell/strings";
 import { useMuseThread } from "@m/threads-state";
-import { Archive, ArchiveRestore, Pencil, Plus, RotateCcw } from "lucide-react";
+import { useWorkspace } from "@m/workspace";
+import { Archive, ArchiveRestore, Pencil, Play, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { base } from "../../base";
 import { Btn, ErrorLine, Field, Sheet, Skeleton } from "../../ui/primitives";
 import type { PanelProps } from "../types";
 import { errorText, OptionRow } from "./parts";
@@ -55,13 +58,30 @@ export function ThreadsPanel({ onClose }: PanelProps<"threads">) {
       setError(`${t.common.errorPrefix}${errorText(e)}`);
     }
   }
+  // v1.6 回顾: the player opens in a new tab, scoped like this chat (project and space).
+  const { api } = useWorkspace();
+  const openReplay = (id: string) => {
+    const query = new URLSearchParams();
+    if (api.projectId) query.set("p", api.projectId);
+    const space = activeSpaceId();
+    if (space) query.set("s", space);
+    const suffix = query.toString();
+    window.open(`${base}replay/${encodeURIComponent(id)}${suffix ? `?${suffix}` : ""}`, "_blank");
+  };
   const mainRow = (
-    <OptionRow
-      title={t.threads.main}
-      detail={t.threads.mainHint(projectName)}
-      selected={selection.id === mainId}
-      onClick={() => open(mainId, true)}
-    />
+    <>
+      <OptionRow
+        title={t.threads.main}
+        detail={t.threads.mainHint(projectName)}
+        selected={selection.id === mainId}
+        onClick={() => open(mainId, true)}
+      />
+      <div className="row">
+        <Btn className="sm ghost" icon={Play} onClick={() => openReplay(mainId)}>
+          {t.threads.replay}
+        </Btn>
+      </div>
+    </>
   );
   // 开新主聊天, right under 主聊天. It opens the new main chat and a toast
   // says where the old one went.
@@ -205,6 +225,16 @@ export function ThreadsPanel({ onClose }: PanelProps<"threads">) {
                   row.archived ? threads.unarchiveThread(row.id) : threads.archiveThread(row.id),
                 )
               }
+              onReplay={() => openReplay(row.id)}
+              // v1.6 聊天基础动作: deleted for good, with its screenshots and files; the open one
+              // gives way to the main chat.
+              onDelete={() => {
+                if (!window.confirm(t.threads.deleteConfirm(row.label))) return;
+                void mutate(async () => {
+                  await threads.deleteThread(row.id);
+                  if (row.selected) open(mainId, true);
+                });
+              }}
             />
           ))}
           {!threads.isLoading && !threads.listError && !rows.length ? (
@@ -238,6 +268,8 @@ function SideRow({
   onRename,
   onCancelRename,
   onArchive,
+  onReplay,
+  onDelete,
 }: {
   row: ThreadRowModel;
   editing: boolean;
@@ -248,6 +280,8 @@ function SideRow({
   onRename: () => void;
   onCancelRename: () => void;
   onArchive: () => void;
+  onReplay: () => void;
+  onDelete: () => void;
 }) {
   return (
     <div className="tp-lines">
@@ -296,6 +330,22 @@ function SideRow({
               {row.archived ? t.threads.restore : t.threads.archive}
             </Btn>
           )}
+          {!editing ? (
+            <Btn className="sm ghost" icon={Play} disabled={busy} onClick={onReplay}>
+              {t.threads.replay}
+            </Btn>
+          ) : null}
+          {!editing ? (
+            <Btn
+              className="sm ghost"
+              icon={Trash2}
+              disabled={busy}
+              aria-label={`${t.threads.delete} ${row.label}`}
+              onClick={onDelete}
+            >
+              {t.threads.delete}
+            </Btn>
+          ) : null}
         </div>
       ) : null}
     </div>

@@ -1359,6 +1359,14 @@ td.hidden {
 .pal .opt .l:not(:last-child) {
   max-width: 70%;
 }
+/* v1.6 搜对话内容: the words found in a hit. */
+.pal .opt .l mark {
+  background: var(--accent-bg);
+  color: inherit;
+  font-weight: 600;
+  border-radius: 3px;
+  padding: 0 1px;
+}
 .pal .opt .h {
   flex: 0 1 auto;
   min-width: 0;
@@ -1957,5 +1965,149 @@ textarea.input {
   /* The drawer shows in the simple view too (the fold above hides the desktop sidebar only). */
   .app.simple .sidebar {
     opacity: 1;
+  }
+}
+
+/* v1.6 回顾: the player page (its own page, no sidebar), shared by the owner's view and a link. */
+.rp-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--fg);
+}
+.rp-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 20px 24px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.rp-head h1 {
+  margin: 2px 0 4px;
+  font-size: 20px;
+}
+.rp-kicker {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--fg3);
+  text-transform: uppercase;
+}
+.rp-card {
+  margin: 48px auto;
+  max-width: 520px;
+  padding: 24px;
+}
+.rp-stage {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 24px;
+}
+.rp-frame {
+  width: min(1100px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+}
+.rp-shot {
+  width: 100%;
+  max-height: 68vh;
+  object-fit: contain;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--bg2);
+}
+.rp-shot-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 240px;
+  color: var(--fg3);
+}
+.rp-caption {
+  font-size: 16px;
+  text-align: center;
+}
+.rp-pagetitle {
+  font-size: 13px;
+  margin-top: 4px;
+}
+.rp-who {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--bg2);
+  color: var(--fg3);
+  font-size: 12px;
+}
+.rp-text {
+  max-width: 760px;
+  padding: 24px 28px;
+  border-radius: 14px;
+  background: var(--bg2);
+  align-items: flex-start;
+}
+.rp-text p {
+  margin: 8px 0 0;
+  font-size: 18px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+.rp-person {
+  border-left: 4px solid var(--accent, #4b7bec);
+}
+.rp-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 24px 20px;
+  border-top: 1px solid var(--line);
+}
+.rp-speed {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 13px;
+  color: var(--fg3);
+}
+.rp-scrub {
+  flex: 1;
+  min-width: 160px;
+}
+.rp-pos {
+  font-variant-numeric: tabular-nums;
+}
+.rp-share {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.rp-link {
+  width: min(360px, 100%);
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg2);
+  color: var(--fg);
+}
+@media (max-width: 640px) {
+  .rp-head,
+  .rp-stage,
+  .rp-controls {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .rp-text p {
+    font-size: 16px;
   }
 }

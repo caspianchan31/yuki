@@ -128,6 +128,32 @@ the way everything else is. Email and Slack messages are drafts until you press 
 review applies to them as before; a member is told never to send, post, submit a form, sign in or
 buy anything from the computer unless you asked for that exact action.
 
+## The file page (v1.6)
+
+文件 in the roster (or ⌘K → 文件) opens the computer's `/workspace` as a folder tree. Two folders
+have a fixed meaning: `收到/` is where your uploads land and where members look for what you
+handed them; `成品/` is where members save what they deliver, and its newest files sit at the top
+of the page. Both are made when the desktop starts (and by the page if missing).
+
+- Markdown opens in an editor and saves in place; text and code are shown read-only; a picture
+  is shown; a PDF opens in the browser's reader; anything else is downloaded. 「让成员改」 puts
+  the file's path into the chat so you can say what to change.
+- 上传 (up to 10 MB a file), 新建文件夹, 重命名 and 删除 are on the page. Deleting moves the
+  file or folder into the recycle bin (`/workspace/.trash`, which members never see and no
+  file tool accepts as a path); 回收站 lists what is there with 找回 and 彻底删除, and entries
+  older than 30 days are cleared whenever the bin is read.
+- ⌘K → 找文件 (or just type a name) finds any folder or file on the computer by name and opens
+  the page there.
+
+The routes behind it, all under `/api/computer/files`: `GET ?path=`, `POST /read`, `/write`,
+`/mkdir` (since v1.5), and v1.6's `GET /tree`, `GET /download?path=[&inline=1]` (served with
+the type the name says; HTML and SVG as plain text), `POST /upload?path=` (the bytes as the
+body), `/rename {path, to}`, `/delete {path}`, `GET /trash`, `POST /restore {id}`,
+`/purge {id}`. The second tab of the page, 成员文件, is docs/member-files.md.
+
+A file sent in the chat (docs/chat-attachments.md) is also copied to `/workspace/收到/` when
+the computer is configured, so members find it there and the file page shows it.
+
 ## Limits to know
 
 - The computer is **one for the whole install**, shared by every member. Members who work at the

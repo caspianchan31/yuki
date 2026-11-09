@@ -65,6 +65,7 @@ docker compose cp yuki:/data/members ./members   # copy them out
 ## Changing them by hand
 
 - From the app: open a member's card (Yuki's: the profile button in the top bar of the main chat). 职责 shows the beginning of `AGENTS.md`, 记住的事 the beginning of `MEMORY.md`, and 笔记 lists the notes of the last 7 days. 打开 opens an editor with the whole file; 保存 writes it, and it says who changed it last.
+- From the file page (v1.6): 文件 in the roster → 成员文件 lists every member with her `AGENTS.md`, `MEMORY.md` and recent notes; each opens in the same editor, with a line saying what the file is.
 - On disk (open-source build): edit the `.md` files with any editor. The next turn reads what is there. Keep to the three names above; other files in the folder are ignored.
 
 A change you save while a run is going is read by her next turn, not the one already started.

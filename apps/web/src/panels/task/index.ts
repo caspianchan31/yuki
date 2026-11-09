@@ -6,6 +6,7 @@
  */
 
 import type { PanelRegistry } from "../types";
+import { FilesPanel } from "./FilesPanel";
 import { NewTaskPanel } from "./NewTaskForm";
 import { NotesPanel } from "./NotesPanel";
 import { ProjectsPanel } from "./ProjectsPanel";
@@ -21,6 +22,7 @@ export const taskPanels: PanelRegistry = {
   notes: NotesPanel,
   projects: ProjectsPanel,
   threads: ThreadsPanel,
+  files: FilesPanel,
 };
 
 export { BriefBox } from "./NotesPanel";

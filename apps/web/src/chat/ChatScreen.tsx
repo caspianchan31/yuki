@@ -7,6 +7,8 @@
  * the bottom. Reports, questions and failures of the tasks stay in the timeline.
  */
 
+import { assistantMarkdown } from "@m/assistant-markdown";
+import { useAuth } from "@m/auth-state";
 import { isHandoffNotice } from "@m/chat-reports-core";
 import { ReportsModelContext } from "@m/chat-reports-state";
 import {
@@ -16,6 +18,7 @@ import {
   type ChatToolMessage as ToolMessage,
   useChatSession,
 } from "@m/chat-state";
+import { isComposingKey } from "@m/ime";
 import { useProjects } from "@m/projects-state";
 import { normalizeAccountOperating } from "@m/shell/accounts/operating-core";
 import { latestNeedReportIds } from "@m/shell/chat/core";
@@ -28,6 +31,7 @@ import {
 } from "@m/shell/chat/member-desktop";
 import { memberConversationId } from "@m/shell/chat/member-thread";
 import { splitToolCalls } from "@m/shell/chat/reply-core";
+import type { SupersededSegment } from "@m/shell/chat/superseded-core";
 import { useShellData } from "@m/shell/data";
 import {
   appsToConnect,
@@ -44,13 +48,30 @@ import { phaseWords, t } from "@m/shell/strings";
 import { ThreadEnvironmentProvider, useThreadEnvironment } from "@m/thread-environment";
 import type { Selection } from "@m/threads-state";
 import { useWorkspace } from "@m/workspace";
-import { ArrowDown, RotateCcw } from "lucide-react";
+import {
+  ArrowDown,
+  Check,
+  Copy,
+  Pencil,
+  RotateCcw,
+  Send,
+  ThumbsDown,
+  ThumbsUp,
+} from "lucide-react";
 import { Fragment, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import {
+  attachmentsOf,
+  deliveredPaths,
+  generatedImages,
+  messageText as rawMessageText,
+} from "../../../../packages/domain/src/chat-attachments";
 import { clockLabel } from "../../../../packages/domain/src/task-phase";
 import { useAccountZone } from "../account-zone";
-import { useFrame } from "../shell/state";
+import { setFrame, useFrame } from "../shell/state";
+import { copyToClipboard } from "../ui/clipboard";
 import { Markdown } from "../ui/Markdown";
 import { Btn, ErrorLine, Skeleton } from "../ui/primitives";
+import { AttachmentCard, DeliveredCard } from "./AttachmentCards";
 import { NoticeBlock } from "./ChatCards";
 import { Composer } from "./Composer";
 import { BrowserRunContext, DesktopFoldContext, InGroup, JevInteractionContext } from "./context";
@@ -329,6 +350,32 @@ function Conversation({
   const stopFollowing = useCallback(() => {
     followLatest.current = false;
   }, [followLatest]);
+  // v1.6 搜对话内容: a message picked in ⌘K. Once this conversation is loaded and the message is
+  // drawn, scroll to it and light it up for a moment; a message that never shows (deleted
+  // meanwhile) is given up on after a while, with a word.
+  const { notify } = useWorkspace();
+  const jump = frame.jump;
+  const drawn = transcript.length;
+  useEffect(() => {
+    if (!jump || jump.threadId !== chat.threadId || !loaded) return;
+    const target = list.current?.querySelector<HTMLElement>(
+      `[data-message="${CSS.escape(jump.messageId)}"]`,
+    );
+    if (!target) {
+      const giveUp = window.setTimeout(() => {
+        setFrame({ jump: null });
+        notify(t.chat.search.notFound);
+      }, 8000);
+      return () => window.clearTimeout(giveUp);
+    }
+    followLatest.current = false;
+    setAwayFromLatest(true);
+    target.scrollIntoView({ block: "center" });
+    target.classList.add("hit");
+    // Not cleared by this effect's cleanup: clearing the jump below re-runs it at once.
+    window.setTimeout(() => target.classList.remove("hit"), 3000);
+    setFrame({ jump: null });
+  }, [jump, chat.threadId, loaded, drawn, followLatest, setAwayFromLatest, notify]);
   /** Puts text in the input without sending it (prefills), and focuses it. */
   const prefill = useCallback((text: string) => {
     setDraft(text);
@@ -425,6 +472,14 @@ function Conversation({
                   return (
                     <Fragment key={item.key}>
                       {divider}
+                      {/* v1.6 聊天基础动作: a stretch the person went back on, folded where it stood */}
+                      {item.type === "message"
+                        ? chat.superseded.before
+                            .get(item.message.id)
+                            ?.map((segment) => (
+                              <SupersededFold key={`gone-${segment.at}`} segment={segment} />
+                            ))
+                        : null}
                       <TranscriptItem
                         chat={chat}
                         item={item}
@@ -434,6 +489,9 @@ function Conversation({
                     </Fragment>
                   );
                 })}
+                {chat.superseded.atEnd.map((segment) => (
+                  <SupersededFold key={`gone-${segment.at}`} segment={segment} />
+                ))}
               </DesktopFoldContext.Provider>
             )}
             {!chat.richThreads ? (
@@ -526,7 +584,30 @@ function MessageBlock({
   const { messages, renderToolCall } = chat;
   const user = message.role === "user";
   const text = chat.messageText(message);
+  // v1.6 聊天基础动作: one's own message can be edited and sent again (in a group, only one's own).
+  const [editing, setEditing] = useState(false);
+  const me = useAuth().session?.username ?? null;
   const toolCalls = "toolCalls" in message ? message.toolCalls || [] : [];
+  // v1.6 聊天里发文件: the files the person sent with this message; the files a reply saved
+  // under /workspace/成品.
+  const files = chat.messageAttachments(message);
+  const delivered = user
+    ? []
+    : deliveredPaths(
+        toolCalls,
+        (callId) =>
+          messages.find(
+            (candidate): candidate is ToolMessage =>
+              candidate.role === "tool" && candidate.toolCallId === callId,
+          )?.content,
+      );
+  // v1.6 生成图片: the pictures this reply made, shown as picture cards.
+  const resultOf = (callId: string) =>
+    messages.find(
+      (candidate): candidate is ToolMessage =>
+        candidate.role === "tool" && candidate.toolCallId === callId,
+    )?.content;
+  const made = user ? [] : generatedImages(toolCalls, resultOf);
   const card = (toolCall: (typeof toolCalls)[number]) => {
     const toolMessage = messages.find(
       (candidate): candidate is ToolMessage =>
@@ -558,14 +639,47 @@ function MessageBlock({
   ) : null;
   if (user) {
     const speaker = chat.severalMembers ? chat.speakers[message.id] : undefined;
+    const canEdit = chat.canGoBack && (!speaker || speaker === me);
     return (
-      <article className="blk mine" aria-label={speaker ?? t.chat.you}>
+      <article className="blk mine" aria-label={speaker ?? t.chat.you} data-message={message.id}>
         <div
           style={{ minWidth: 0, display: "flex", flexDirection: "column", alignItems: "flex-end" }}
         >
           {speaker ? <div className="who-line">{t.spaces.speaker(speaker)}</div> : null}
-          {text ? <div className="body me">{text}</div> : null}
-          {tools}
+          {editing ? (
+            <MessageEditor
+              initial={rawMessageText(message.content)}
+              onCancel={() => setEditing(false)}
+              onSend={(words) => {
+                if (chat.editMessage(message.id, words)) setEditing(false);
+              }}
+            />
+          ) : (
+            <>
+              {text ? <div className="body me">{text}</div> : null}
+              {files.length ? (
+                <div className="attach-row">
+                  {files.map((file) => (
+                    <AttachmentCard key={file.id} file={file} />
+                  ))}
+                </div>
+              ) : null}
+              {tools}
+              {canEdit ? (
+                <div className="mine-acts">
+                  <button
+                    type="button"
+                    title={t.chat.actions.editHint}
+                    aria-label={t.chat.actions.edit}
+                    onClick={() => setEditing(true)}
+                  >
+                    <Pencil size={13} />
+                    <span>{t.chat.actions.edit}</span>
+                  </button>
+                </div>
+              ) : null}
+            </>
+          )}
         </div>
       </article>
     );
@@ -574,12 +688,191 @@ function MessageBlock({
   return (
     <Block turn={turn}>
       {text ? (
-        <div className="body">
+        <div className="body" data-message={message.id}>
           <Markdown text={text} />
         </div>
       ) : null}
       {tools}
+      {made.length ? (
+        <div className="attach-row">
+          {made.map((file) => (
+            <AttachmentCard key={file.id} file={file} />
+          ))}
+        </div>
+      ) : null}
+      {delivered.length ? (
+        <div className="attach-row">
+          {delivered.map((path) => (
+            <DeliveredCard key={path} path={path} />
+          ))}
+        </div>
+      ) : null}
+      {text && !live ? <ReplyActions chat={chat} message={message} text={text} /> : null}
     </Block>
+  );
+}
+
+/** v1.6 聊天基础动作: under a reply — copy it, ask for it again (the latest one), 有用 / 没用. */
+function ReplyActions({
+  chat,
+  message,
+  text,
+}: {
+  chat: ChatSession;
+  message: Message;
+  text: string;
+}) {
+  const words = t.chat.actions;
+  const [copied, setCopied] = useState(false);
+  const verdict = chat.feedback[message.id];
+  const copy = async () => {
+    // The Markdown as written, and the rendered HTML (without the code blocks' copy buttons)
+    // for a rich editor.
+    const html = assistantMarkdown
+      .render(text)
+      .replace(/<div class="code-head">[\s\S]*?<\/div>/g, "");
+    if (!(await copyToClipboard(text, html))) return;
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
+  };
+  return (
+    <div className="reply-acts" data-reply-actions={message.id}>
+      <button
+        type="button"
+        title={words.copyReply}
+        aria-label={words.copyReply}
+        onClick={() => void copy()}
+      >
+        {copied ? <Check size={13} /> : <Copy size={13} />}
+        <span>{copied ? words.copied : words.copy}</span>
+      </button>
+      {chat.latestReplyId === message.id && chat.canGoBack ? (
+        <button
+          type="button"
+          title={words.regenerateHint}
+          aria-label={words.regenerate}
+          onClick={chat.regenerate}
+        >
+          <RotateCcw size={13} />
+          <span>{words.regenerate}</span>
+        </button>
+      ) : null}
+      <button
+        type="button"
+        title={words.good}
+        aria-label={words.good}
+        aria-pressed={verdict === "up"}
+        onClick={() => chat.giveFeedback(message.id, verdict === "up" ? null : "up")}
+      >
+        <ThumbsUp size={13} />
+      </button>
+      <button
+        type="button"
+        title={words.bad}
+        aria-label={words.bad}
+        aria-pressed={verdict === "down"}
+        onClick={() => chat.giveFeedback(message.id, verdict === "down" ? null : "down")}
+      >
+        <ThumbsDown size={13} />
+      </button>
+    </div>
+  );
+}
+
+/** v1.6 聊天基础动作: the person's message, open for a change before it goes again. */
+function MessageEditor({
+  initial,
+  onSend,
+  onCancel,
+}: {
+  initial: string;
+  onSend: (words: string) => void;
+  onCancel: () => void;
+}) {
+  const [value, setValue] = useState(initial);
+  const box = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+  }, []);
+  const words = t.chat.actions;
+  return (
+    <div className="edit-box" data-edit-box>
+      <textarea
+        ref={box}
+        value={value}
+        aria-label={words.edit}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.preventDefault();
+            onCancel();
+          } else if (e.key === "Enter" && !e.shiftKey && !isComposingKey(e.nativeEvent)) {
+            e.preventDefault();
+            if (value.trim()) onSend(value);
+          }
+        }}
+      />
+      <div className="row">
+        <Btn className="sm ghost" onClick={onCancel}>
+          {t.common.cancel}
+        </Btn>
+        <Btn
+          className="sm"
+          variant="pri"
+          icon={Send}
+          disabled={!value.trim()}
+          onClick={() => onSend(value)}
+        >
+          {words.resend}
+        </Btn>
+      </div>
+    </div>
+  );
+}
+
+/** v1.6 聊天基础动作: a stretch the person went back on, folded; open to read it. */
+function SupersededFold({ segment }: { segment: SupersededSegment }) {
+  const words = t.chat.actions;
+  const at = Date.parse(segment.at);
+  const time = Number.isNaN(at)
+    ? ""
+    : new Date(at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+  return (
+    <details className="superseded" data-superseded>
+      <summary>
+        {words.supersededFold(segment.messages.length)}
+        {time ? <span className="tm"> · {time}</span> : null}
+      </summary>
+      <p className="hint">{words.supersededHint}</p>
+      {segment.messages.map((message) => {
+        const text = rawMessageText(message.content);
+        if (message.role === "user") {
+          const files = attachmentsOf(message.content);
+          return (
+            <div key={message.id} className="old mine">
+              {text ? <div className="body me">{text}</div> : null}
+              {files.length ? (
+                <div className="attach-row">
+                  {files.map((file) => (
+                    <AttachmentCard key={file.id} file={file} />
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          );
+        }
+        return text ? (
+          <div key={message.id} className="old">
+            <div className="body">
+              <Markdown text={text} />
+            </div>
+          </div>
+        ) : null;
+      })}
+    </details>
   );
 }
 

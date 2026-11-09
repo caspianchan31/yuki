@@ -5,6 +5,7 @@ import type { CopilotRuntimeHooks } from "@copilotkit/runtime/v2";
 import type { Hono } from "hono";
 import type { Store } from "../db.ts";
 import type { PlanGate } from "../gate.ts";
+import { backgroundFailure } from "../log.ts";
 import { ChatStore } from "./chat-store.ts";
 import { chatAgentId, currentMainThreadId, mainThreadId } from "./main-thread.ts";
 import { LocalAgentRunner } from "./runner.ts";
@@ -42,6 +43,12 @@ export async function createLocalChat(input: {
     ...input.runner,
   });
   await runner.start();
+  // v1.6 搜对话内容: conversations from before the search index (and runs whose indexing failed)
+  // are indexed in the background; a failure is logged and tried again at the next start.
+  void store
+    .indexBacklog()
+    .then((count) => count && console.log(`[chat] search index caught up: ${count} turns`))
+    .catch((error) => backgroundFailure("chat index backlog", error));
   return {
     store,
     runner,

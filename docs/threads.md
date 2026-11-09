@@ -117,3 +117,54 @@ copied conversation), `tests/threads-main.test.ts` (project scoping, 开新主�
 the current main chat, restart), `tests/cloud-migration.test.ts` (a fake cloud through the real
 Intelligence client: pages, archived, unlisted ids, partial failure, ordering, idempotence,
 counts, the start-up decision).
+
+## Going back on a conversation (v1.6 聊天基础动作)
+
+The journal is append-only, so 编辑再发 and 重答 never delete a run. `POST
+/api/copilotkit/threads/:id/supersede { messageId }` marks the closed run that brought that
+message in, and every closed run after it, as superseded (`chat_runs.superseded_at`); the next
+run to begin on the thread is recorded as the one that took their place (`superseded_by`).
+Everything that reads the conversation — the model's history (`ChatStore.history`), the connect
+replay (`connectHistory`), `threadEvents` (回顾, reports), `turns` — reads only the live runs,
+so the person's message, sent again with the same id, is new to the conversation and the model
+never sees what was gone back on. `GET /:id/superseded` gives the superseded stretches as
+messages, each with the live run its fold stands before (followed through runs that were
+superseded in their turn); the chat folds them with `packages/client/src/shell/chat/superseded-core.ts`.
+Deleting the thread removes the superseded runs' screenshots and files too (`threadEvents(…,
+{ superseded: true })`).
+
+点赞 / 点踩 is one verdict per reply in `chat_feedback` (`GET /:id/feedback`, `PUT
+/:id/feedback/:messageId { verdict: "up" | "down" | null }`), gone with the thread. This version
+only records it; nothing changes the member's behaviour.
+
+The web's code blocks come from the markdown-it fence rule in
+`packages/client/src/assistant-markdown.ts` (a head with the language and a copy button) and
+are coloured by shiki, loaded on demand in `apps/web/src/ui/highlight.ts`.
+
+## Searching the conversations (v1.6 搜对话内容)
+
+⌘K's 对话 group searches every conversation of the owner's (archived too) for the typed words.
+
+- The index is the server's own table `chat_messages`: one row per message with words (the
+  person's and the members', file names included; not tool results or reasoning), with its
+  `tokens`, a tsvector of the message's CJK bigrams and lowercased words
+  (`packages/domain/src/chat-search.ts`), under a GIN index. No extension, so embedded PGlite and
+  Postgres behave the same. `closeRun` fills it as a run closes; `indexBacklog` (run in the
+  background at start) indexes the runs from before the index or whose indexing failed
+  (`chat_runs.indexed_at` is null). A message sent again with the same id moves to the new run.
+- `GET /api/copilotkit/threads/search?q=&limit=` (20 by default, at most 50; 400 without words):
+  the hits newest first, each with its conversation (id, name, archived), the message id, who
+  said it, when its turn began, and a snippet around the first phrase found (`before`, `match`,
+  `after`). The typed words, split on spaces, must each appear as a substring; the tokens only
+  narrow the candidates (a lone CJK character has no bigram, so only the substring test applies).
+  A superseded stretch's messages are skipped (join on `chat_runs.superseded_at`); a deleted
+  conversation's rows go with it (cascade).
+- The web (`apps/web/src/shell/Palette.tsx`): with words typed, the 对话 group lists the hits
+  (asked of the server 180 ms after the typing pauses) with the match marked and the
+  conversation's name and day as the hint. Picking one sets `frame.jump` and opens that
+  conversation; `ChatScreen` scrolls to the message once it is drawn and lights it for a moment
+  (`.hit`), or says 没找到这条消息 after a while.
+- Tests: `tests/chat-search.test.ts` (tokens, query, snippet, hit labels), `tests/chat-store.test.ts`
+  (index on close, search, superseded / archived / deleted, backlog, ten thousand messages within a
+  second), `tests/chat-routes.test.ts` (the route), and an end-to-end search check against a
+  running stack (the palette, the jump to the message, archived and deleted chats).

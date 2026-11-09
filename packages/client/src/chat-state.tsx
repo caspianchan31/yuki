@@ -19,6 +19,12 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { z } from "zod";
 import { taskEnvironmentId } from "../../../packages/domain/src/task-phase.ts";
+import {
+  attachmentsOf,
+  type ChatAttachment,
+  messageText as contentText,
+  userContent,
+} from "../../domain/src/chat-attachments";
 import { useAgentWorkspace } from "./agent-workspace";
 import {
   combineThreadReports,
@@ -65,6 +71,13 @@ import {
 import { useIsHall, useOpsName } from "./shell/chat/group-state";
 import { chatModelContextDescription, useChatModelContext } from "./shell/chat/ModelContext";
 import { memberConversationId } from "./shell/chat/member-thread";
+import {
+  type FeedbackVerdict,
+  normalizeFeedback,
+  normalizeSegments,
+  type SupersededSegment,
+  supersededPlacement,
+} from "./shell/chat/superseded-core";
 import { chatTurn } from "./shell/chat/turn";
 import { messageMoments, normalizeTurns, type TurnTime } from "./shell/chat/turn-time";
 import { useShellData } from "./shell/data";
@@ -335,7 +348,13 @@ export function useChatSession({
       queuedTurn.current = Boolean(message);
       setBusy(true);
       setError("");
-      if (message) agent.addMessage({ id: message.id, role: "user", content: message.text });
+      // v1.6 聊天里发文件: with files, the content is parts (the text and one part per file).
+      if (message)
+        agent.addMessage({
+          id: message.id,
+          role: "user",
+          content: userContent(message.text, message.attachments ?? []),
+        } as Parameters<typeof agent.addMessage>[0]);
       try {
         await runConversationTurn(
           agentId,
@@ -406,8 +425,12 @@ export function useChatSession({
     void queue.flush(runQueued).catch((e) => setError(turnErrorText(e)));
   }, [agent, isReady, loaded, syncing, queue, runQueued]);
   const enqueue = useCallback(
-    (text: string) => {
-      queue.enqueue({ id: `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, text });
+    (text: string, attachments: ChatAttachment[] = []) => {
+      queue.enqueue({
+        id: `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        text,
+        ...(attachments.length ? { attachments } : {}),
+      });
       followLatest.current = true;
       setAwayFromLatest(false);
       flush();
@@ -479,11 +502,12 @@ export function useChatSession({
   }
   /** Sends what the person typed; false when the conversation cannot take it yet (the input
    * keeps the text). */
-  function submit(raw: string): boolean {
+  function submit(raw: string, attachments: ChatAttachment[] = []): boolean {
     const text = raw.trim();
-    if (!text || !isReady || !loaded) return false;
+    if ((!text && !attachments.length) || !isReady || !loaded) return false;
     const replyingNow = busy || agent.isRunning;
-    const turn = chatTurn(text, replyingNow);
+    // v1.6: a message that carries files is always a message (never 停).
+    const turn = attachments.length ? "send" : chatTurn(text, replyingNow);
     // v1.2: 停 ends the turn and is not sent. Any other message cuts the running reply off,
     // then takes the next turn once that run has actually stopped.
     if (turn === "stop") {
@@ -493,7 +517,7 @@ export function useChatSession({
     if (turn === "interrupt") {
       void stop().then(() => {
         queue.resume();
-        enqueue(text);
+        enqueue(text, attachments);
       });
       return true;
     }
@@ -501,7 +525,7 @@ export function useChatSession({
     // explicit resume; a message sent while the stopped run is still winding down is resumed
     // now so it goes out once that run has actually stopped.
     if (!saveError && !queue.getSnapshot().pending.length) queue.resume();
-    enqueue(text);
+    enqueue(text, attachments);
     return true;
   }
   /** Says `text` for the person (a card's quick saying), like a typed message. */
@@ -543,9 +567,7 @@ export function useChatSession({
     -1,
   );
   const latestUserText =
-    latestUserIndex >= 0 && typeof messages[latestUserIndex]?.content === "string"
-      ? messages[latestUserIndex].content
-      : null;
+    latestUserIndex >= 0 ? contentText(messages[latestUserIndex]?.content) || null : null;
   // The conversation shows no bookkeeping tool card (core.ts
   // `bookkeepingTools`), and no card for a call the runtime refused before running it (the
   // model's arguments did not fit the tool: it reads the refusal and calls again, core.ts
@@ -622,6 +644,54 @@ export function useChatSession({
     () => (turnsHere ? messageMoments(messages, turnsHere.turns) : null),
     [turnsHere, messages],
   );
+  // v1.6 聊天基础动作: the stretches the person went back on (folded in the chat) and the
+  // verdicts given on replies, read from the server once the conversation is loaded and again
+  // after each turn (and after going back, `backVersion`).
+  const [goneBack, setGoneBack] = useState<{ thread: string; segments: SupersededSegment[] }>({
+    thread: "",
+    segments: [],
+  });
+  const [verdicts, setVerdicts] = useState<{
+    thread: string;
+    given: Record<string, FeedbackVerdict>;
+  }>({ thread: "", given: {} });
+  const [backVersion, setBackVersion] = useState(0);
+  useEffect(() => {
+    if (!richThreads || !loaded || !userMessages) return;
+    let live = true;
+    api
+      .request<unknown>(`/api/copilotkit/threads/${encodeURIComponent(threadId)}/superseded`)
+      .then((result) => {
+        if (live) setGoneBack({ thread: threadId, segments: normalizeSegments(result) });
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [richThreads, loaded, settling, userMessages, backVersion, threadId, api]);
+  useEffect(() => {
+    if (!richThreads || !loaded || !userMessages) return;
+    let live = true;
+    api
+      .request<unknown>(`/api/copilotkit/threads/${encodeURIComponent(threadId)}/feedback`)
+      .then((result) => {
+        if (live) setVerdicts({ thread: threadId, given: normalizeFeedback(result) });
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [richThreads, loaded, userMessages, backVersion, threadId, api]);
+  const superseded = useMemo(
+    () =>
+      supersededPlacement(
+        goneBack.thread === threadId ? goneBack.segments : [],
+        turnsHere?.turns ?? null,
+        visible,
+      ),
+    [goneBack, threadId, turnsHere, visible],
+  );
+  const feedback = verdicts.thread === threadId ? verdicts.given : {};
   // A reply's consecutive desktop steps are
   // one block (core.ts `desktopFold`), live while the reply still adds to it.
   const replying = busy || agent.isRunning;
@@ -802,6 +872,90 @@ export function useChatSession({
     );
   });
   const canSend = loaded && isReady;
+  // v1.6 聊天基础动作: going back on the conversation (a message edited and sent again, the
+  // reply asked for again). The server supersedes the stretch from that message's run on; the
+  // client then drops it from the agent's messages and takes the next turn, whose run takes the
+  // stretch's place. Only while nothing is running or waiting.
+  const canGoBack =
+    loaded &&
+    isReady &&
+    !busy &&
+    !agent.isRunning &&
+    !outbox.running &&
+    !outbox.pending.length &&
+    !saveError;
+  const goBackFrom = useCallback(
+    async (messageId: string) => {
+      if (!richThreads) return;
+      await api.request(
+        `/api/copilotkit/threads/${encodeURIComponent(threadId)}/supersede`,
+        { messageId },
+        "POST",
+      );
+    },
+    [api, richThreads, threadId],
+  );
+  /** 重答: the reply to the person's latest message is asked for again; the old one folds away. */
+  function regenerate() {
+    const message = messages[latestUserIndex];
+    if (!canGoBack || !message) return;
+    setError("");
+    void goBackFrom(message.id)
+      .then(() => {
+        agent.setMessages(messages.slice(0, latestUserIndex + 1));
+        setBackVersion((version) => version + 1);
+        return run();
+      })
+      .then(() => {
+        if (!queue.getSnapshot().paused) flush();
+      })
+      .catch((e) => setError(t.chat.actions.goBackFailed(turnErrorText(e))));
+  }
+  /** 编辑再发: the person's message goes again with new words (its files stay); the stretch
+   * from the old one folds away. False when it cannot be done now. */
+  function editMessage(messageId: string, text: string): boolean {
+    const index = messages.findIndex((m) => m.id === messageId);
+    const target = messages[index];
+    const words = text.trim();
+    if (!canGoBack || !target || target.role !== "user") return false;
+    const files = attachmentsOf(target.content);
+    if (!words && !files.length) return false;
+    setError("");
+    void goBackFrom(messageId)
+      .then(() => {
+        agent.setMessages(messages.slice(0, index));
+        setBackVersion((version) => version + 1);
+        if (!saveError && !queue.getSnapshot().pending.length) queue.resume();
+        enqueue(words, files);
+      })
+      .catch((e) => setError(t.chat.actions.goBackFailed(turnErrorText(e))));
+    return true;
+  }
+  /** 点赞 / 点踩 on a reply (null takes it back): shown at once, kept by the server. */
+  function giveFeedback(messageId: string, verdict: FeedbackVerdict | null) {
+    setVerdicts((held) => {
+      const given = { ...(held.thread === threadId ? held.given : {}) };
+      if (verdict) given[messageId] = verdict;
+      else delete given[messageId];
+      return { thread: threadId, given };
+    });
+    if (!richThreads) return;
+    void api
+      .request(
+        `/api/copilotkit/threads/${encodeURIComponent(threadId)}/feedback/${encodeURIComponent(messageId)}`,
+        { verdict },
+        "PUT",
+      )
+      .catch(() => setBackVersion((version) => version + 1));
+  }
+  /** The reply 重答 applies to: the latest reply, after the person's latest message. */
+  const latestReplyId =
+    latestUserIndex >= 0
+      ? (messages
+          .slice(latestUserIndex + 1)
+          .filter((m) => m.role === "assistant")
+          .at(-1)?.id ?? null)
+      : null;
   /** What a present_choices (or guide) card may do in this conversation now. */
   const jevInteraction: JevInteraction = {
     threadId,
@@ -836,16 +990,17 @@ export function useChatSession({
   /** A message's text as the person reads it (a choice he made reads as his words). */
   const messageText = (message: Message) => {
     const user = message.role === "user";
-    return typeof message.content === "string"
+    // v1.6: the person's message with files keeps its words in a text part.
+    const raw = user ? contentText(message.content) : message.content;
+    return typeof raw === "string"
       ? user
-        ? displayJevUserMessage(
-            message.content,
-            messages.slice(0, messages.indexOf(message)),
-            t.choices,
-          )
-        : message.content
+        ? displayJevUserMessage(raw, messages.slice(0, messages.indexOf(message)), t.choices)
+        : raw
       : "";
   };
+  /** v1.6 聊天里发文件: the files a person's message carries (none for a plain message). */
+  const messageAttachments = (message: Message): ChatAttachment[] =>
+    message.role === "user" ? attachmentsOf(message.content) : [];
   const queuedText = (text: string) => displayJevUserMessage(text, messages, t.choices);
   /** Recent results (without rich threads): the newest file, live browser and artifacts. */
   const recentResults = {
@@ -897,6 +1052,14 @@ export function useChatSession({
     say,
     stop,
     retryResponse,
+    /** v1.6 聊天基础动作. */
+    canGoBack,
+    regenerate,
+    editMessage,
+    latestReplyId,
+    superseded,
+    feedback,
+    giveFeedback,
     retrySave,
     retryLoad,
     removeQueued,
@@ -922,6 +1085,7 @@ export function useChatSession({
     jevInteraction,
     browserRun,
     messageText,
+    messageAttachments,
     queuedText,
     recentResults,
   };

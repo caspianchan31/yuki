@@ -35,6 +35,27 @@ export interface Config {
   dataDir: string;
   /** Where member files are kept (MEMBER_FILES_DIR); `<dataDir>/members` when unset. */
   memberFilesDir?: string;
+  /** v1.6: how long the pictures members take of the computer are kept, in days (default 90),
+   * and the cap of their folder in GB (default 5). */
+  screenshotRetentionDays?: number;
+  screenshotMaxGb?: number;
+  /** v1.6 聊天里发文件: how long sent files are kept (ATTACHMENT_RETENTION_DAYS, 90) and the
+   * folder's cap (ATTACHMENT_MAX_GB, 5). */
+  attachmentRetentionDays?: number;
+  attachmentMaxGb?: number;
+  /** v1.6 生成图片: the model that draws (IMAGE_MODEL; the chat model when unset) and, when it
+   * lives on another gateway, where (IMAGE_BASE_URL, IMAGE_API_KEY; else the OPENAI_* ones). */
+  imageModel?: string;
+  imageBaseUrl?: string;
+  imageApiKey?: string;
+  /** IMAGE_EXTRA as written: a JSON object of fields for every images request (a gateway's own
+   * switches, such as its watermark). */
+  imageExtra?: string;
+  /** Pictures are on only when this is true (loadConfig sets it unless IMAGE_GENERATION=off):
+   * otherwise no check of the gateway, no tool, nothing in the prompt about drawing. A config
+   * built by hand (the tests') leaves them off, so the tests' fake model server sees only the
+   * chat. */
+  imageGeneration?: boolean;
   databaseUrl?: string;
   encryptionKey?: string;
   /** Fork: live-mode sign-in is an admin account, created on the setup page (with `setupCode`)
@@ -164,6 +185,31 @@ export function readConfig(): Config {
     )
   )
     throw new Error("AGENT_KEEP_SCREENSHOTS must be a whole number from 1 to 20");
+  const retentionDays = process.env.SCREENSHOT_RETENTION_DAYS?.trim();
+  if (
+    retentionDays &&
+    !(/^\d+$/.test(retentionDays) && Number(retentionDays) >= 1 && Number(retentionDays) <= 3650)
+  )
+    throw new Error("SCREENSHOT_RETENTION_DAYS must be a whole number from 1 to 3650");
+  const shotsGb = process.env.SCREENSHOT_MAX_GB?.trim();
+  if (shotsGb && !(/^\d+(\.\d+)?$/.test(shotsGb) && Number(shotsGb) > 0 && Number(shotsGb) <= 1000))
+    throw new Error("SCREENSHOT_MAX_GB must be a number above 0 and at most 1000");
+  const attachmentDays = process.env.ATTACHMENT_RETENTION_DAYS?.trim();
+  if (
+    attachmentDays &&
+    !(/^\d+$/.test(attachmentDays) && Number(attachmentDays) >= 1 && Number(attachmentDays) <= 3650)
+  )
+    throw new Error("ATTACHMENT_RETENTION_DAYS must be a whole number from 1 to 3650");
+  const attachmentGb = process.env.ATTACHMENT_MAX_GB?.trim();
+  if (
+    attachmentGb &&
+    !(
+      /^\d+(\.\d+)?$/.test(attachmentGb) &&
+      Number(attachmentGb) > 0 &&
+      Number(attachmentGb) <= 1000
+    )
+  )
+    throw new Error("ATTACHMENT_MAX_GB must be a number above 0 and at most 1000");
   const port = Number(process.env.PORT ?? 8787);
   const publicUrl = process.env.PUBLIC_API_URL ?? `http://localhost:${port}`;
   const config: Config = {
@@ -210,6 +256,15 @@ export function readConfig(): Config {
     agentMaxSteps: maxSteps ? Number(maxSteps) : undefined,
     agentRunMaxMinutes: runMax ? Number(runMax) : undefined,
     agentKeepScreenshots: keepScreenshots ? Number(keepScreenshots) : undefined,
+    screenshotRetentionDays: retentionDays ? Number(retentionDays) : undefined,
+    screenshotMaxGb: shotsGb ? Number(shotsGb) : undefined,
+    attachmentRetentionDays: attachmentDays ? Number(attachmentDays) : undefined,
+    attachmentMaxGb: attachmentGb ? Number(attachmentGb) : undefined,
+    imageModel: process.env.IMAGE_MODEL?.trim() || undefined,
+    imageBaseUrl: process.env.IMAGE_BASE_URL?.trim() || undefined,
+    imageApiKey: process.env.IMAGE_API_KEY?.trim() || undefined,
+    imageExtra: process.env.IMAGE_EXTRA?.trim() || undefined,
+    imageGeneration: process.env.IMAGE_GENERATION?.trim().toLowerCase() !== "off",
     allowedOrigins: (
       process.env.ALLOWED_ORIGINS ??
       "http://localhost:8081,http://127.0.0.1:8081,http://localhost:5173,http://127.0.0.1:5173"

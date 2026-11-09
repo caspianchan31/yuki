@@ -125,6 +125,118 @@ class FilesHelper(unittest.TestCase):
             write_text(os.path.join(self.root, f"f{index}"), "")
         self.refused({"operation": "list", "path": "/workspace"})
 
+    # ── v1.6: the person's file page ──
+
+    def test_bytes_round_trip_any_kind_within_10mb(self):
+        png = b"\x89PNG\r\n\x1a\n" + bytes(range(256))
+        self.ok({"operation": "write_bytes", "path": "/workspace/pic.png", "base64": base64.b64encode(png).decode()})
+        read = self.ok({"operation": "read_bytes", "path": "/workspace/pic.png"})
+        self.assertEqual(base64.b64decode(read["base64"]), png)
+        self.assertEqual(read["size"], len(png))
+        # A text file written by a member reads as bytes too; a 256 KB+ one reads only as bytes.
+        write_text(os.path.join(self.root, "big.txt"), "x" * (256 * 1024 + 1))
+        self.refused({"operation": "read", "path": "/workspace/big.txt"})
+        self.assertEqual(self.ok({"operation": "read_bytes", "path": "/workspace/big.txt"})["size"], 256 * 1024 + 1)
+        too_big = base64.b64encode(b"\0" * (10 * 1024 * 1024 + 1)).decode()
+        self.refused({"operation": "write_bytes", "path": "/workspace/huge.bin", "base64": too_big})
+        self.refused({"operation": "write_bytes", "path": "/workspace/bad.bin", "base64": "not base64!"})
+
+    def test_rename_moves_within_the_workspace_and_never_over_something(self):
+        self.ok({"operation": "mkdir", "path": "/workspace/成品"})
+        self.ok({"operation": "write", "path": "/workspace/a.txt", "text": "a"})
+        self.ok({"operation": "write", "path": "/workspace/b.txt", "text": "b"})
+        moved = self.ok({"operation": "rename", "path": "/workspace/a.txt", "to": "/workspace/成品/报告.txt"})
+        self.assertEqual(moved["path"], "/workspace/成品/报告.txt")
+        self.assertEqual(read_text(os.path.join(self.root, "成品", "报告.txt")), "a")
+        self.assertFalse(os.path.exists(os.path.join(self.root, "a.txt")))
+        # Not over an existing file, not out of the workspace, not a missing source, not a folder
+        # into itself, not into the recycle bin.
+        self.refused({"operation": "rename", "path": "/workspace/成品/报告.txt", "to": "/workspace/b.txt"})
+        self.refused({"operation": "rename", "path": "/workspace/b.txt", "to": "/tmp/b.txt"})
+        self.refused({"operation": "rename", "path": "/workspace/none.txt", "to": "/workspace/c.txt"})
+        self.refused({"operation": "rename", "path": "/workspace/成品", "to": "/workspace/成品/inner"})
+        self.refused({"operation": "rename", "path": "/workspace/b.txt", "to": "/workspace/.trash/b.txt"})
+        self.assertEqual(read_text(os.path.join(self.root, "b.txt")), "b")
+        # A folder renames with its contents.
+        self.ok({"operation": "rename", "path": "/workspace/成品", "to": "/workspace/done"})
+        self.assertEqual(read_text(os.path.join(self.root, "done", "报告.txt")), "a")
+
+    def test_delete_goes_to_the_recycle_bin_and_comes_back(self):
+        self.ok({"operation": "mkdir", "path": "/workspace/收到/深"})
+        self.ok({"operation": "write", "path": "/workspace/收到/深/x.txt", "text": "keep me"})
+        self.ok({"operation": "write", "path": "/workspace/收到/y.txt", "text": "y"})
+        gone = self.ok({"operation": "delete", "path": "/workspace/收到/深"})
+        self.assertRegex(gone["id"], r"^[0-9]{14}-[0-9a-f]{8}$")
+        self.assertFalse(os.path.exists(os.path.join(self.root, "收到", "深")))
+        # The bin is hidden from a listing, is no folder to work in, and lists what it holds.
+        self.assertEqual([e["name"] for e in self.ok({"operation": "list", "path": "/workspace"})["entries"]], ["收到"])
+        self.refused({"operation": "list", "path": "/workspace/.trash"})
+        self.refused({"operation": "read", "path": "/workspace/.trash/" + gone["id"] + "/meta.json"})
+        self.refused({"operation": "delete", "path": "/workspace/.trash"})
+        self.refused({"operation": "delete", "path": "/workspace"})
+        listing = self.ok({"operation": "trash_list", "path": ""})
+        self.assertEqual(listing["days"], 30)
+        self.assertEqual([(e["id"], e["path"], e["type"]) for e in listing["entries"]], [(gone["id"], "/workspace/收到/深", "directory")])
+        # Restored where it was, with everything inside; the entry is gone from the bin.
+        back = self.ok({"operation": "restore", "id": gone["id"]})
+        self.assertEqual(back["path"], "/workspace/收到/深")
+        self.assertEqual(read_text(os.path.join(self.root, "收到", "深", "x.txt")), "keep me")
+        self.assertEqual(self.ok({"operation": "trash_list"})["entries"], [])
+        self.refused({"operation": "restore", "id": gone["id"]})
+        # A file deleted, its folder deleted too, then restored: the folder is made again. Restored
+        # beside a newer file of the same name, it gets a numbered name.
+        first = self.ok({"operation": "delete", "path": "/workspace/收到/y.txt"})["id"]
+        self.ok({"operation": "write", "path": "/workspace/收到/y.txt", "text": "newer"})
+        self.assertEqual(self.ok({"operation": "restore", "id": first})["path"], "/workspace/收到/y (2).txt")
+        self.assertEqual(read_text(os.path.join(self.root, "收到", "y.txt")), "newer")
+        second = self.ok({"operation": "delete", "path": "/workspace/收到/y (2).txt"})["id"]
+        self.ok({"operation": "delete", "path": "/workspace/收到"})
+        self.assertEqual(self.ok({"operation": "restore", "id": second})["path"], "/workspace/收到/y (2).txt")
+        self.assertEqual(os.listdir(os.path.join(self.root, "收到")), ["y (2).txt"])
+        # Deleted for good, and bad ids name nothing.
+        entry = self.ok({"operation": "trash_list"})["entries"][0]
+        self.ok({"operation": "trash_delete", "id": entry["id"]})
+        self.assertEqual(self.ok({"operation": "trash_list"})["entries"], [])
+        for bad in ("../../etc", "x", "20260101000000-zzzzzzzz", 5):
+            self.refused({"operation": "trash_delete", "id": bad})
+            self.refused({"operation": "restore", "id": bad})
+
+    def test_the_recycle_bin_clears_itself_after_thirty_days(self):
+        self.ok({"operation": "write", "path": "/workspace/old.txt", "text": "old"})
+        self.ok({"operation": "write", "path": "/workspace/new.txt", "text": "new"})
+        old = self.ok({"operation": "delete", "path": "/workspace/old.txt"})["id"]
+        new = self.ok({"operation": "delete", "path": "/workspace/new.txt"})["id"]
+        meta_path = os.path.join(self.root, ".trash", old, "meta.json")
+        meta = json.loads(read_text(meta_path))
+        meta["deletedAtSeconds"] -= 31 * 24 * 3600
+        write_text(meta_path, json.dumps(meta))
+        self.assertEqual([e["id"] for e in self.ok({"operation": "trash_list"})["entries"]], [new])
+        self.assertFalse(os.path.exists(os.path.join(self.root, ".trash", old)))
+        # A deleted symlink is moved as a link and never followed.
+        outside = tempfile.TemporaryDirectory()
+        self.addCleanup(outside.cleanup)
+        write_text(os.path.join(outside.name, "secret.txt"), "safe")
+        os.symlink(outside.name, os.path.join(self.root, "link"))
+        self.ok({"operation": "delete", "path": "/workspace/link"})
+        self.assertEqual(read_text(os.path.join(outside.name, "secret.txt")), "safe")
+        entry = self.ok({"operation": "trash_list"})["entries"][0]
+        self.assertEqual(entry["type"], "symlink")
+        self.ok({"operation": "trash_delete", "id": entry["id"]})
+        self.assertEqual(read_text(os.path.join(outside.name, "secret.txt")), "safe")
+
+    def test_tree_lists_everything_but_the_bin_and_links(self):
+        self.ok({"operation": "mkdir", "path": "/workspace/成品/子"})
+        self.ok({"operation": "write", "path": "/workspace/成品/子/深.md", "text": "#"})
+        self.ok({"operation": "write", "path": "/workspace/收.txt", "text": "r"})
+        self.ok({"operation": "write", "path": "/workspace/gone.txt", "text": "g"})
+        self.ok({"operation": "delete", "path": "/workspace/gone.txt"})
+        os.symlink("/etc", os.path.join(self.root, "etc-link"))
+        found = self.ok({"operation": "tree"})
+        self.assertFalse(found["truncated"])
+        self.assertEqual([e["path"] for e in found["entries"]], ["/workspace/成品", "/workspace/成品/子", "/workspace/成品/子/深.md", "/workspace/收.txt"])
+        self.assertEqual(found["entries"][2]["type"], "file")
+        self.assertIn("modified", found["entries"][2])
+
 
 if __name__ == "__main__":
     unittest.main()

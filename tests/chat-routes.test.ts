@@ -25,15 +25,20 @@ import {
   threadLockedMessage,
 } from "../apps/server/src/chat/runtime-hooks.ts";
 import {
+  messageNotFoundMessage,
   realtimeUnavailable,
+  type ThreadRouteHooks,
   type ThreadView,
   threadRoutes,
 } from "../apps/server/src/chat/thread-routes.ts";
 import {
   type ClaimResult,
   type DeleteResult,
+  type FeedbackVerdict,
   type ListThreadsQuery,
   type RunControl,
+  type SupersededSegment,
+  type SupersedeResult,
   type ThreadPage,
   type ThreadPatch,
   type ThreadRecord,
@@ -168,6 +173,62 @@ class MemoryThreads implements ThreadStore {
 
   async threadEvents(owner: string, threadId: string) {
     return this.owned(owner, threadId)?.events ?? null;
+  }
+
+  // v1.6 聊天基础动作
+  readonly superseding: { owner: string; threadId: string; messageId: string }[] = [];
+  readonly segments = new Map<string, SupersededSegment[]>();
+  readonly verdicts = new Map<string, Record<string, FeedbackVerdict>>();
+  async supersedeFrom(
+    owner: string,
+    threadId: string,
+    messageId: string,
+  ): Promise<SupersedeResult> {
+    this.superseding.push({ owner, threadId, messageId });
+    const row = this.owned(owner, threadId);
+    if (!row) return "not_found";
+    if (row.runId) return "running";
+    return messageId.startsWith("known-") ? "superseded" : "no_message";
+  }
+  async superseded(owner: string, threadId: string) {
+    return this.owned(owner, threadId) ? (this.segments.get(threadId) ?? []) : null;
+  }
+  async feedback(owner: string, threadId: string) {
+    return this.owned(owner, threadId) ? (this.verdicts.get(threadId) ?? {}) : null;
+  }
+  async setFeedback(
+    owner: string,
+    threadId: string,
+    messageId: string,
+    verdict: FeedbackVerdict | null,
+  ) {
+    if (!this.owned(owner, threadId)) return false;
+    const given = this.verdicts.get(threadId) ?? {};
+    if (verdict) given[messageId] = verdict;
+    else delete given[messageId];
+    this.verdicts.set(threadId, given);
+    return true;
+  }
+
+  // v1.6 搜对话内容: every conversation of the owner's "holds" the typed words.
+  readonly searches: { owner: string; typed: string; limit?: number }[] = [];
+  async searchMessages(owner: string, typed: string, options: { limit?: number } = {}) {
+    this.searches.push({ owner, typed, ...options });
+    return [...this.rows.values()]
+      .filter((row) => row.owner === owner)
+      .map((row) => {
+        const record = this.record(row);
+        return {
+          threadId: record.id,
+          threadName: record.name,
+          agentId: record.agentId,
+          archived: record.archived,
+          messageId: `${record.id}-m`,
+          role: "assistant" as const,
+          at: "2026-11-08T00:00:00.000Z",
+          snippet: { before: "", match: typed, after: "" },
+        };
+      });
   }
 }
 
@@ -720,7 +781,7 @@ test("through the runtime: owner checks follow the runtime's route matching, not
 // ---------------------------------------------------------------------------------------------
 // Thread routes (Hono), mounted the way app.ts mounts them.
 
-function routesApp(threads: ThreadStore, view?: ThreadView) {
+function routesApp(threads: ThreadStore, view?: ThreadView, hooks?: ThreadRouteHooks) {
   const app = new Hono<{ Variables: { owner: string } }>();
   // Mirrors app.ts: AppError keeps its status, malformed JSON is 400.
   app.onError((error, c) => {
@@ -732,7 +793,7 @@ function routesApp(threads: ThreadStore, view?: ThreadView) {
     c.set("owner", await auth.owner(c.req.header("authorization")));
     await next();
   });
-  app.route("/api/copilotkit/threads", threadRoutes(threads, view));
+  app.route("/api/copilotkit/threads", threadRoutes(threads, view, undefined, hooks));
   app.all("/api/copilotkit/*", (c) => c.json({ runtime: `${c.req.method} ${c.req.path}` }, 202));
   const call = (path: string, init: { owner?: string; method?: string; body?: unknown } = {}) =>
     app.request(request(path, { method: "GET", owner: "alice", ...init }));
@@ -965,6 +1026,52 @@ test("rename, archive, unarchive and delete are owner-bound and ignore forged ow
   assert.ok(threads.rows.has("b1"));
 });
 
+test("v1.6: a deleted thread's kept screenshots are forgotten, by the ids its events name", async () => {
+  const threads = new MemoryThreads();
+  threads.add("alice", "shots", {
+    events: [
+      { type: EventType.TOOL_CALL_START, toolCallId: "t1", toolCallName: "computer_screenshot" },
+      {
+        type: EventType.TOOL_CALL_RESULT,
+        toolCallId: "t1",
+        messageId: "m1",
+        role: "tool",
+        content: JSON.stringify({
+          screenshot: "attached",
+          shotId: "AbCdEfGhIjKlMnOpQrStUv",
+          control: "member",
+        }),
+      },
+      {
+        type: EventType.TOOL_CALL_RESULT,
+        toolCallId: "t2",
+        messageId: "m2",
+        role: "tool",
+        content: JSON.stringify({ shotId: "ZyXwVuTsRqPoNmLkJiHgFe" }),
+      },
+    ] as BaseEvent[],
+  });
+  threads.add("alice", "plain");
+  const forgotten: string[][] = [];
+  const { call } = routesApp(threads, undefined, {
+    forgetShots: async (ids) => {
+      forgotten.push(ids);
+    },
+  });
+  const deleted = await call("/api/copilotkit/threads/shots", {
+    method: "DELETE",
+    body: { agentId: "default" },
+  });
+  assert.equal(deleted.status, 200);
+  assert.deepEqual(forgotten, [["AbCdEfGhIjKlMnOpQrStUv", "ZyXwVuTsRqPoNmLkJiHgFe"]]);
+  const plain = await call("/api/copilotkit/threads/plain", {
+    method: "DELETE",
+    body: { agentId: "default" },
+  });
+  assert.equal(plain.status, 200);
+  assert.equal(forgotten.length, 1, "a thread without pictures forgets nothing");
+});
+
 test("thread mutations reject invalid bodies with 400", async () => {
   const threads = new MemoryThreads();
   threads.add("alice", "a1");
@@ -1004,4 +1111,139 @@ test("realtime subscribe is 404 locally; other routes the local layer does not s
     assert.equal(response.status, 202, `${method} ${path}`);
     assert.deepEqual(await response.json(), { runtime: `${method} ${path}` });
   }
+});
+
+// v1.6 聊天基础动作 ---------------------------------------------------------------------------
+
+test("supersede: 404 for another owner's thread or an unknown message, 409 while a reply runs", async () => {
+  const threads = new MemoryThreads();
+  threads.add("alice", "a1");
+  threads.add("bob", "b1");
+  const { call } = routesApp(threads);
+  const post = (path: string, body: unknown) => call(path, { method: "POST", body });
+  assert.equal(
+    (await post("/api/copilotkit/threads/b1/supersede", { messageId: "known-1" })).status,
+    404,
+  );
+  assert.equal((await post("/api/copilotkit/threads/a1/supersede", {})).status, 400);
+  const unknown = await post("/api/copilotkit/threads/a1/supersede", { messageId: "stranger" });
+  assert.equal(unknown.status, 404);
+  assert.deepEqual(await unknown.json(), { error: messageNotFoundMessage });
+  (threads.rows.get("a1") as Row).runId = "live";
+  const busy = await post("/api/copilotkit/threads/a1/supersede", { messageId: "known-1" });
+  assert.equal(busy.status, 409);
+  assert.deepEqual(await busy.json(), { error: threadLockedMessage, code: threadLockedCode });
+  (threads.rows.get("a1") as Row).runId = null;
+  const done = await post("/api/copilotkit/threads/a1/supersede", { messageId: "known-1" });
+  assert.equal(done.status, 200);
+  assert.deepEqual(await done.json(), { threadId: "a1", messageId: "known-1", superseded: true });
+  assert.deepEqual(threads.superseding.at(-1), {
+    owner: "alice",
+    threadId: "a1",
+    messageId: "known-1",
+  });
+});
+
+test("superseded stretches come back as messages with their anchor", async () => {
+  const threads = new MemoryThreads();
+  threads.add("alice", "a1");
+  threads.segments.set("a1", [
+    {
+      anchor: "run-9",
+      at: "2026-11-08T01:02:03.000Z",
+      events: [
+        {
+          type: EventType.RUN_STARTED,
+          threadId: "a1",
+          runId: "run-2",
+          input: {
+            threadId: "a1",
+            runId: "run-2",
+            messages: [{ id: "u2", role: "user", content: "old question" }],
+            tools: [],
+            context: [],
+          },
+        } as BaseEvent,
+        { type: EventType.TEXT_MESSAGE_START, messageId: "m2", role: "assistant" } as BaseEvent,
+        { type: EventType.TEXT_MESSAGE_CONTENT, messageId: "m2", delta: "old answer" } as BaseEvent,
+        { type: EventType.TEXT_MESSAGE_END, messageId: "m2" } as BaseEvent,
+        { type: EventType.RUN_FINISHED, threadId: "a1", runId: "run-2" } as BaseEvent,
+      ],
+    },
+  ]);
+  const { call } = routesApp(threads);
+  const response = await call("/api/copilotkit/threads/a1/superseded");
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    segments: [
+      {
+        anchor: "run-9",
+        at: "2026-11-08T01:02:03.000Z",
+        messages: [
+          { id: "u2", role: "user", content: "old question" },
+          { id: "m2", role: "assistant", content: "old answer" },
+        ],
+      },
+    ],
+  });
+  assert.equal((await call("/api/copilotkit/threads/a1/superseded", { owner: "bob" })).status, 404);
+});
+
+test("feedback is given, changed, taken back and read, and only on one's own thread", async () => {
+  const threads = new MemoryThreads();
+  threads.add("alice", "a1");
+  const { call } = routesApp(threads);
+  const put = (message: string, verdict: unknown, owner = "alice") =>
+    call(`/api/copilotkit/threads/a1/feedback/${message}`, {
+      method: "PUT",
+      body: { verdict },
+      owner,
+    });
+  assert.deepEqual(await (await call("/api/copilotkit/threads/a1/feedback")).json(), {
+    feedback: {},
+  });
+  assert.equal((await put("m1", "up", "bob")).status, 404);
+  assert.equal((await put("m1", "great")).status, 400);
+  assert.equal((await put("m1", "up")).status, 200);
+  assert.deepEqual(await (await put("m2", "down")).json(), {
+    threadId: "a1",
+    messageId: "m2",
+    verdict: "down",
+  });
+  assert.deepEqual(await (await call("/api/copilotkit/threads/a1/feedback")).json(), {
+    feedback: { m1: "up", m2: "down" },
+  });
+  assert.deepEqual(await (await put("m1", null)).json(), {
+    threadId: "a1",
+    messageId: "m1",
+    verdict: null,
+  });
+  assert.deepEqual(await (await call("/api/copilotkit/threads/a1/feedback")).json(), {
+    feedback: { m2: "down" },
+  });
+  assert.equal((await call("/api/copilotkit/threads/a1/feedback", { owner: "bob" })).status, 404);
+});
+
+test("search hands the store the typed words and the limit; without words it is refused", async () => {
+  const threads = new MemoryThreads();
+  threads.add("alice", "a1");
+  const { call } = routesApp(threads);
+  assert.equal((await call("/api/copilotkit/threads/search?q=%20")).status, 400);
+  assert.equal((await call("/api/copilotkit/threads/search")).status, 400);
+  const response = await call(
+    `/api/copilotkit/threads/search?q=${encodeURIComponent(" 暗号 x ")}&limit=5`,
+  );
+  assert.equal(response.status, 200);
+  const body = (await response.json()) as {
+    hits: { threadId: string; snippet: { match: string } }[];
+  };
+  assert.equal(body.hits.length, 1);
+  assert.equal(body.hits[0]?.threadId, "a1");
+  assert.equal(body.hits[0]?.snippet.match, "暗号 x");
+  assert.deepEqual(threads.searches, [{ owner: "alice", typed: "暗号 x", limit: 5 }]);
+  // A bad limit is dropped, not an error; another owner finds nothing of alice's.
+  assert.equal((await call("/api/copilotkit/threads/search?q=a&limit=zero")).status, 200);
+  assert.deepEqual(threads.searches.at(-1), { owner: "alice", typed: "a" });
+  const other = await call("/api/copilotkit/threads/search?q=a", { owner: "bob" });
+  assert.deepEqual(await other.json(), { hits: [] });
 });

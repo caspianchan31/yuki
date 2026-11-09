@@ -12,6 +12,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { posix } from "node:path";
 import { z } from "zod";
 import type { ComputerCommand, ComputerSnapshot } from "../../../packages/domain/src/computer.ts";
+import { workspaceFileMaxBytes } from "../../../packages/domain/src/workspace-files.ts";
 import type { Config } from "./config.ts";
 import type { Store } from "./db.ts";
 import type {
@@ -21,12 +22,14 @@ import type {
   DesktopAppsView,
   DesktopPage,
 } from "./desktop-agent.ts";
+import type { ShotStore } from "./desktop-shots-store.ts";
 import { AppError } from "./errors.ts";
 
 export const desktopProvider = "desktop";
 export const desktopReceipts = "computer-commands";
 const fileLimit = 256 * 1024;
-/** Screenshots kept for the person's chat: the newest ones, each for an hour. */
+/** Screenshots kept for the person's chat without a store (sample mode, tests): the newest
+ * ones in memory, each for an hour. With a `ShotStore` (v1.6) they are kept on disk instead. */
 export const keptShots = 20;
 export const shotTtlMs = 60 * 60_000;
 export const desktopCommandSchema = z.object({
@@ -35,6 +38,25 @@ export const desktopCommandSchema = z.object({
 });
 export const desktopPathSchema = z.object({ path: z.string().min(1).max(2048) });
 export const desktopWriteSchema = desktopPathSchema.extend({ text: z.string().max(fileLimit) });
+/** v1.6 文件浏览器: a move or rename (`to` is the whole new path), and a recycle bin entry. */
+export const desktopRenameSchema = desktopPathSchema.extend({ to: z.string().min(1).max(2048) });
+export const trashEntrySchema = z.object({ id: z.string().regex(/^[0-9]{14}-[0-9a-f]{8}$/) });
+export interface WorkspaceEntry {
+  name: string;
+  path: string;
+  type: "file" | "directory" | "symlink";
+  size: number;
+  /** When it last changed (ISO); absent from an older computer image. */
+  modified?: string;
+}
+export interface TrashEntry {
+  id: string;
+  path: string;
+  name: string;
+  type: "file" | "directory" | "symlink";
+  size: number;
+  deletedAt: string;
+}
 export const controlSchema = z.object({ by: z.enum(["person", "member"]) }).strict();
 
 /** Who drives the desktop: its members, or the person who took it over. */
@@ -79,6 +101,8 @@ export class DesktopComputer {
   private readonly sockets = new Set<LiveSocket>();
   private readonly now: () => number;
   private readonly idleMs: number;
+  /** v1.6: where the pictures members take are kept (on disk); null keeps them in memory. */
+  readonly shots: ShotStore | null;
   private sweep?: ReturnType<typeof setInterval>;
   private starting: Promise<void> | null = null;
   /** The account time zone of an owner (v1.5.1: the desktop's clock follows it). */
@@ -94,9 +118,11 @@ export class DesktopComputer {
       idleMs?: number;
       sweepMs?: number | null;
       zone?: (owner: string) => Promise<string | null>;
+      shots?: ShotStore | null;
     } = {},
   ) {
     this.now = options.now ?? Date.now;
+    this.shots = options.shots ?? null;
     this.zone = options.zone;
     this.idleMs = options.idleMs ?? (config.desktop?.idleMinutes ?? 15) * 60_000;
     if (options.sweepMs !== null) {
@@ -110,6 +136,7 @@ export class DesktopComputer {
   close() {
     if (this.sweep) clearInterval(this.sweep);
     for (const socket of this.sockets) socket.close();
+    this.shots?.close();
   }
   /** Someone used the computer: its idle pause starts again from now. */
   touch() {
@@ -340,10 +367,10 @@ export class DesktopComputer {
     return this.agent.files<T>(request);
   }
   async list(raw: string | undefined) {
-    return this.file<{
-      path: string;
-      entries: { name: string; path: string; type: string; size: number }[];
-    }>({ operation: "list", path: workspacePath(raw ?? "/workspace") });
+    return this.file<{ path: string; entries: WorkspaceEntry[] }>({
+      operation: "list",
+      path: workspacePath(raw ?? "/workspace"),
+    });
   }
   async read(path: string) {
     return this.file<{ path: string; text: string }>({
@@ -373,30 +400,81 @@ export class DesktopComputer {
     });
     return { name: posix.basename(path), bytes: Buffer.from(result.base64, "base64") };
   }
+  // ── v1.6 文件浏览器: the person's own file page over /workspace ──
+  /** Any file's bytes, up to 10 MB (a download, a picture or a PDF to show). */
+  async readBytes(path: string) {
+    const result = await this.file<{ path: string; base64: string; size: number }>({
+      operation: "read_bytes",
+      path: workspacePath(path),
+    });
+    return { name: posix.basename(result.path), bytes: Buffer.from(result.base64, "base64") };
+  }
+  /** An upload: any file up to 10 MB, written whole. */
+  async writeBytes(path: string, bytes: Uint8Array) {
+    if (bytes.length > workspaceFileMaxBytes)
+      throw new AppError("Files must be 10 MB or smaller", 413);
+    return this.file<{ path: string }>({
+      operation: "write_bytes",
+      path: workspacePath(path),
+      base64: Buffer.from(bytes).toString("base64"),
+    });
+  }
+  /** A file or folder moved or renamed; never over something that exists. */
+  async rename(path: string, to: string) {
+    return this.file<{ path: string }>({
+      operation: "rename",
+      path: workspacePath(path),
+      to: workspacePath(to),
+    });
+  }
+  /** Into the recycle bin (kept 30 days); the entry to restore it by. */
+  async remove(path: string) {
+    return this.file<{ id: string; path: string; deletedAt: string }>({
+      operation: "delete",
+      path: workspacePath(path),
+    });
+  }
+  async trash() {
+    return this.file<{ entries: TrashEntry[]; days: number }>({ operation: "trash_list" });
+  }
+  async restore(id: string) {
+    return this.file<{ path: string }>({ operation: "restore", id });
+  }
+  async purge(id: string) {
+    return this.file<{ id: string }>({ operation: "trash_delete", id });
+  }
+  /** Every folder and file, for the file page's search (at most 5000). */
+  async tree() {
+    return this.file<{ entries: WorkspaceEntry[]; truncated: boolean }>({ operation: "tree" });
+  }
   /** The whole screen now, as base64 PNG; the desktop starts when it is paused. */
   async screenshot(): Promise<string> {
     await this.start();
     this.touch();
     return this.agent.screenshot();
   }
-  private readonly shots = new Map<string, { png: string; at: number }>();
+  private readonly memoryShots = new Map<string, { png: string; at: number }>();
   /** Keeps a screenshot (base64 PNG) so the person sees it in the chat
-   * (GET /api/computer/screenshots/:id); its id. The newest `keptShots` are kept, an hour each. */
+   * (GET /api/computer/screenshots/:id); its id. With a store it is written to disk and kept for
+   * the store's retention; without one the newest `keptShots` are kept in memory, an hour each. */
   keepShot(png: string): string {
+    if (this.shots) return this.shots.keep(png);
     const now = this.now();
-    for (const [key, shot] of this.shots) if (now - shot.at > shotTtlMs) this.shots.delete(key);
+    for (const [key, shot] of this.memoryShots)
+      if (now - shot.at > shotTtlMs) this.memoryShots.delete(key);
     const id = randomBytes(16).toString("base64url");
-    this.shots.set(id, { png, at: now });
-    while (this.shots.size > keptShots) {
-      const oldest = this.shots.keys().next().value;
+    this.memoryShots.set(id, { png, at: now });
+    while (this.memoryShots.size > keptShots) {
+      const oldest = this.memoryShots.keys().next().value;
       if (oldest === undefined) break;
-      this.shots.delete(oldest);
+      this.memoryShots.delete(oldest);
     }
     return id;
   }
-  /** A kept screenshot's PNG bytes; null when unknown or older than an hour. */
+  /** A kept screenshot's PNG bytes; null when there is no such picture. */
   shotOf(id: string): Buffer | null {
-    const shot = this.shots.get(id);
+    if (this.shots) return this.shots.read(id);
+    const shot = this.memoryShots.get(id);
     if (!shot || this.now() - shot.at > shotTtlMs) return null;
     return Buffer.from(shot.png, "base64");
   }

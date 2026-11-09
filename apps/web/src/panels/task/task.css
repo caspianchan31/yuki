@@ -511,3 +511,182 @@ button.tp-prow:hover {
     white-space: nowrap;
   }
 }
+
+/* v1.6 文件浏览器 (FilesPanel.tsx): the two groups' tabs, the folder rows, a file's view. */
+.fp-tabs {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+  margin-right: 8px;
+}
+.fp-tab {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  color: var(--muted);
+  background: transparent;
+}
+.fp-tab.on {
+  color: var(--fg);
+  background: var(--bg-2, rgba(127, 127, 127, 0.12));
+}
+.fp .btn.sm {
+  padding: 4px 10px;
+  font-size: 13px;
+}
+.fp-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+.fp-crumb {
+  color: var(--accent, #2563eb);
+  background: transparent;
+  padding: 2px 4px;
+}
+.fp-sep {
+  color: var(--muted);
+  padding: 0 2px;
+}
+.fp-here {
+  font-weight: 600;
+  padding: 2px 4px;
+}
+.fp-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.fp-strip {
+  border: 1px solid var(--line, rgba(127, 127, 127, 0.25));
+  border-radius: 10px;
+  padding: 8px 10px;
+  margin-bottom: 12px;
+}
+.fp-strip h4 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.fp-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--line, rgba(127, 127, 127, 0.15));
+  min-width: 0;
+}
+.fp-row:last-child {
+  border-bottom: 0;
+}
+.fp-row > svg {
+  flex: none;
+  color: var(--muted);
+}
+.fp-name {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  background: transparent;
+  color: var(--fg);
+  padding: 2px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fp-name:not(:disabled):hover {
+  text-decoration: underline;
+}
+.fp-name.fp-static {
+  display: flex;
+  flex-direction: column;
+  white-space: normal;
+}
+.fp-meta {
+  flex: none;
+  font-size: 12px;
+  color: var(--muted);
+}
+.fp-acts {
+  display: flex;
+  gap: 4px;
+  flex: none;
+}
+.fp-act {
+  display: inline-flex;
+  padding: 4px;
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+}
+.fp-act:hover {
+  color: var(--fg);
+  background: var(--bg-2, rgba(127, 127, 127, 0.12));
+}
+.fp-filehead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.fp-filehead .fp-meta {
+  flex: 1;
+  white-space: normal;
+}
+.fp-pre {
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--line, rgba(127, 127, 127, 0.25));
+  border-radius: 8px;
+  font:
+    13px / 20px ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 60vh;
+  overflow: auto;
+}
+.fp-image {
+  max-width: 100%;
+  max-height: 70vh;
+  border-radius: 8px;
+  border: 1px solid var(--line, rgba(127, 127, 127, 0.25));
+}
+.fp-pdf {
+  width: 100%;
+  height: 70vh;
+  border: 1px solid var(--line, rgba(127, 127, 127, 0.25));
+  border-radius: 8px;
+  background: #fff;
+}
+.fp-member {
+  margin-bottom: 8px;
+}
+.fp-memberhead {
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-weight: 600;
+  background: var(--bg-2, rgba(127, 127, 127, 0.08));
+  color: var(--fg);
+}
+.fp-memberhead.on {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.fp-member .fp-row {
+  padding-left: 10px;
+}
+.fp-trashrow .fp-acts .btn {
+  white-space: nowrap;
+}

@@ -1,4 +1,7 @@
-export type QueuedMessage = { id: string; text: string };
+import type { ChatAttachment } from "../../domain/src/chat-attachments";
+
+/** v1.6 聊天里发文件: a queued message may carry the files already uploaded for it. */
+export type QueuedMessage = { id: string; text: string; attachments?: ChatAttachment[] };
 type Snapshot = { pending: readonly QueuedMessage[]; running: boolean; paused: boolean };
 
 /** One AG-UI run at a time, while the person can keep composing. */

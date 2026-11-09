@@ -30,9 +30,12 @@ import { type Detail, WorkspaceContext, type WorkspaceContextValue } from "@m/wo
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import type { Section, Workspace } from "../../../packages/domain/src";
 import { loadAccountZone } from "./account-zone";
+import { appPath, base } from "./base";
 import { AuthGate } from "./gate/AuthGate";
 import { Centered } from "./gate/Centered";
 import { CopilotKitProvider } from "./platform/copilotkit-headless";
+import { ReplayPage } from "./replay/ReplayPage";
+import { ownReplaySource, sharedReplaySource } from "./replay/sources";
 import { Shell } from "./shell/Shell";
 import { setFrame } from "./shell/state";
 import { useTenancyUi } from "./tenancy-ui";
@@ -45,6 +48,10 @@ document.documentElement.lang = t.app.lang;
  * (tenancy-ui.tsx). Without one this is the sign-in and then the project list. */
 export function App() {
   const ui = useTenancyUi();
+  // v1.6 回顾: /r/<token> (anyone with the link) and /replay/<threadId> (the signed-in owner)
+  // are pages of their own, outside the workspace frame and before any sign-in gate.
+  const replayPage = replayRoute(appPath());
+  if (replayPage) return replayPage;
   return (
     <ui.PublicRoutes fallback={<Opening />}>
       {({ signInAs }) => (
@@ -62,6 +69,36 @@ export function App() {
       )}
     </ui.PublicRoutes>
   );
+}
+
+/** The replay page a path names, or null for the app itself. */
+function replayRoute(path: string) {
+  const shared = /^\/r\/([A-Za-z0-9_-]{40,48})\/?$/.exec(path);
+  if (shared)
+    return (
+      <ReplayPage
+        source={sharedReplaySource(shared[1], t.replay.loadError, t.replay.linkGone)}
+        shared
+      />
+    );
+  const own = /^\/replay\/([^/?#]+)\/?$/.exec(path);
+  if (!own) return null;
+  const query = new URLSearchParams(window.location.search);
+  const source = ownReplaySource(
+    decodeURIComponent(own[1]),
+    { projectId: query.get("p"), spaceId: query.get("s") },
+    t.replay.loadError,
+  );
+  if (!source)
+    return (
+      <Centered>
+        <p>{t.replay.notSignedIn}</p>
+        <a className="btn" href={base}>
+          {t.replay.toSignIn}
+        </a>
+      </Centered>
+    );
+  return <ReplayPage source={source} shared={false} />;
 }
 
 function Opening({ error, onRetry }: { error?: string; onRetry?: () => void }) {

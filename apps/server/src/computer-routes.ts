@@ -4,12 +4,19 @@
 // the controls to the person (接手 / 交还), runs commands and reads and writes files.
 import { Hono } from "hono";
 import type { EnvironmentRef } from "../../../packages/domain/src/environments.ts";
+import {
+  contentDisposition,
+  workspaceFileMaxBytes,
+  workspaceMediaType,
+} from "../../../packages/domain/src/workspace-files.ts";
 import type { ComputerService } from "./computer.ts";
 import {
   desktopCommandSchema,
   desktopOf,
   desktopPathSchema,
+  desktopRenameSchema,
   desktopWriteSchema,
+  trashEntrySchema,
 } from "./desktop-computer.ts";
 import { desktopScreenshotRoutes } from "./desktop-screenshots.ts";
 import { AppError } from "./errors.ts";
@@ -61,6 +68,47 @@ export function computerRoutes(computer: ComputerService, _files: Files) {
   app.post("/files/mkdir", async (c) => {
     const { path } = desktopPathSchema.parse(await c.req.json());
     return c.json(await desktop().mkdir(path));
+  });
+  // ── v1.6 文件浏览器 (the person's file page; docs/computer-container.md) ──
+  // Every folder and file at once, for the page's search (⌘K by file name).
+  app.get("/files/tree", async (c) => c.json(await desktop().tree()));
+  // A file's bytes: downloaded, or shown in the page (?inline=1: a picture, a PDF). Served with
+  // the type its name says, never as HTML.
+  app.get("/files/download", async (c) => {
+    const { path } = desktopPathSchema.parse({ path: c.req.query("path") });
+    const { name, bytes } = await desktop().readBytes(path);
+    return c.body(new Uint8Array(bytes), 200, {
+      "Content-Type": workspaceMediaType(name),
+      "Content-Disposition": contentDisposition(name, c.req.query("inline") === "1"),
+      "X-Content-Type-Options": "nosniff",
+      "Cache-Control": "private, no-store",
+    });
+  });
+  // An upload: the file's bytes as the body, its whole path in the query; 10 MB at most.
+  app.post("/files/upload", async (c) => {
+    const { path } = desktopPathSchema.parse({ path: c.req.query("path") });
+    const declared = Number(c.req.header("content-length") ?? 0);
+    if (declared > workspaceFileMaxBytes) throw new AppError("Files must be 10 MB or smaller", 413);
+    const bytes = new Uint8Array(await c.req.arrayBuffer());
+    return c.json(await desktop().writeBytes(path, bytes));
+  });
+  app.post("/files/rename", async (c) => {
+    const { path, to } = desktopRenameSchema.parse(await c.req.json());
+    return c.json(await desktop().rename(path, to));
+  });
+  // Deleted into the recycle bin (30 days), listed, brought back, or removed for good.
+  app.post("/files/delete", async (c) => {
+    const { path } = desktopPathSchema.parse(await c.req.json());
+    return c.json(await desktop().remove(path));
+  });
+  app.get("/files/trash", async (c) => c.json(await desktop().trash()));
+  app.post("/files/restore", async (c) => {
+    const { id } = trashEntrySchema.parse(await c.req.json());
+    return c.json(await desktop().restore(id));
+  });
+  app.post("/files/purge", async (c) => {
+    const { id } = trashEntrySchema.parse(await c.req.json());
+    return c.json(await desktop().purge(id));
   });
   return app;
 }

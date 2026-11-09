@@ -22,6 +22,7 @@ const areaOf: Record<Kind, Area> = {
   notes: "task",
   projects: "task",
   threads: "task",
+  files: "task",
   account: "accounts",
   assign: "accounts",
   join: "accounts",

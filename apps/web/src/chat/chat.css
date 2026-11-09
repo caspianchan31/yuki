@@ -633,3 +633,304 @@
   font-size: 12px;
   color: var(--fg3);
 }
+
+/* v1.6 聊天里发文件: the attach button in the pill, the picked files above it, a drag over it,
+   and the file cards in messages (the person's own on the right, a reply's 成品 on the left). */
+.chat-screen .composer .attach {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fg3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.chat-screen .composer .attach:hover:not([disabled]) {
+  background: var(--bg2);
+  color: var(--fg);
+}
+.chat-screen .composer .attach[disabled] {
+  opacity: 0.35;
+  cursor: default;
+}
+.composer.dropping .box {
+  border-color: var(--fg);
+  border-style: dashed;
+}
+.composer .chips {
+  max-width: 760px;
+  margin: 0 auto 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.composer .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 6px 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  font-size: 12px;
+  color: var(--fg2);
+}
+.composer .chip img {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  object-fit: cover;
+}
+.composer .chip .chip-name {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
+}
+.composer .chip .chip-meta {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg3);
+}
+.composer .chip.failed {
+  border-color: var(--red, #c0392b);
+}
+.composer .chip.failed .chip-meta {
+  color: var(--red, #c0392b);
+}
+.composer .chip.uploading .chip-meta {
+  font-style: italic;
+}
+.attach-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 86%;
+}
+.blk.mine .attach-row {
+  justify-content: flex-end;
+}
+.attach-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 280px;
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.attach-card:hover {
+  border-color: var(--line2);
+  background: var(--bg2);
+}
+.attach-card .attach-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attach-card .attach-kind {
+  color: var(--fg3);
+  font-size: 12px;
+}
+.attach-card .attach-err {
+  color: var(--red, #c0392b);
+  font-size: 12px;
+}
+.attach-card.pic {
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+}
+.attach-card.pic .thumb {
+  display: block;
+  max-width: 240px;
+  max-height: 240px;
+  object-fit: cover;
+}
+
+/* v1.6 聊天基础动作: code blocks (a head with the language and 复制; colours from shiki as CSS
+   variables), the actions under a reply, 编辑 on one's own message, and the folded stretches
+   the person went back on. */
+.md .code-block {
+  margin: 6px 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  overflow: hidden;
+  background: var(--bg2);
+}
+.md .code-block .code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 6px 3px 10px;
+  font-size: 12px;
+  color: var(--fg3);
+  border-bottom: 1px solid var(--line);
+}
+.md .code-block .code-copy {
+  font: inherit;
+  color: var(--fg2);
+  background: transparent;
+  border: 0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.md .code-block .code-copy:hover {
+  background: var(--bg3);
+  color: var(--fg);
+}
+.md .code-block pre {
+  margin: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.md .code-block code span {
+  color: var(--shiki-light, inherit);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .md .code-block code span {
+    color: var(--shiki-dark, inherit);
+  }
+}
+:root[data-theme="dark"] .md .code-block code span {
+  color: var(--shiki-dark, inherit);
+}
+.reply-acts,
+.mine-acts {
+  display: flex;
+  gap: 2px;
+  margin-top: 4px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.blk:hover .reply-acts,
+.blk:focus-within .reply-acts,
+.reply-acts:has([aria-pressed="true"]),
+.blk.mine:hover .mine-acts,
+.blk.mine:focus-within .mine-acts {
+  opacity: 1;
+}
+@media (hover: none) {
+  .reply-acts,
+  .mine-acts {
+    opacity: 1;
+  }
+}
+.reply-acts button,
+.mine-acts button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  color: var(--fg3);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+.reply-acts button:hover,
+.mine-acts button:hover {
+  background: var(--bg3);
+  color: var(--fg);
+}
+.reply-acts button[aria-pressed="true"] {
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+.edit-box {
+  width: 100%;
+  max-width: 86%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.edit-box textarea {
+  width: 100%;
+  min-height: 72px;
+  font: inherit;
+  font-size: 15px;
+  line-height: 24px;
+  padding: 8px 12px;
+  border: 1px solid var(--line2);
+  border-radius: 14px;
+  background: var(--bg);
+  color: var(--fg);
+  resize: vertical;
+}
+.edit-box .row {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.superseded {
+  margin: 4px 0 4px 38px;
+  padding-left: 10px;
+  border-left: 2px dashed var(--line2);
+  color: var(--fg3);
+}
+.superseded > summary {
+  cursor: pointer;
+  font-size: 12px;
+  list-style: none;
+}
+.superseded > summary::-webkit-details-marker {
+  display: none;
+}
+.superseded > summary::before {
+  content: "▸ ";
+}
+.superseded[open] > summary::before {
+  content: "▾ ";
+}
+.superseded .hint {
+  font-size: 12px;
+  margin: 4px 0 6px;
+}
+.superseded .old {
+  opacity: 0.72;
+  margin: 6px 0;
+}
+.superseded .old.mine {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.superseded .old .body:not(.me) {
+  color: var(--fg2);
+}
+
+/* v1.6 搜对话内容: the message a search hit jumped to, lit for a moment. */
+@keyframes hit-glow {
+  0%,
+  60% {
+    box-shadow: 0 0 0 3px var(--accent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+.body.hit,
+.blk.mine.hit .body.me {
+  animation: hit-glow 3s ease-out;
+  border-radius: 10px;
+}

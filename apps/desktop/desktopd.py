@@ -186,6 +186,16 @@ def take_screenshot() -> str:
         return base64.b64encode(source.read()).decode("ascii")
 
 
+def ensure_workspace_folders() -> None:
+    """v1.6: the two folders the person's file page and the members agree on (收到: what the
+    person hands over; 成品: what members deliver), made once the workspace is writable."""
+    for folder in ("收到", "成品"):
+        try:
+            os.makedirs(os.path.join(WORKSPACE, folder), mode=0o700, exist_ok=True)
+        except OSError as error:
+            log(f"could not make /workspace/{folder}: {error}")
+
+
 def run_files(body: bytes) -> dict:
     env = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"}
     if WORKSPACE != "/workspace":
@@ -304,6 +314,7 @@ class Session:
             if not SESSION:
                 raise RuntimeError("This computer runs without a desktop session")
             os.makedirs(RUN_DIR, exist_ok=True)
+            ensure_workspace_folders()
             width, height = SIZE.split("x")
             number = DISPLAY.lstrip(":")
             for stale in (f"/tmp/.X{number}-lock", f"/tmp/.X11-unix/X{number}"):

@@ -4,12 +4,16 @@
 // `noComputerMessage`; what only reads (a snapshot, a member's desktop state for a listing)
 // answers that there is none. With one configured (docs/computer-container.md) the same calls go to
 // the members' computer container through `DesktopComputer` (desktop-computer.ts).
+
+import { join } from "node:path";
 import type { ComputerCommand, ComputerSnapshot } from "../../../packages/domain/src/computer.ts";
+import { deliveredPath, receivedPath } from "../../../packages/domain/src/workspace-files.ts";
 import { readAccountZone } from "./account-settings.ts";
 import type { Config } from "./config.ts";
 import type { Store } from "./db.ts";
 import { DesktopAgent } from "./desktop-agent.ts";
 import { DesktopComputer } from "./desktop-computer.ts";
+import { defaultMaxGb, defaultRetentionDays, ShotStore } from "./desktop-shots-store.ts";
 import { AppError } from "./errors.ts";
 import { Incidents } from "./incidents.ts";
 
@@ -65,6 +69,12 @@ export async function loadDesktopIdentities(_db: Store): Promise<Map<string, str
   return new Map();
 }
 
+const dayMs = 24 * 60 * 60_000;
+
+/** How often, and how long apart, a copy to the computer is tried while it comes up. */
+const receiveAttempts = 5;
+const receiveRetryMs = 4000;
+
 export class ComputerService {
   /** What the AI could not clear itself; with no computer an incident has no picture. */
   readonly incidents: Incidents;
@@ -86,8 +96,15 @@ export class ComputerService {
             token: config.desktop.token,
             tokenFile: config.desktop.tokenFile,
           }),
-          // The desktop's clock follows the account's time zone (设置 → 通用 → 时区).
-          { zone: (owner) => readAccountZone(db, owner) },
+          {
+            // The desktop's clock follows the account's time zone (设置 → 通用 → 时区).
+            zone: (owner) => readAccountZone(db, owner),
+            // v1.6: the pictures members take live on disk, apart from the process.
+            shots: new ShotStore(join(config.dataDir, "screenshots"), {
+              retentionMs: (config.screenshotRetentionDays ?? defaultRetentionDays) * dayMs,
+              maxBytes: (config.screenshotMaxGb ?? defaultMaxGb) * 1024 ** 3,
+            }),
+          },
         )
       : null;
     this.provider = this.container ? "desktop" : "none";
@@ -100,6 +117,47 @@ export class ComputerService {
   /** Stops the idle sweep and the live views (the server is shutting down, or a test ends). */
   close() {
     this.container?.close();
+  }
+  /** v1.6: a deleted conversation's kept screenshots go with it. */
+  async forgetShots(ids: string[]) {
+    await this.container?.shots?.remove(ids);
+  }
+  /** v1.6 回顾: a kept picture's PNG bytes for a shared replay; null when there is none. */
+  shotPng(id: string): Buffer | null {
+    return this.container?.shotOf(id) ?? null;
+  }
+  /** v1.6 聊天里发文件: a copy of a file sent in the chat goes to /workspace/收到 (a number is
+   * added when the name is taken); the path it got, or null without a computer. The computer is
+   * started for it when paused, and a computer still coming up is tried again a few times (a
+   * cold start answered the first attempt with an error); one that cannot be reached gives null,
+   * not an error. */
+  async receiveFile(_owner: string, name: string, bytes: Uint8Array): Promise<string | null> {
+    return this.placeFile(receivedPath, name, bytes);
+  }
+  /** v1.6 生成图片: a picture a member made goes to /workspace/成品 the same way. */
+  async deliverFile(_owner: string, name: string, bytes: Uint8Array): Promise<string | null> {
+    return this.placeFile(deliveredPath, name, bytes);
+  }
+  private async placeFile(dir: string, name: string, bytes: Uint8Array): Promise<string | null> {
+    if (!this.container) return null;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await this.container.mkdir(dir).catch(() => undefined);
+        const taken = new Set((await this.container.list(dir)).entries.map((entry) => entry.name));
+        let candidate = name;
+        for (let number = 2; taken.has(candidate); number++) {
+          const dot = name.lastIndexOf(".");
+          candidate =
+            dot > 0 ? `${name.slice(0, dot)} (${number})${name.slice(dot)}` : `${name} (${number})`;
+        }
+        const path = `${dir}/${candidate}`;
+        await this.container.writeBytes(path, bytes);
+        return path;
+      } catch {
+        if (attempt >= receiveAttempts) return null;
+        await new Promise((resolve) => setTimeout(resolve, receiveRetryMs));
+      }
+    }
   }
   async snapshot(owner: string): Promise<ComputerSnapshot> {
     if (this.container) return this.container.snapshot(owner);

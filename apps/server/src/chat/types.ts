@@ -45,6 +45,37 @@ export type ClaimResult = { ok: true } | { ok: false; reason: "locked" | "forbid
 
 export type DeleteResult = "deleted" | "not_found" | "running";
 
+/** v1.6 聊天基础动作: supersedeFrom's outcome ("no_message": no live run brought that message). */
+export type SupersedeResult = "superseded" | "not_found" | "running" | "no_message";
+
+/** v1.6 聊天基础动作: a stretch of the conversation the person went back on, folded in the chat. */
+export interface SupersededSegment {
+  /** The live run standing where the stretch stood (its first message anchors the fold); null
+   * while it has not begun or is gone. */
+  anchor: string | null;
+  /** ISO 8601: when the stretch was superseded. */
+  at: string;
+  /** Its compacted events (the thread view turns them into messages). */
+  events: BaseEvent[];
+}
+
+/** v1.6 聊天基础动作: 点赞 / 点踩. */
+export type FeedbackVerdict = "up" | "down";
+
+/** v1.6 搜对话内容: one message found by a search, with the conversation it is in. */
+export interface MessageHit {
+  threadId: string;
+  threadName: string | null;
+  agentId: string;
+  archived: boolean;
+  messageId: string;
+  role: "user" | "assistant";
+  /** ISO 8601: when the message's turn began. */
+  at: string;
+  /** The words around the first phrase found (`match` is that phrase as written). */
+  snippet: { before: string; match: string; after: string };
+}
+
 /** Error code the client already understands as "thread busy, hold the message". */
 export const threadLockedCode = "agent_thread_locked";
 
@@ -74,18 +105,44 @@ export interface ThreadStore {
   ): Promise<ThreadRecord | null>;
   /** Deletes the thread with its runs and journal. "running" while a run holds the lock. */
   deleteThread(owner: string, threadId: string, agentId: string): Promise<DeleteResult>;
-  /** Compacted events of the thread's closed runs; null when missing or another owner's. */
-  threadEvents(owner: string, threadId: string): Promise<BaseEvent[] | null>;
+  /** Compacted events of the thread's closed runs (the superseded ones too only with
+   * `superseded`); null when missing or another owner's. */
+  threadEvents(
+    owner: string,
+    threadId: string,
+    options?: { superseded?: boolean },
+  ): Promise<BaseEvent[] | null>;
   /** Message id -> the member who sent it; null when missing or another
    * owner's. */
   speakers?(owner: string, threadId: string): Promise<Record<string, string> | null>;
   /** When each turn was had (ChatStore `turns`); null when missing or another
    * owner's. */
   turns?(owner: string, threadId: string): Promise<ThreadTurn[] | null>;
+  /** v1.6 聊天基础动作: supersedes the conversation from `messageId` on (ChatStore). */
+  supersedeFrom?(owner: string, threadId: string, messageId: string): Promise<SupersedeResult>;
+  /** v1.6 聊天基础动作: the superseded stretches; null when missing or another owner's. */
+  superseded?(owner: string, threadId: string): Promise<SupersededSegment[] | null>;
+  /** v1.6 聊天基础动作: the verdicts on the thread's replies; null when missing or another owner's. */
+  feedback?(owner: string, threadId: string): Promise<Record<string, FeedbackVerdict> | null>;
+  /** v1.6 搜对话内容: the owner's messages holding the typed words, newest first (ChatStore). */
+  searchMessages?(
+    owner: string,
+    typed: string,
+    options?: { limit?: number },
+  ): Promise<MessageHit[]>;
+  /** v1.6 聊天基础动作: gives or takes back a verdict; false when missing or another owner's. */
+  setFeedback?(
+    owner: string,
+    threadId: string,
+    messageId: string,
+    verdict: FeedbackVerdict | null,
+  ): Promise<boolean>;
 }
 
 /** One turn of a conversation (one run) in time. */
 export interface ThreadTurn {
+  /** The run (v1.6 聊天基础动作: a superseded stretch's fold stands before its anchor run). */
+  runId?: string;
   /** ISO 8601: when the run began (the person's message was sent). */
   at: string;
   /** ISO 8601: when the run's reply ended; null while it runs. */

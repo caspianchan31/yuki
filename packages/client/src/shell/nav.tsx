@@ -47,6 +47,9 @@ export type ShellPanel =
   /** `form` "new" opens the panel with the create form (the column's 「+ 新项目」). */
   | { kind: "projects"; form?: "new" }
   | { kind: "threads" }
+  /** v1.6 文件浏览器: the file page, opened on the computer's folder or file `path`, or on the
+   * members' files. */
+  | { kind: "files"; path?: string; group?: "computer" | "members" }
   /** Add a credential (preset: its kind, a site and who uses it) or replace
    * parts of one (entryId); and a credential's history (none: the project's whole history). */
   | {

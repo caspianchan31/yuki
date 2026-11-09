@@ -28,7 +28,7 @@ function runPython(t: { skip(reason: string): void }, file: string, count: numbe
 }
 
 test("the computer's files helper stays inside /workspace and follows no symlink", (t) => {
-  runPython(t, "test_files.py", 8);
+  runPython(t, "test_files.py", 13);
 });
 
 test("the computer's control agent needs the token, refuses an Origin and bounds commands", (t) => {

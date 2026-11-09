@@ -44,6 +44,7 @@ import {
   monitorInputSchema,
   taskTitle,
 } from "../../../../packages/domain/src/agent.ts";
+import { messageText } from "../../../../packages/domain/src/chat-attachments.ts";
 import { calendarRangeSchema } from "../../../../packages/domain/src/index.ts";
 import { jevActionPrefix, parseJevAction } from "../../../../packages/domain/src/jev.ts";
 import {
@@ -53,11 +54,23 @@ import {
   routineWhenLine,
 } from "../../../../packages/domain/src/routines.ts";
 import { taskEnvironmentId, taskPhase } from "../../../../packages/domain/src/task-phase.ts";
+import {
+  attachmentInstructions,
+  attachmentTools,
+  messagesForModel,
+} from "../chat/attachments-for-model.ts";
 import type { Config } from "../config.ts";
 import { ChatEnvironment } from "../environment-tools.ts";
 import { createJevAdapter, type JevAdapter } from "../jev/adapter.ts";
 import { JevService } from "../jev/service.ts";
 import { presentChoicesTool } from "../jev/tools.ts";
+import {
+  drawPicture,
+  imageInputSchema,
+  imageInstructions,
+  imageToolDescription,
+  imageToolName,
+} from "../picture-tool.ts";
 import { searchDescription, searchInputSchema, searchInstructions } from "../search.ts";
 import { currentRulesMiddleware, olderRepliesRule } from "./current-rules.ts";
 import {
@@ -266,7 +279,8 @@ export class ConversationAgent extends AbstractAgent {
       jevMode === "off" || !this.jevAdapter
         ? null
         : new JevService({ store: this.service.db, adapter: this.jevAdapter, mode: jevMode });
-    const latestText = typeof latest?.content === "string" ? latest.content : "";
+    // v1.6: a message with attachments carries its text as a part.
+    const latestText = messageText(latest?.content);
     if (latestText.startsWith(jevActionPrefix))
       return new Observable((subscriber) => {
         let subscription: { unsubscribe(): void } | undefined;
@@ -304,11 +318,7 @@ export class ConversationAgent extends AbstractAgent {
             threadId: input.threadId,
             runId: input.runId,
           });
-          void this.sample(
-            typeof latest?.content === "string" ? latest.content : "",
-            requestKey,
-            input.threadId,
-          )
+          void this.sample(messageText(latest?.content), requestKey, input.threadId)
             .then(({ content, task }) => {
               const id = randomUUID();
               subscriber.next({
@@ -383,6 +393,8 @@ export class ConversationAgent extends AbstractAgent {
     const files = (accountId: string | null | undefined) =>
       memberFileTools(this.service, this.owner, accountId || null);
     const tools = [
+      // v1.6 聊天里发文件: the files the person sent, read again by id.
+      ...attachmentTools(this.service.attachments, this.owner),
       ...environment.tools({ signal: browserAbort.signal }),
       ...(jev
         ? [
@@ -509,6 +521,34 @@ export class ConversationAgent extends AbstractAgent {
                   return {
                     error: error instanceof Error ? error.message : "Could not search the web",
                   };
+                }
+              },
+            }),
+          ]
+        : []),
+      // v1.6 生成图片: only while the gateway said the model can draw.
+      ...(this.service.images?.known()?.can
+        ? [
+            defineTool({
+              name: imageToolName,
+              description: imageToolDescription,
+              parameters: imageInputSchema,
+              execute: async (args) => {
+                try {
+                  return await drawPicture(
+                    {
+                      images: this.service.images,
+                      attachments: this.service.attachments,
+                      deliver: (owner, name, bytes) =>
+                        this.service.computer.deliverFile(owner, name, bytes),
+                    },
+                    this.owner,
+                    imageInputSchema.parse(args),
+                    browserAbort.signal,
+                  );
+                } catch (error) {
+                  browserAbort.signal.throwIfAborted();
+                  return { error: error instanceof Error ? error.message : "没画成" };
                 }
               },
             }),
@@ -1011,7 +1051,11 @@ export class ConversationAgent extends AbstractAgent {
       // After the computer rules, so their "these rules
       // win" header (which overrides the computer description) never reaches it.
       chatDelegationRule +
-      (this.config.webSearchEnabled ? searchInstructions : "");
+      (this.config.webSearchEnabled ? searchInstructions : "") +
+      // v1.6 聊天里发文件: how sent files reach her.
+      (this.service.attachments ? attachmentInstructions : "") +
+      // v1.6 生成图片: whether she can draw (the verdict known now).
+      (this.service.images ? imageInstructions(this.service.images.known()) : "");
     return this.expireOnUserTurn(
       new Observable((subscriber) => {
         let agent: ReturnType<typeof tanstackAgent> | undefined;
@@ -1178,10 +1222,7 @@ export class ConversationAgent extends AbstractAgent {
                   const last = [...input.messages]
                     .reverse()
                     .find((message) => message.role === "user");
-                  const said =
-                    typeof last?.content === "string"
-                      ? last.content
-                      : JSON.stringify(last?.content ?? "");
+                  const said = messageText(last?.content);
                   return skillsLine(saved) + skillMentionLine(skillsMentioned(said, saved));
                 })()) +
                 (await (this.service.apps?.promptLine(this.owner) ?? "")) +
@@ -1209,7 +1250,17 @@ export class ConversationAgent extends AbstractAgent {
                   inHall ? hideUnroutedCalls(agent.run(attempt), gate) : agent.run(attempt),
                 );
               },
-              { ...input, tools: input.tools.filter((t) => t.name === "open_workspace") },
+              {
+                ...input,
+                tools: input.tools.filter((t) => t.name === "open_workspace"),
+                // v1.6 聊天里发文件: the sent files as the model takes them (pictures as images,
+                // documents as their words); the stored messages only name them.
+                messages: await messagesForModel(
+                  input.messages,
+                  this.service.attachments,
+                  this.owner,
+                ),
+              },
               {
                 // The backup first: a provider's 429 is also an infrastructure stop.
                 transient: (message) =>

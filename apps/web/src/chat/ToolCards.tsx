@@ -376,7 +376,8 @@ export function CommandStepCard({
 }
 
 /** A screenshot a member took of the computer (computer_screenshot, open build): the picture
- * itself, so 「截图给我看」 shows it. The server keeps it for an hour. */
+ * itself, so 「截图给我看」 shows it. The server keeps it on disk for the retention (90 days by
+ * default) or until the conversation is deleted. */
 export function ComputerShotCard({ result, loading }: { result: unknown; loading: boolean }) {
   const c = t.containerComputer;
   const id = loading ? null : computerShotId(result);

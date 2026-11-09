@@ -13,6 +13,8 @@ const text = (value: unknown) => (typeof value === "string" && value ? value : n
  * the reply ended (`end`, null while it runs) and the messages the turn brought (the person's
  * first). */
 export interface TurnTime {
+  /** The run (v1.6 聊天基础动作: a superseded stretch folds before its anchor run's first message). */
+  runId: string | null;
   at: string;
   end: string | null;
   messages: string[];
@@ -27,7 +29,7 @@ export function normalizeTurns(payload: unknown): TurnTime[] {
     const messages = Array.isArray(item.messages)
       ? item.messages.filter((id): id is string => typeof id === "string")
       : [];
-    return [{ at, end: text(item.end), messages }];
+    return [{ runId: text(item.runId), at, end: text(item.end), messages }];
   });
 }
 /**

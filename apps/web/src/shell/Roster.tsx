@@ -23,7 +23,7 @@ import {
 } from "@m/shell/members/roster";
 import { useShellNav } from "@m/shell/nav";
 import { t } from "@m/shell/strings";
-import { Plus, Settings } from "lucide-react";
+import { FolderOpen, Plus, Settings } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { ChatReport } from "../../../../packages/domain/src/agent";
 import { clockLabel } from "../../../../packages/domain/src/task-phase";
@@ -293,6 +293,19 @@ export function Roster() {
             setFrame({ platform: frame.platform ?? tab, drawer: false });
           }}
         />
+        <button
+          type="button"
+          className="sb-item"
+          onClick={() => {
+            setFrame({ drawer: false });
+            nav.openPanel({ kind: "files" });
+          }}
+        >
+          <span className="ic">
+            <FolderOpen size={15} />
+          </span>
+          <span className="lbl">{t.filesPage.title}</span>
+        </button>
         <button
           type="button"
           className="sb-item"

@@ -6,11 +6,19 @@
  * crumb: the projects) it lists that group only, the group's name beside an empty box (⌫ in the
  * empty box shows everything again); typed, 「>」 or a group's name does the same. Within a group
  * the options whose name matches come before those only their hint matches. ↑↓ pick, ↵ opens,
- * Esc closes.
+ * Esc closes. v1.6 搜对话内容: typed words also search the conversations' messages on the server
+ * (the 对话 group: a hit shows the words around the match and names its conversation; picking it
+ * opens that conversation at the message).
  */
 
 import { useAuth } from "@m/auth-state";
 import { useProjects } from "@m/projects-state";
+import {
+  hitConversationLabel,
+  hitDayLabel,
+  type MessageHit,
+  normalizeHits,
+} from "@m/shell/chat/search-hits";
 import { useShellData } from "@m/shell/data";
 import { useProjectRows } from "@m/shell/frame/useProjectRows";
 import { useShellNav } from "@m/shell/nav";
@@ -45,8 +53,9 @@ export function Palette() {
   // The tenancy layer's commands (平台管理 and its tabs) and space switches, when it has any.
   const extra = useTenancyUi().usePaletteItems();
   // 从头开始 and 以前的对话: the main chat's commands, when conversations are kept on the server.
-  const { enabled: threadsOn, startNewMain } = useMuseThread();
+  const { enabled: threadsOn, startNewMain, select: openThread, mainId } = useMuseThread();
   const { notify } = useWorkspace();
+  const tree = useWorkspaceTree();
   const [query, setQuery] = useState(frame.paletteQuery);
   const [mode, setMode] = useState<Group | null>(frame.paletteGroup);
   const [index, setIndex] = useState(0);
@@ -106,6 +115,14 @@ export function Palette() {
         label: t.notes.title,
         run: () => nav.openPanel({ kind: "notes" }),
       },
+      // v1.6 文件浏览器: the file page; the computer's files by name are the 找文件 group below.
+      {
+        key: "files",
+        group: "commands",
+        label: t.filesPage.command,
+        hint: t.filesPage.commandHint,
+        run: () => nav.openPanel({ kind: "files" }),
+      },
       ...conversations,
       {
         key: "settings",
@@ -147,20 +164,68 @@ export function Palette() {
       hint: phase.label,
       run: () => nav.openPanel({ kind: "task", taskId: task.id }),
     }));
+    // The 对话 group (chatOptions, from the server) stands between these and the files.
     return [...commands, ...projects, ...accountOptions, ...taskOptions, ...extra.spaces];
   }, [nav, rows, select, accounts.value, entries, extra, signOut, threadsOn, startNewMain, notify]);
+  // The computer's folders and files (v1.6), each opening the file page there; shown after the commands.
+  const fileOptions = useMemo<Option[]>(
+    () =>
+      tree.map((entry) => ({
+        key: `f:${entry.path}`,
+        group: "files",
+        label: entry.name + (entry.type === "directory" ? "/" : ""),
+        hint:
+          entry.path
+            .slice(0, entry.path.lastIndexOf("/"))
+            .replace(/^\/workspace/, t.filesPage.root) || t.filesPage.root,
+        run: () => nav.openPanel({ kind: "files", path: entry.path, group: "computer" }),
+      })),
+    [tree, nav],
+  );
 
   const typed = parse(query);
   const group = typed.group ?? mode;
   const { text } = typed;
   const needle = text.toLowerCase();
-  const named = (option: Option) => option.label.toLowerCase().includes(needle);
-  const groupOrder = [...new Set(all.map((option) => option.group))];
-  const shown = all
+  // v1.6 搜对话内容: the messages holding the typed words, from the server (already matched there).
+  const search = useChatHits(text, threadsOn && (!group || group === "chat"));
+  const chatOptions = useMemo<Option[]>(
+    () =>
+      search.hits.map((hit) => ({
+        key: `m:${hit.threadId}:${hit.messageId}`,
+        group: "chat",
+        label: `${hit.snippet.before}${hit.snippet.match}${hit.snippet.after}`,
+        parts: hit.snippet,
+        hint: t.chat.search.where(
+          hitConversationLabel(hit, {
+            mainId,
+            main: t.threads.main,
+            untitled: t.threads.untitled,
+            archived: t.chat.search.archived,
+          }),
+          hitDayLabel(hit.at),
+        ),
+        run: () => {
+          setFrame({ jump: { threadId: hit.threadId, messageId: hit.messageId } });
+          openThread({ id: hit.threadId, existing: true });
+        },
+      })),
+    [search.hits, mainId, openThread],
+  );
+  const named = (option: Option) =>
+    option.group === "chat" || option.label.toLowerCase().includes(needle);
+  // Files before the chat hits: a file's name is a sharper match than a message naming it.
+  const options = [...all, ...fileOptions, ...chatOptions];
+  const groupOrder = [...new Set(options.map((option) => option.group))];
+  const shown = options
     .filter(
       (option) =>
         (!group || option.group === group) &&
-        (!needle || named(option) || !!option.hint?.toLowerCase().includes(needle)),
+        (option.group !== "files" || group === "files" || needle) &&
+        (option.group === "chat" ||
+          !needle ||
+          named(option) ||
+          !!option.hint?.toLowerCase().includes(needle)),
     )
     // Each group together (its heading once), a name's match before a hint's.
     .sort(
@@ -212,7 +277,15 @@ export function Palette() {
           />
         </div>
         <div className="list" role="listbox">
-          {shown.length === 0 ? <div className="empty-state">{w.paletteEmpty}</div> : null}
+          {shown.length === 0 ? (
+            <div className="empty-state">
+              {group === "chat" && !text
+                ? t.chat.search.typeWords
+                : search.pending
+                  ? t.chat.search.searching
+                  : w.paletteEmpty}
+            </div>
+          ) : null}
           {shown.map((option, i) => {
             // The chip beside the box already names the group the palette opened on (更多: 命令).
             const heading =
@@ -228,10 +301,21 @@ export function Palette() {
                   role="option"
                   aria-selected={i === current}
                   className={cx("opt", i === current && "on")}
+                  data-group={option.group}
                   onMouseEnter={() => setIndex(i)}
                   onClick={() => run(option)}
                 >
-                  <span className="l">{option.label}</span>
+                  <span className="l">
+                    {option.parts ? (
+                      <>
+                        {option.parts.before}
+                        <mark>{option.parts.match}</mark>
+                        {option.parts.after}
+                      </>
+                    ) : (
+                      option.label
+                    )}
+                  </span>
                   {option.hint ? (
                     <span className="h" title={option.hint}>
                       {option.hint}
@@ -256,4 +340,56 @@ export function Palette() {
       </div>
     </div>
   );
+}
+
+interface TreeEntry {
+  name: string;
+  path: string;
+  type: "file" | "directory";
+}
+/** v1.6: every folder and file of the members' computer, read once while the palette is open;
+ * nothing on a site without that computer (the hosted site: the route is not there). */
+function useWorkspaceTree(): TreeEntry[] {
+  const { api } = useWorkspace();
+  const [tree, setTree] = useState<TreeEntry[]>([]);
+  useEffect(() => {
+    let gone = false;
+    api
+      .request<{ entries: TreeEntry[] }>("/api/computer/files/tree")
+      .then((found) => !gone && Array.isArray(found.entries) && setTree(found.entries))
+      .catch(() => {});
+    return () => {
+      gone = true;
+    };
+  }, [api]);
+  return tree;
+}
+
+/** v1.6 搜对话内容: the messages holding the typed words, asked of the server a moment after the
+ * typing pauses (`pending` while the answer for these words is not in yet); nothing while the
+ * box is empty or the group shown is another. */
+function useChatHits(text: string, enabled: boolean): { hits: MessageHit[]; pending: boolean } {
+  const { api } = useWorkspace();
+  const [found, setFound] = useState<{ words: string; hits: MessageHit[] }>({
+    words: "",
+    hits: [],
+  });
+  const words = enabled ? text.trim() : "";
+  useEffect(() => {
+    if (!words) return;
+    let gone = false;
+    const timer = window.setTimeout(() => {
+      api
+        .request<unknown>(`/api/copilotkit/threads/search?q=${encodeURIComponent(words)}&limit=20`)
+        .then((payload) => !gone && setFound({ words, hits: normalizeHits(payload) }))
+        .catch(() => !gone && setFound({ words, hits: [] }));
+    }, 180);
+    return () => {
+      gone = true;
+      window.clearTimeout(timer);
+    };
+  }, [api, words]);
+  if (!words) return { hits: [], pending: false };
+  // The last answer stays up while the next is fetched, so the list does not blink.
+  return { hits: found.hits, pending: found.words !== words };
 }

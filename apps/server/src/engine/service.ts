@@ -90,6 +90,7 @@ import { AccountOperating } from "../accounts/operating.ts";
 import { type ActionService, isAppKind, reviewExpired } from "../actions.ts";
 import type { AppsService } from "../apps/service.ts";
 import type { BrowserService } from "../browser.ts";
+import type { AttachmentStore } from "../chat/attachment-store.ts";
 import { ComputerService, desktopConflict } from "../computer.ts";
 import type { Config } from "../config.ts";
 import {
@@ -114,6 +115,7 @@ import { AppError } from "../errors.ts";
 import type { AgentExtension } from "../extensions.ts";
 import type { Files } from "../files.ts";
 import { allowAllGate, type PlanGate, type SpaceScopes } from "../gate.ts";
+import type { ImageGeneration } from "../image-generation.ts";
 import { backgroundFailure } from "../log.ts";
 import { isMailboxConnection } from "../mail/channels.ts";
 import { MemberFiles, type MemberRef } from "../member-files/service.ts";
@@ -338,6 +340,10 @@ export class AgentService {
   readonly skills: Skills;
   /** v1.4 (docs/apps.md): connected apps (Slack, MCP servers); set by createApp. */
   apps?: AppsService;
+  /** v1.6 聊天里发文件: the files sent in the chat (set by createApp; none in some tests). */
+  attachments?: AttachmentStore;
+  /** v1.6 生成图片: whether the model can draw, and the drawing (set by createApp). */
+  images?: ImageGeneration;
   /** Fill_login_secret, import_site_cookies and record_sign_in. */
   readonly signIn: SignInTools;
   /** The account's persona and goal. */

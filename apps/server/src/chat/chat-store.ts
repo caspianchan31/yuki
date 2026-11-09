@@ -4,11 +4,23 @@
 // change below is ONE statement (Postgres runs data-modifying CTEs atomically); the cloud import
 // and the main-thread switch, which span several, run in one transaction (ChatDatabase).
 import type { BaseEvent, Message } from "@ag-ui/client";
+import {
+  indexedTextLimit,
+  messageSearchText,
+  searchQuery,
+  searchTokens,
+  snippetOf,
+} from "../../../../packages/domain/src/chat-search.ts";
 import { connectionOf, type Store, type StoreQuery } from "../db.ts";
+import { backgroundFailure } from "../log.ts";
 import { compactLeniently, messagesFromEvents } from "./events.ts";
 import type {
   DeleteResult,
+  FeedbackVerdict,
   ListThreadsQuery,
+  MessageHit,
+  SupersededSegment,
+  SupersedeResult,
   ThreadPage,
   ThreadPatch,
   ThreadRecord,
@@ -110,7 +122,45 @@ CREATE TABLE IF NOT EXISTS chat_events(
 -- the run), so a conversation of several members shows who said what.
 ALTER TABLE chat_threads ADD COLUMN IF NOT EXISTS run_speaker text;
 ALTER TABLE chat_runs ADD COLUMN IF NOT EXISTS speaker text;
+-- v1.6 聊天基础动作: a run the person went back on (a message edited and sent again, a reply asked
+-- for again) is superseded, never deleted: superseded_at says when, superseded_by the run that
+-- took its place (filled in when that run begins). The conversation (history, connect, replay,
+-- reports) reads the runs that are not superseded; the chat shows a superseded stretch folded.
+ALTER TABLE chat_runs ADD COLUMN IF NOT EXISTS superseded_at timestamptz;
+ALTER TABLE chat_runs ADD COLUMN IF NOT EXISTS superseded_by text;
+-- v1.6 聊天基础动作: 点赞 / 点踩 on a reply, one verdict per message, gone with the thread.
+CREATE TABLE IF NOT EXISTS chat_feedback(
+  thread_id text NOT NULL REFERENCES chat_threads(id) ON DELETE CASCADE,
+  message_id text NOT NULL,
+  verdict text NOT NULL,
+  at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY(thread_id, message_id)
+);
+-- v1.6 搜对话内容: the search index, one row per message with words (the person's and the
+-- members'), filled when a run closes (and for older runs by the backlog at start). tokens are
+-- the message's CJK bigrams and words (packages/domain/src/chat-search.ts) as a tsvector: no
+-- extension, so embedded PGlite and Postgres index the same. A message sent again with the same
+-- id moves to the new run; a superseded run's messages stay but the search skips them; a deleted
+-- thread takes its rows.
+CREATE TABLE IF NOT EXISTS chat_messages(
+  thread_id text NOT NULL REFERENCES chat_threads(id) ON DELETE CASCADE,
+  message_id text NOT NULL,
+  run_id text NOT NULL REFERENCES chat_runs(run_id) ON DELETE CASCADE,
+  role text NOT NULL,
+  body text NOT NULL,
+  at timestamptz NOT NULL DEFAULT now(),
+  tokens tsvector NOT NULL,
+  PRIMARY KEY(thread_id, message_id)
+);
+CREATE INDEX IF NOT EXISTS chat_messages_tokens ON chat_messages USING gin(tokens);
+CREATE INDEX IF NOT EXISTS chat_messages_at ON chat_messages(at DESC);
+ALTER TABLE chat_runs ADD COLUMN IF NOT EXISTS indexed_at timestamptz;
+CREATE INDEX IF NOT EXISTS chat_runs_unindexed ON chat_runs(position)
+  WHERE indexed_at IS NULL AND status<>'running';
 END $$`;
+
+/** A closed run that still counts in the conversation (not superseded). */
+const live = "r.status<>'running' AND r.superseded_at IS NULL";
 
 // Timestamps as ISO text built here: node-pg cannot parse timestamptz output in a non-ISO DateStyle.
 const isoText = (column: string) =>
@@ -146,6 +196,26 @@ function toRecord(row: ThreadRow): ThreadRecord {
     updatedAt: iso(row.updated_at),
     lastRunAt: row.last_run_at == null ? null : iso(row.last_run_at),
   };
+}
+
+/** v1.6 搜对话内容: the index rows of one run's events: its user and assistant messages with
+ * words (file names count), each cut to the indexed length, with their tokens. */
+export function indexRows(
+  events: BaseEvent[],
+): { id: string; role: "user" | "assistant"; body: string; tokens: string[] }[] {
+  const rows: { id: string; role: "user" | "assistant"; body: string; tokens: string[] }[] = [];
+  const seen = new Set<string>();
+  for (const message of messagesFromEvents(events)) {
+    if (message.role !== "user" && message.role !== "assistant") continue;
+    if (seen.has(message.id)) continue;
+    const body = storableText(
+      messageSearchText((message as { content?: unknown }).content).slice(0, indexedTextLimit),
+    );
+    if (!body) continue;
+    seen.add(message.id);
+    rows.push({ id: message.id, role: message.role, body, tokens: searchTokens(body) });
+  }
+  return rows;
 }
 
 // Unpaired UTF-16 surrogates (as in a reply cut in the middle of an emoji): jsonb rejects them.
@@ -355,11 +425,15 @@ export class ChatStore implements ThreadStore {
     return row.deleted ? "deleted" : "running";
   }
 
-  async threadEvents(owner: string, threadId: string): Promise<BaseEvent[] | null> {
+  async threadEvents(
+    owner: string,
+    threadId: string,
+    options: { superseded?: boolean } = {},
+  ): Promise<BaseEvent[] | null> {
     const rows = await this.sql<{ owner: string; runs: BaseEvent[][] }>(
       `/* chat:thread-events */ SELECT t.owner, coalesce((
         SELECT jsonb_agg(r.events ORDER BY r.position) FROM chat_runs r
-        WHERE r.thread_id=t.id AND r.status<>'running'
+        WHERE r.thread_id=t.id AND ${options.superseded ? "r.status<>'running'" : live}
       ), '[]'::jsonb) AS runs
       FROM chat_threads t WHERE t.id=$1`,
       [threadId],
@@ -372,16 +446,18 @@ export class ChatStore implements ThreadStore {
   /**
    * The thread's stored conversation (its closed runs, oldest first, as the
    * model will see it) and every message id stored for it. The runner builds the model's history
-   * from this, not from the client's copy, which can lack a turn someone else just had.
+   * from this, not from the client's copy, which can lack a turn someone else just had. A
+   * superseded run (v1.6 聊天基础动作) is left out of both: the model never sees what the person
+   * went back on, and its person's message, sent again, is new to the conversation.
    */
   async history(threadId: string): Promise<{ messages: Message[]; ids: Set<string> }> {
     const rows = await this.sql<{ runs: BaseEvent[][]; ids: string[] }>(
       `/* chat:history */ SELECT coalesce((
         SELECT jsonb_agg(r.events ORDER BY r.position) FROM chat_runs r
-        WHERE r.thread_id=$1 AND r.status<>'running'
+        WHERE r.thread_id=$1 AND ${live}
       ), '[]'::jsonb) AS runs, coalesce((
         SELECT jsonb_agg(DISTINCT i.value) FROM chat_runs r, jsonb_array_elements_text(r.message_ids) i
-        WHERE r.thread_id=$1 AND r.status<>'running'
+        WHERE r.thread_id=$1 AND ${live}
       ), '[]'::jsonb) AS ids`,
       [threadId],
     );
@@ -430,6 +506,7 @@ export class ChatStore implements ThreadStore {
     const rows = await this.sql<{
       owner: string;
       runs: {
+        runId: string;
         at: string;
         end: string | null;
         ids: unknown;
@@ -438,10 +515,11 @@ export class ChatStore implements ThreadStore {
     }>(
       `/* chat:turns */ SELECT t.owner, coalesce((
         SELECT jsonb_agg(jsonb_build_object(
+          'runId', r.run_id,
           'at', to_char(r.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
           'end', to_char(r.finished_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
           'ids', r.message_ids, 'started', r.events->0) ORDER BY r.position)
-        FROM chat_runs r WHERE r.thread_id=t.id
+        FROM chat_runs r WHERE r.thread_id=t.id AND r.superseded_at IS NULL
       ), '[]'::jsonb) AS runs
       FROM chat_threads t WHERE t.id=$1`,
       [threadId],
@@ -464,7 +542,7 @@ export class ChatStore implements ThreadStore {
           seen.add(id);
           messages.push(id);
         }
-      return { at: iso(run.at), end: run.end ? iso(run.end) : null, messages };
+      return { runId: run.runId, at: iso(run.at), end: run.end ? iso(run.end) : null, messages };
     });
   }
 
@@ -673,7 +751,7 @@ export class ChatStore implements ThreadStore {
     const rows = await this.sql<{ ids: string[] }>(
       `/* chat:historic */ SELECT coalesce(jsonb_agg(DISTINCT i.value), '[]'::jsonb) AS ids
       FROM chat_runs r, jsonb_array_elements_text(r.message_ids) i
-      WHERE r.thread_id=$1 AND r.status<>'running'`,
+      WHERE r.thread_id=$1 AND ${live}`,
       [threadId],
     );
     return rows[0]?.ids ?? [];
@@ -681,7 +759,8 @@ export class ChatStore implements ThreadStore {
 
   /**
    * Starts a run: the thread must be claimed for runId (or idle, which claims it now); inserts the
-   * running chat_runs row (events = [the persisted RUN_STARTED]) and sets last_run_at.
+   * running chat_runs row (events = [the persisted RUN_STARTED]) and sets last_run_at. Runs
+   * superseded since the last run began (supersedeFrom) are recorded as superseded by this one.
    */
   async beginRun(input: {
     threadId: string;
@@ -705,7 +784,7 @@ export class ChatStore implements ThreadStore {
       ), dup AS (
         SELECT status FROM chat_runs WHERE run_id=$2
       ), parent AS (
-        SELECT run_id FROM chat_runs WHERE thread_id=$1 AND status<>'running'
+        SELECT run_id FROM chat_runs r WHERE r.thread_id=$1 AND ${live}
         ORDER BY position DESC LIMIT 1
       ), lock AS (
         UPDATE chat_threads t SET run_id=$2, run_instance=$3,
@@ -719,6 +798,11 @@ export class ChatStore implements ThreadStore {
         SELECT $2, lock.id, (SELECT run_id FROM parent), 'running', $4::jsonb,
           (SELECT speaker FROM thread) FROM lock
         RETURNING run_id
+      ), adopted AS (
+        UPDATE chat_runs s SET superseded_by=$2
+        WHERE s.thread_id=$1 AND s.superseded_at IS NOT NULL AND s.superseded_by IS NULL
+          AND EXISTS (SELECT 1 FROM run)
+        RETURNING s.run_id
       )
       SELECT (SELECT count(*) FROM run)::int AS begun,
         (SELECT stop_requested FROM lock) AS stop_requested,
@@ -787,7 +871,14 @@ export class ChatStore implements ThreadStore {
         input.staleAfterMs ?? null,
       ],
     );
-    return { closed: Boolean(rows[0]?.closed), released: Boolean(rows[0]?.released) };
+    const closed = Boolean(rows[0]?.closed);
+    // v1.6 搜对话内容: the run's words go into the search index. A failure here is logged, not
+    // the close's: the run stays unindexed and the backlog (indexBacklog) picks it up later.
+    if (closed)
+      await this.indexRun(input.threadId, input.runId, input.events).catch((error) =>
+        backgroundFailure("chat index", error),
+      );
+    return { closed, released: Boolean(rows[0]?.released) };
   }
 
   /** Refreshes this instance's locks for the given runs; returns their stop requests. */
@@ -864,7 +955,7 @@ export class ChatStore implements ThreadStore {
     const rows = await this.sql<{ events: BaseEvent[] | null; journal: BaseEvent[] | null }>(
       `/* chat:connect-history */ SELECT r.events, NULL::jsonb AS journal, r.position
       FROM chat_runs r
-      WHERE r.thread_id=$1 AND r.status<>'running' AND ($2::text IS NULL OR r.run_id<>$2)
+      WHERE r.thread_id=$1 AND ${live} AND ($2::text IS NULL OR r.run_id<>$2)
       UNION ALL
       SELECT NULL, coalesce((
         SELECT jsonb_agg(e.event ORDER BY e.seq) FROM chat_events e WHERE e.run_id=r.run_id
@@ -881,6 +972,245 @@ export class ChatStore implements ThreadStore {
       else if (row.events) closed.push(row.events);
     }
     return { closed, running };
+  }
+
+  /**
+   * v1.6 聊天基础动作: the person goes back on the conversation from `messageId` (their message
+   * edited and sent again, or the reply to it asked for again): the closed run that brought that
+   * message in and every closed run after it are superseded now. The next run to begin on the
+   * thread is recorded as the one that took their place. Nothing while a reply holds the thread.
+   */
+  async supersedeFrom(
+    owner: string,
+    threadId: string,
+    messageId: string,
+  ): Promise<SupersedeResult> {
+    const rows = await this.sql<{ found: number; idle: number; anchored: number; done: number }>(
+      `/* chat:supersede */ WITH target AS (
+        SELECT id, run_id FROM chat_threads WHERE id=$1 AND owner=$2
+      ), anchor AS (
+        SELECT min(r.position) AS position FROM chat_runs r, target
+        WHERE r.thread_id=target.id AND target.run_id IS NULL AND ${live} AND r.message_ids ? $3
+      ), done AS (
+        UPDATE chat_runs r SET superseded_at=now() FROM anchor
+        WHERE r.thread_id=$1 AND ${live} AND r.position>=anchor.position
+        RETURNING r.run_id
+      )
+      SELECT (SELECT count(*) FROM target)::int AS found,
+        (SELECT count(*) FROM target WHERE run_id IS NULL)::int AS idle,
+        (SELECT count(*) FROM anchor WHERE position IS NOT NULL)::int AS anchored,
+        (SELECT count(*) FROM done)::int AS done`,
+      [threadId, owner, messageId],
+    );
+    const row = rows[0];
+    if (!row?.found) return "not_found";
+    if (!row.idle) return "running";
+    if (!row.anchored) return "no_message";
+    return "superseded";
+  }
+
+  /**
+   * v1.6 聊天基础动作: the thread's superseded stretches, oldest first, each with the conversation
+   * it held (compacted events) and the live run that stands where it stood (`anchor`: the run that
+   * took its place, followed through runs that were themselves superseded; null while that run
+   * has not begun or is gone). Null when the thread is missing or another owner's.
+   */
+  async superseded(owner: string, threadId: string): Promise<SupersededSegment[] | null> {
+    const rows = await this.sql<{
+      owner: string;
+      runs: { runId: string; by: string | null; at: string; events: BaseEvent[] }[];
+      live: string[];
+    }>(
+      `/* chat:superseded */ SELECT t.owner, coalesce((
+        SELECT jsonb_agg(jsonb_build_object('runId', r.run_id, 'by', r.superseded_by,
+          'at', to_char(r.superseded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+          'events', r.events) ORDER BY r.position)
+        FROM chat_runs r WHERE r.thread_id=t.id AND r.superseded_at IS NOT NULL
+      ), '[]'::jsonb) AS runs, coalesce((
+        SELECT jsonb_agg(r.run_id) FROM chat_runs r
+        WHERE r.thread_id=t.id AND r.superseded_at IS NULL
+      ), '[]'::jsonb) AS live
+      FROM chat_threads t WHERE t.id=$1`,
+      [threadId],
+    );
+    const row = rows[0];
+    if (!row || row.owner !== owner) return null;
+    const by = new Map(row.runs.map((run) => [run.runId, run.by]));
+    const liveRuns = new Set(row.live);
+    // The live run a superseded run leads to, through runs that were superseded in their turn.
+    const anchorOf = (runId: string | null): string | null => {
+      let current = runId;
+      for (let hops = 0; current && hops <= row.runs.length; hops++) {
+        if (liveRuns.has(current)) return current;
+        current = by.get(current) ?? null;
+      }
+      return null;
+    };
+    const segments: SupersededSegment[] = [];
+    let open: (SupersededSegment & { runs: BaseEvent[][] }) | undefined;
+    for (const run of row.runs) {
+      const anchor = anchorOf(run.by);
+      if (open && open.anchor === anchor) {
+        open.runs.push(run.events);
+        continue;
+      }
+      if (open)
+        segments.push({
+          anchor: open.anchor,
+          at: open.at,
+          events: compactLeniently(open.runs.flat()),
+        });
+      open = { anchor, at: iso(run.at), events: [], runs: [run.events] };
+    }
+    if (open)
+      segments.push({
+        anchor: open.anchor,
+        at: open.at,
+        events: compactLeniently(open.runs.flat()),
+      });
+    return segments;
+  }
+
+  /** v1.6 聊天基础动作: the verdicts given on the thread's replies (message id -> up | down);
+   * null when the thread is missing or another owner's. */
+  async feedback(owner: string, threadId: string): Promise<Record<string, FeedbackVerdict> | null> {
+    const rows = await this.sql<{ owner: string; given: { id: string; verdict: string }[] }>(
+      `/* chat:feedback */ SELECT t.owner, coalesce((
+        SELECT jsonb_agg(jsonb_build_object('id', f.message_id, 'verdict', f.verdict) ORDER BY f.at)
+        FROM chat_feedback f WHERE f.thread_id=t.id
+      ), '[]'::jsonb) AS given
+      FROM chat_threads t WHERE t.id=$1`,
+      [threadId],
+    );
+    const row = rows[0];
+    if (!row || row.owner !== owner) return null;
+    const out: Record<string, FeedbackVerdict> = {};
+    for (const item of row.given)
+      if (item.verdict === "up" || item.verdict === "down") out[item.id] = item.verdict;
+    return out;
+  }
+
+  /** v1.6 聊天基础动作: gives (or with null takes back) the verdict on one reply. False when the
+   * thread is missing or another owner's. */
+  async setFeedback(
+    owner: string,
+    threadId: string,
+    messageId: string,
+    verdict: FeedbackVerdict | null,
+  ): Promise<boolean> {
+    const rows = await this.sql<{ found: number }>(
+      verdict
+        ? `/* chat:feedback-set */ WITH target AS (
+            SELECT id FROM chat_threads WHERE id=$1 AND owner=$2
+          ), put AS (
+            INSERT INTO chat_feedback(thread_id, message_id, verdict)
+            SELECT target.id, $3, $4 FROM target
+            ON CONFLICT (thread_id, message_id) DO UPDATE SET verdict=EXCLUDED.verdict, at=now()
+            RETURNING 1
+          )
+          SELECT (SELECT count(*) FROM target)::int AS found`
+        : `/* chat:feedback-clear */ WITH target AS (
+            SELECT id FROM chat_threads WHERE id=$1 AND owner=$2
+          ), gone AS (
+            DELETE FROM chat_feedback f USING target
+            WHERE f.thread_id=target.id AND f.message_id=$3 RETURNING 1
+          )
+          SELECT (SELECT count(*) FROM target)::int AS found`,
+      verdict ? [threadId, owner, messageId, verdict] : [threadId, owner, messageId],
+    );
+    return Boolean(rows[0]?.found);
+  }
+
+  /** v1.6 搜对话内容: puts a closed run's messages with words (the person's and the members',
+   * not tool results or reasoning) into the search index, replacing a message of the same id
+   * (sent again after an edit: it moves to this run), and marks the run indexed. */
+  async indexRun(threadId: string, runId: string, events: BaseEvent[]): Promise<void> {
+    const rows = indexRows(events);
+    await this.sql(
+      `/* chat:index */ WITH run AS (
+        SELECT r.run_id, r.thread_id, r.created_at FROM chat_runs r
+        WHERE r.run_id=$1 AND r.thread_id=$2
+      ), put AS (
+        INSERT INTO chat_messages(thread_id, message_id, run_id, role, body, at, tokens)
+        SELECT run.thread_id, m.id, run.run_id, m.role, m.body, run.created_at,
+          array_to_tsvector(m.tokens)
+        FROM run, jsonb_to_recordset($3::jsonb) AS m(id text, role text, body text, tokens text[])
+        ON CONFLICT (thread_id, message_id) DO UPDATE SET run_id=EXCLUDED.run_id,
+          role=EXCLUDED.role, body=EXCLUDED.body, at=EXCLUDED.at, tokens=EXCLUDED.tokens
+        RETURNING 1
+      )
+      UPDATE chat_runs SET indexed_at=now() WHERE run_id=$1 AND thread_id=$2`,
+      [runId, threadId, toJsonb(rows)],
+    );
+  }
+
+  /** v1.6 搜对话内容: indexes every closed run not indexed yet (the conversations from before
+   * the index, and runs whose indexing failed), oldest first, in batches; returns how many runs it
+   * did. Called in the background at start; safe to run twice (the index is replaced per message). */
+  async indexBacklog(batch = 50): Promise<number> {
+    let done = 0;
+    for (;;) {
+      const rows = await this.sql<{ run_id: string; thread_id: string; events: BaseEvent[] }>(
+        `/* chat:index-backlog */ SELECT run_id, thread_id, events FROM chat_runs
+        WHERE indexed_at IS NULL AND status<>'running' ORDER BY position LIMIT $1`,
+        [batch],
+      );
+      if (!rows.length) return done;
+      for (const row of rows) {
+        await this.indexRun(row.thread_id, row.run_id, row.events);
+        done++;
+      }
+    }
+  }
+
+  /** v1.6 搜对话内容: the owner's messages holding every typed phrase, newest first, from every
+   * conversation of theirs (archived too), skipping superseded stretches. The tokens narrow the
+   * candidates through the GIN index; each phrase is then checked as a substring. */
+  async searchMessages(
+    owner: string,
+    typed: string,
+    options: { limit?: number } = {},
+  ): Promise<MessageHit[]> {
+    const query = searchQuery(typed);
+    if (!query) return [];
+    const limit = Math.min(50, Math.max(1, Math.trunc(options.limit ?? 20) || 20));
+    const params: unknown[] = [owner, limit, ...query.phrases];
+    const phraseTests = query.phrases.map((_, i) => `strpos(lower(m.body), $${i + 3}) > 0`);
+    if (query.tsquery) params.push(query.tsquery);
+    const narrowed = query.tsquery
+      ? `m.tokens @@ to_tsquery('simple', $${params.length}) AND `
+      : "";
+    const rows = await this.sql<{
+      thread_id: string;
+      message_id: string;
+      role: string;
+      body: string;
+      at: string;
+      name: string | null;
+      agent_id: string;
+      archived: boolean;
+    }>(
+      `/* chat:search */ SELECT m.thread_id, m.message_id, m.role, m.body,
+        to_char(m.at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS at,
+        t.name, t.agent_id, t.archived
+      FROM chat_messages m
+      JOIN chat_threads t ON t.id=m.thread_id AND t.owner=$1
+      JOIN chat_runs r ON r.run_id=m.run_id AND r.superseded_at IS NULL
+      WHERE ${narrowed}${phraseTests.join(" AND ")}
+      ORDER BY m.at DESC, m.message_id
+      LIMIT $2`,
+      params,
+    );
+    return rows.map((row) => ({
+      threadId: row.thread_id,
+      threadName: row.name,
+      agentId: row.agent_id,
+      archived: row.archived,
+      messageId: row.message_id,
+      role: row.role === "user" ? "user" : "assistant",
+      at: iso(row.at),
+      snippet: snippetOf(row.body, query),
+    }));
   }
 
   /** Flags the thread's current run (optionally only runId) to stop; true when one is locked. */

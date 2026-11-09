@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import "./config.ts";
 import { randomUUID } from "node:crypto";
 import { MessageSchema } from "@ag-ui/core";
@@ -5,6 +6,7 @@ import { type Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { z } from "zod";
+import { attachmentRetentionDays } from "../../../packages/domain/src/chat-attachments.ts";
 import {
   calendarRangeSchema,
   emailDraftSchema,
@@ -19,9 +21,13 @@ import { appRoutes } from "./apps/routes.ts";
 import { AppsService } from "./apps/service.ts";
 import { createAuth, firstUserId, sampleUserId, WaitingSignIn } from "./auth.ts";
 import { BrowserService } from "./browser.ts";
+import { attachmentRoutes } from "./chat/attachment-routes.ts";
+import { AttachmentStore, defaultAttachmentMaxGb } from "./chat/attachment-store.ts";
 import { cloudThreadsFact, initMigrationMarker, readMarker } from "./chat/cloud-migration.ts";
 import { createLocalChat } from "./chat/index.ts";
 import { startNewMain } from "./chat/main-thread.ts";
+import { replayPublicRoutes } from "./chat/replay-routes.ts";
+import { ReplayShares } from "./chat/replay-shares.ts";
 import type { LocalRunnerOptions } from "./chat/types.ts";
 import { ComputerService, loadDesktopIdentities } from "./computer.ts";
 import { computerRoutes } from "./computer-routes.ts";
@@ -42,10 +48,13 @@ import { EnvironmentService } from "./environments.ts";
 import { AppError } from "./errors.ts";
 import { Files } from "./files.ts";
 import { escapeHtml as escapePage, GoogleAuth, googleConnectedPage } from "./google-auth.ts";
+import { ImageGeneration, parseImageExtra } from "./image-generation.ts";
 import { incidentRoutes } from "./incident-routes.ts";
+import { backgroundFailure } from "./log.ts";
 import { MailChannels } from "./mail/channels.ts";
 import { memberFileRoutes } from "./member-files/routes.ts";
 import { MemberFiles } from "./member-files/service.ts";
+import { imageRoutes } from "./picture-tool.ts";
 import { desktopListingCache } from "./project-overview.ts";
 import { projectRoutes } from "./project-routes.ts";
 import { ProjectService } from "./projects.ts";
@@ -193,6 +202,30 @@ export async function createApp(
   };
   const resolveRequestOwner = async (request: Request) => (await resolveRequest(request)).owner;
   await initMigrationMarker(db);
+  // v1.6 回顾: share links, kept with the chat tables.
+  const replayShares = await ReplayShares.open(db);
+  // v1.6 聊天里发文件: the files sent in the chat live on disk, apart from the process.
+  const attachments = new AttachmentStore(join(config.dataDir, "attachments"), {
+    retentionMs: (config.attachmentRetentionDays ?? attachmentRetentionDays) * 24 * 60 * 60_000,
+    maxBytes: (config.attachmentMaxGb ?? defaultAttachmentMaxGb) * 1024 ** 3,
+  });
+  agent.attachments = attachments;
+  // v1.6 生成图片: whether the configured model can draw is found out from the gateway once
+  // (in the background now, kept a day); the tool and the prompt follow the verdict.
+  // On only when the config says so (loadConfig: unless IMAGE_GENERATION=off); a config built
+  // by hand (the tests') leaves it off.
+  const images =
+    config.imageGeneration !== true
+      ? undefined
+      : new ImageGeneration(db, {
+          model: config.imageModel,
+          chatModel: config.model,
+          baseUrl: config.imageBaseUrl ?? process.env.OPENAI_BASE_URL?.trim() ?? undefined,
+          apiKey: config.imageApiKey ?? process.env.OPENAI_API_KEY?.trim() ?? undefined,
+          extra: parseImageExtra(config.imageExtra),
+        });
+  agent.images = images;
+  void images?.ability().catch((error) => backgroundFailure("image ability", error));
   const chat = await createLocalChat({
     db,
     owner: resolveRequestOwner,
@@ -200,6 +233,14 @@ export async function createApp(
     threadHooks: {
       usernames: (owner) => tenancy.usernames(realOwnerOf(owner)),
       deleted: (owner, name) => tenancy.record(realOwnerOf(owner), "thread.delete", name, null),
+      // v1.6: a deleted conversation takes its kept screenshots with it.
+      forgetShots: (ids) => computer.forgetShots(ids),
+      // v1.6 聊天里发文件: and its sent files.
+      forgetAttachments: async (ids) => {
+        await attachments.remove(ids);
+      },
+      // v1.6 回顾: share links; the page builds the link from its own address (/r/<token>).
+      replayShares,
     },
     databaseUrl: config.databaseUrl,
     ...(options.chatRunner ? { runner: options.chatRunner } : {}),
@@ -403,6 +444,11 @@ export async function createApp(
   // What listens to the HTTP server's websocket upgrades (see attachServer below).
   const upgradeHooks: ((server: UpgradeServer) => void)[] = [];
   upgradeHooks.push((server) => attachDesktopLive(server, () => desktopOf(computer), origins));
+  // v1.6 回顾 by link: public, the token is the whole secret (before the session check).
+  app.route(
+    "/api/replays",
+    replayPublicRoutes(replayShares, chat.store, (id) => computer.shotPng(id)),
+  );
   app.use("/api/*", async (c, next) => {
     if (signedRequest(c)) {
       const url = new URL(c.req.url);
@@ -521,6 +567,16 @@ export async function createApp(
     "/api/chat-reports",
     chatReportRoutes(agent.reports, (owner, threadId) => chat.store.activity(owner, threadId)),
   );
+  // v1.6 聊天里发文件: upload, download and the record of a file sent in the chat; a copy goes
+  // to the members' computer when there is one.
+  app.route(
+    "/api/chat/attachments",
+    attachmentRoutes(attachments, {
+      receive: (owner, name, bytes) => computer.receiveFile(owner, name, bytes),
+    }),
+  );
+  // v1.6 生成图片: the verdict, for the web and the acceptance checks.
+  app.route("/api/chat/images", imageRoutes(images));
   app.route("/api/computer", computerRoutes(computer, files));
   // An incident of the request's space and its picture.
   app.route("/api/incidents", incidentRoutes(computer.incidents));

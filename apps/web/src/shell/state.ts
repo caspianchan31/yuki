@@ -35,9 +35,19 @@ export interface FrameState {
   newMember: boolean;
   /** The new-group dialog (shell/NewGroup.tsx) is open. */
   newGroup: boolean;
+  /** v1.6 搜对话内容: a message picked in ⌘K that the chat scrolls to once that conversation is
+   * loaded (ChatScreen clears it). */
+  jump: { threadId: string; messageId: string } | null;
 }
 
-export type PaletteGroup = "commands" | "projects" | "accounts" | "tasks" | "spaces";
+export type PaletteGroup =
+  | "commands"
+  | "projects"
+  | "accounts"
+  | "tasks"
+  | "spaces"
+  | "chat"
+  | "files";
 
 // The pane starts open only where it docks beside the conversation (on a phone it would cover it).
 let state: FrameState = {
@@ -52,6 +62,7 @@ let state: FrameState = {
   peek: null,
   newMember: false,
   newGroup: false,
+  jump: null,
 };
 const listeners = new Set<() => void>();
 
