@@ -13,9 +13,12 @@ RUN pnpm install --frozen-lockfile --filter openmuse \
 # The address the person's browser reaches the service at; it is built into the web app.
 ARG PUBLIC_API_URL=http://localhost:8787
 ARG BUILD_ID=
+# WEB_INDEX_EXTRA (optional): a file of HTML put into the page source before </body>; by default
+# apps/web/index-extra.html when the tree has one (docs/web.md).
+ARG WEB_INDEX_EXTRA=
 WORKDIR /app/apps/web
 RUN pnpm install --frozen-lockfile \
-    && VITE_API_URL="$PUBLIC_API_URL" VITE_BUILD="$BUILD_ID" npx vite build --outDir /app/web-dist --emptyOutDir
+    && VITE_API_URL="$PUBLIC_API_URL" VITE_BUILD="$BUILD_ID" WEB_INDEX_EXTRA="$WEB_INDEX_EXTRA" npx vite build --outDir /app/web-dist --emptyOutDir
 
 FROM node:24-bookworm-slim
 RUN apt-get update \

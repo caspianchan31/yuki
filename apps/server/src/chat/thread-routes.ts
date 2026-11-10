@@ -7,7 +7,13 @@ import { shotIdsOf } from "../desktop-shots-store.ts";
 import { AppError } from "../errors.ts";
 import { attachmentIdsOf } from "./attachment-store.ts";
 import { CursorError } from "./chat-store.ts";
-import { compactLeniently, messagesFromEvents, stateFromEvents, toWireMessages } from "./events.ts";
+import {
+  compactLeniently,
+  messagesFromEvents,
+  stateFromEvents,
+  toWireMessages,
+  withoutThinking,
+} from "./events.ts";
 import { chatAgentId } from "./main-thread.ts";
 import { replayFrames } from "./replay.ts";
 import type { ReplayShares } from "./replay-shares.ts";
@@ -171,7 +177,7 @@ export function threadRoutes(
     if (page === undefined) throw new AppError("Older messages are not available here", 404);
     if (page === null) throw new AppError(messageNotFoundMessage, 404);
     return c.json({
-      messages: messagesFromEvents(compactLeniently(page.runs.flat())),
+      messages: messagesFromEvents(compactLeniently(withoutThinking(page.runs.flat()))),
       more: page.more,
     });
   });

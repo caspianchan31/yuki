@@ -10,6 +10,7 @@
 import { SPACE_HEADER } from "../../../packages/domain/src/me.ts";
 import { PROJECT_HEADER } from "../../../packages/domain/src/projects.ts";
 import { readApiPayload } from "./api-response.ts";
+import { afterOpening } from "./opening";
 
 /** The project header for a scoped request; nothing for the default project. */
 export function projectHeaders(projectId: string | null | undefined): Record<string, string> {
@@ -79,8 +80,51 @@ export class MuseApiClient {
    * client. At most `conditionalKeep` entries, the oldest dropped. */
   private readonly conditional = new Map<string, { etag: string; payload: unknown }>();
   private static readonly conditionalKeep = 64;
+  /** v1.7.2: the GETs in flight, so two readers of one path at the same moment cost one request
+   * (the shell read some paths several times while mounting). Each remembers the write count it
+   * started under: a read is shared only among readers that saw no write start or end since it
+   * was sent, because a read issued after a write must not get an answer the server may have
+   * produced before that write. A failed read fails its sharers only; the next one asks again. */
+  private readonly inflight = new Map<string, { run: Promise<unknown>; writes: number }>();
+  /** Bumped when any non-GET starts and again when it settles, whatever its path and whichever
+   * client sent it (a step on another project's account goes through that project's client):
+   * a write to one path can change what another answers. */
+  private static writes = 0;
   async request<T>(path: string, body?: unknown, method?: string): Promise<T> {
     const verb = method ?? (body === undefined ? "GET" : "POST");
+    if (verb !== "GET") {
+      MuseApiClient.writes++;
+      try {
+        return await this.fetchOnce<T>(path, body, verb);
+      } finally {
+        // a read sent while the write was under way may have been answered before it landed
+        MuseApiClient.writes++;
+      }
+    }
+    // v1.7.2 对话快: while the page opens, a read its first screen does not need waits a moment.
+    const opening = afterOpening(verb, path);
+    if (opening) await opening;
+    const running = this.inflight.get(path);
+    if (running && running.writes === MuseApiClient.writes) return running.run as Promise<T>;
+    const entry = {
+      writes: MuseApiClient.writes,
+      run: this.fetchOnce<T>(path, body, verb).finally(() => {
+        // an older read that settles late must not drop the newer one that replaced it
+        if (this.inflight.get(path) === entry) this.inflight.delete(path);
+      }) as Promise<unknown>,
+    };
+    this.inflight.set(path, entry);
+    return entry.run as Promise<T>;
+  }
+  private keep(path: string, etag: string, payload: unknown) {
+    this.conditional.delete(path);
+    this.conditional.set(path, { etag, payload });
+    if (this.conditional.size > MuseApiClient.conditionalKeep) {
+      const oldest = this.conditional.keys().next().value;
+      if (oldest !== undefined) this.conditional.delete(oldest);
+    }
+  }
+  private async fetchOnce<T>(path: string, body: unknown, verb: string): Promise<T> {
     const kept = verb === "GET" ? this.conditional.get(path) : undefined;
     const response = await fetch(`${this.baseUrl}${path}`, {
       method: verb,
@@ -99,14 +143,8 @@ export class MuseApiClient {
     const payload = await readApiPayload<T>(response);
     if (verb === "GET") {
       const etag = response.headers.get("etag");
-      if (etag && response.ok) {
-        this.conditional.delete(path);
-        this.conditional.set(path, { etag, payload });
-        if (this.conditional.size > MuseApiClient.conditionalKeep) {
-          const oldest = this.conditional.keys().next().value;
-          if (oldest !== undefined) this.conditional.delete(oldest);
-        }
-      } else if (this.conditional.has(path)) this.conditional.delete(path);
+      if (etag && response.ok) this.keep(path, etag, payload);
+      else if (this.conditional.has(path)) this.conditional.delete(path);
     }
     return payload;
   }

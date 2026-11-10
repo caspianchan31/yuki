@@ -10,6 +10,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
+import { readExtraHtml, withExtraHtml } from "./index-extra";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const mobile = path.resolve(here, "../../packages/client/src");
@@ -51,8 +52,21 @@ function mobileOverlay(): Plugin {
   };
 }
 
+/** v1.7.1: index-extra.html beside index.html, or WEB_INDEX_EXTRA, goes before `</body>` (index-extra.ts). */
+function indexExtra(): Plugin {
+  const extra = readExtraHtml(
+    process.env,
+    path.resolve(here, "../.."),
+    path.join(here, "index-extra.html"),
+  );
+  return {
+    name: "openmuse-index-extra",
+    transformIndexHtml: (html) => withExtraHtml(html, extra),
+  };
+}
+
 export default defineConfig({
-  plugins: [mobileOverlay(), react()],
+  plugins: [mobileOverlay(), react(), indexExtra()],
   resolve: {
     alias: [
       {

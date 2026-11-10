@@ -181,7 +181,7 @@ export interface LocalRunnerOptions {
   /** Identifies this process's locks; default randomUUID(). start() recovers locks left under it. */
   instanceId?: string;
   /** v1.7 打开对话不重放整条历史: how many of the newest closed runs a connect replays (the rest
-   * load as the person scrolls up); default 40; 0 replays everything. */
+   * load as the person scrolls up); default 24 (v1.7.2, from 40); 0 replays everything. */
   replayRuns?: number;
   /** Lock heartbeat interval; default 5000. */
   heartbeatMs?: number;

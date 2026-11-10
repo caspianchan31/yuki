@@ -68,3 +68,39 @@ test("environment variables that override a different .env value are reported by
   assert.deepEqual(shadowedEnvKeys(file, env), ["OPENAI_API_KEY", "EMPTY"]);
   assert.deepEqual(shadowedEnvKeys(file, {}), []);
 });
+
+test("v1.7.2: a bad MODEL_THINKING stops the start", (t) => {
+  const previous = { ...process.env };
+  t.after(() => {
+    process.env = previous;
+  });
+  process.env.WORKSPACE_MODE = "sample";
+  process.env.HOST = "127.0.0.1";
+  delete process.env.MODEL_HISTORY_KB;
+  for (const value of ["true", "none", "disabled"]) {
+    process.env.MODEL_THINKING = value;
+    assert.throws(() => readConfig(), /MODEL_THINKING must be one of/);
+  }
+  for (const value of ["", " Low ", "off"]) {
+    process.env.MODEL_THINKING = value;
+    assert.doesNotThrow(() => readConfig());
+  }
+});
+
+test("v1.7.2: a bad MODEL_HISTORY_KB stops the start", (t) => {
+  const previous = { ...process.env };
+  t.after(() => {
+    process.env = previous;
+  });
+  process.env.WORKSPACE_MODE = "sample";
+  process.env.HOST = "127.0.0.1";
+  delete process.env.MODEL_THINKING;
+  for (const value of ["32KB", "64.5", "-1", "5000"]) {
+    process.env.MODEL_HISTORY_KB = value;
+    assert.throws(() => readConfig(), /MODEL_HISTORY_KB must be a whole number/);
+  }
+  for (const value of ["", "0", " 96 "]) {
+    process.env.MODEL_HISTORY_KB = value;
+    assert.doesNotThrow(() => readConfig());
+  }
+});

@@ -62,6 +62,15 @@ export function writeLastSeen(
   }
 }
 
+/** One entry, gone. */
+export function removeLastSeen(storage: LastSeenStorage | null, scope: string, name: string) {
+  try {
+    storage?.removeItem(keyOf(scope, name));
+  } catch {
+    // Blocked storage: nothing was kept either.
+  }
+}
+
 /** Every entry of this app on this device (a sign-out). */
 export function clearLastSeen(storage: LastSeenStorage | null) {
   try {

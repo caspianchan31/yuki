@@ -29,6 +29,7 @@ import {
   persistedRunEvents,
   replayedRun,
   startedEvent,
+  withoutThinking,
   withRunIdentity,
 } from "./events.ts";
 import {
@@ -149,7 +150,7 @@ export class LocalAgentRunner extends AgentRunner implements RunControl {
     this.staleAfterMs = options.staleAfterMs ?? 30000;
     this.sweepMs = options.sweepMs ?? 15000;
     this.flushMs = options.flushMs ?? 250;
-    this.replayRuns = options.replayRuns ?? 40;
+    this.replayRuns = options.replayRuns ?? 24;
   }
   /** v1.7 打开对话不重放整条历史: the newest closed runs a connect replays (0: all). */
   readonly replayRuns: number;
@@ -430,7 +431,9 @@ export class LocalAgentRunner extends AgentRunner implements RunControl {
     let newMessages: Message[];
     let result: BeginResult;
     try {
+      const beginAt = performance.now();
       ({ messages: stored, ids: historic } = await this.store.history(threadId));
+      const historyMs = Math.round(performance.now() - beginAt);
       newMessages = (input.messages ?? []).filter((message) => !historic.has(message.id));
       const attempt = () =>
         this.store.beginRun({
@@ -450,6 +453,9 @@ export class LocalAgentRunner extends AgentRunner implements RunControl {
         await this.recover(threadId, result.holder, this.staleAfterMs);
         result = await attempt();
       }
+      console.log(
+        `[run begin] history ${stored.length} messages ${historyMs} ms, claim ${Math.round(performance.now() - beginAt) - historyMs} ms`,
+      );
     } catch (error) {
       backgroundFailure("chat begin", error);
       await this.store.releaseClaim(threadId, runId).catch(() => undefined);
@@ -666,7 +672,8 @@ export class LocalAgentRunner extends AgentRunner implements RunControl {
     const pending = this.claimed.get(threadId);
     if (pending) await Promise.race([pending.begun, delay(this.closeCapMs)]);
     const { live, history } = await this.readHistory(threadId);
-    for (const event of compactLeniently(history.closed.flatMap(replayedRun))) subject.next(event);
+    for (const event of compactLeniently(withoutThinking(history.closed.flatMap(replayedRun))))
+      subject.next(event);
     if (live) {
       // Its ReplaySubject replays it from the start and completes once it is saved. A client that
       // left while the history was read gets no tail at all.

@@ -13,10 +13,22 @@ export interface ResettableAgent {
  * thread again, or loading what another member just said) would append the replay to the messages
  * already shown, doubling them, so the agent is cleared first.
  */
+/**
+ * v1.7.2 对话快: a thread's agent asks the server how it talks (a second `/info`, after the
+ * app's own) and waits for the answer before it connects or runs. This server always answers
+ * the same (event stream, one address per call), so the agent is told at once.
+ */
+export function knownRuntime(agent: unknown) {
+  const proxy = agent as { runtimeMode?: string; transport?: string };
+  if (proxy.runtimeMode === "pending") proxy.runtimeMode = "sse";
+  if (proxy.transport === "auto") proxy.transport = "rest";
+}
+
 export function connectThread<A extends ResettableAgent, R>(
   copilotkit: { connectAgent(input: { agent: A }): Promise<R> },
   agent: A,
 ): Promise<R> {
+  knownRuntime(agent);
   agent.setMessages([]);
   agent.setState({});
   return copilotkit.connectAgent({ agent });

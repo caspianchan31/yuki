@@ -113,6 +113,44 @@ async function client(threadId: string) {
   return { core, agent, errors, turn };
 }
 
+// v1.7.2 对话快: a page that opens builds the thread's agent while the app's own `/info` is still
+// on its way; the agent then asked `/info` itself and waited for it before connecting.
+test("opening a conversation asks the server how it talks once, not again before connecting", async () => {
+  const threadId = randomUUID();
+  const real = globalThis.fetch;
+  const asked: string[] = [];
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    asked.push(String(input instanceof Request ? input.url : input));
+    return real(input, init);
+  }) as typeof fetch;
+  try {
+    const core = new CopilotKitCore({ runtimeUrl, headers: { Authorization: `Bearer ${token}` } });
+    cores.push(core);
+    // The app's agent for a thread: its own proxy to the runtime's agent (useAgent).
+    const { agent } = (
+      core as unknown as {
+        registerProxiedAgent(input: { agentId: string; runtimeAgentId: string }): {
+          agent: Parameters<typeof connectThread>[1] & { threadId: string; messages: unknown[] };
+        };
+      }
+    ).registerProxiedAgent({ agentId: `openmuse-${threadId}`, runtimeAgentId: "default" });
+    agent.threadId = threadId;
+    await runConversationTurn(
+      "default",
+      () => connectThread(core as never, agent as never),
+      (onError) => core.subscribe({ onError }),
+      [replayedRunError],
+    );
+  } finally {
+    globalThis.fetch = real;
+  }
+  assert.ok(
+    asked.some((url) => url.endsWith("/connect")),
+    "the connect itself is sent",
+  );
+  assert.ok(asked.filter((url) => url.endsWith("/info")).length <= 1, "only the app's own /info");
+});
+
 test("the app client runs over SSE, then a reload replays the saved conversation", async () => {
   const threadId = randomUUID();
   const first = await client(threadId);

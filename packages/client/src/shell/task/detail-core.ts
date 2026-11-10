@@ -19,6 +19,7 @@ import {
   runStoppedLabel,
   taskWait,
 } from "../../../../../packages/domain/src/agent.ts";
+import { finishedTask } from "../../../../../packages/domain/src/shell-tasks.ts";
 import {
   runTroubleLabel,
   standingRevivedLabel,
@@ -87,7 +88,16 @@ export function normalizeTaskDetail(payload: unknown): TaskDetailPayload | null 
   };
 }
 
-/** The live entry when the task is in the polled list, else one built from the detail read. */
+/** A task as the snapshot carries a finished one: without its plan and evidence (domain
+ * `trimFinishedTask`). Its whole record is the single read's. */
+export function trimmedTask(task: Pick<AgentTask, "status" | "plan" | "evidence">): boolean {
+  return finishedTask(task as AgentTask) && !task.plan?.length && !task.evidence?.length;
+}
+
+/** The live entry when the task is in the polled list, else one built from the detail read.
+ * The polled list carries a finished task without its plan and evidence, so for such a task the
+ * read one's plan and evidence win; everything else (status, phase) stays the polled copy's,
+ * which is the newer of the two. */
 export function detailEntry(
   live: TaskEntry | undefined,
   fetched: AgentTask | null | undefined,
@@ -95,9 +105,71 @@ export function detailEntry(
   /** The worker has no heartbeat (ShellData.stalled): a run reads 后台停着 here too. */
   stalled: boolean,
 ): TaskEntry | null {
-  if (live) return live;
-  if (fetched) return taskEntries([fetched], now, stalled)[0] ?? null;
-  return null;
+  if (!live) return fetched ? (taskEntries([fetched], now, stalled)[0] ?? null) : null;
+  if (!fetched || fetched.id !== live.task.id || !trimmedTask(live.task)) return live;
+  const plan = Array.isArray(fetched.plan) ? fetched.plan : [];
+  const evidence = Array.isArray(fetched.evidence) ? fetched.evidence : [];
+  if (!plan.length && !evidence.length) return live;
+  return { ...live, task: { ...live.task, plan, evidence } };
+}
+
+/** One task read by itself: the task, or that the project has no such task (a 404, the only
+ * answer that says so). */
+export type TaskRead = { task: AgentTask; missing?: false } | { task: null; missing: true };
+
+const taskReads = new WeakMap<object, Map<string, Promise<TaskRead>>>();
+/** GET /api/agent/tasks/:id, once per task and `version` (the polled copy's `updatedAt`, "" for
+ * a task the list does not carry) however many cards ask. A read that failed for another reason
+ * rejects and is forgotten, so a later ask reads again. */
+export function readTaskOnce(
+  api: { request<T>(path: string): Promise<T> },
+  taskId: string,
+  version = "",
+): Promise<TaskRead> {
+  let reads = taskReads.get(api);
+  if (!reads) {
+    reads = new Map();
+    taskReads.set(api, reads);
+  }
+  const key = `${taskId}\n${version}`;
+  const known = reads.get(key);
+  if (known) return known;
+  const read = api
+    .request<unknown>(`/api/agent/tasks/${encodeURIComponent(taskId)}`)
+    .then((payload): TaskRead => {
+      const task = normalizeTaskDetail(payload)?.task;
+      return task ? { task } : { task: null, missing: true };
+    })
+    .catch((error): TaskRead => {
+      // The API error's status, read by shape: this file stays free of the client's modules.
+      if ((error as { status?: unknown } | null)?.status === 404)
+        return { task: null, missing: true };
+      reads?.delete(key);
+      throw error;
+    });
+  reads.set(key, read);
+  return read;
+}
+
+/** Whether a chat card reads its task by itself: the polled list does not carry it (a task
+ * finished long ago is still a task), or carries it trimmed and the card shows its steps. */
+export function cardNeedsRead(live: TaskEntry | undefined, whole: boolean): boolean {
+  return !live || (whole && trimmedTask(live.task));
+}
+
+/** A chat card's task: the polled entry (a trimmed one filled from the single read), else the
+ * read task. `missing` only when the single read said there is no such task and a list read
+ * newer than the card's first look (`listChecked`) lacks it too: a task the list no longer
+ * carries is never called gone. Neither an entry nor `missing` means not known yet. */
+export function cardTask(input: {
+  live: TaskEntry | undefined;
+  read: TaskRead | null | undefined;
+  listChecked: boolean;
+  now: number;
+  stalled: boolean;
+}): { entry: TaskEntry | null; missing: boolean } {
+  const entry = detailEntry(input.live, input.read?.task, input.now, input.stalled);
+  return { entry, missing: !entry && input.read?.missing === true && input.listChecked };
 }
 
 /** The caption under 任务规则, saying who wrote the rules (fork, report line): 「聊天代拟」 for a

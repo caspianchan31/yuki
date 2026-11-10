@@ -42,21 +42,18 @@ export function makeRuntime(
   // Built on first use, then shared so live mode reuses one TypeSafe client across requests.
   let jevAdapter: JevAdapter | undefined;
   const sharedJevAdapter = () => (jevAdapter ??= createJevAdapter(config));
-  const agents: AgentsFactory = async ({ request }) => ({
-    default:
-      config.agentBackend === "agui"
-        ? new HttpAgent({
-            url: config.agentUrl ?? "http://127.0.0.1:1/unconfigured",
-            headers: config.agentToken ? { Authorization: `Bearer ${config.agentToken}` } : {},
-          })
-        : new ConversationAgent(
-            config,
-            service,
-            await owner(request),
-            sharedJevAdapter(),
-            await speaker(request),
-          ),
-  });
+  const agents: AgentsFactory = async ({ request }) => {
+    if (config.agentBackend === "agui")
+      return {
+        default: new HttpAgent({
+          url: config.agentUrl ?? "http://127.0.0.1:1/unconfigured",
+          headers: config.agentToken ? { Authorization: `Bearer ${config.agentToken}` } : {},
+        }),
+      };
+    // Together: neither waits for the other.
+    const [who, said] = await Promise.all([owner(request), speaker(request)]);
+    return { default: new ConversationAgent(config, service, who, sharedJevAdapter(), said) };
+  };
   const runtime = new CopilotRuntime({
     agents,
     runner: chat.runner,

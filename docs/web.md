@@ -22,6 +22,6 @@ The web app was the Expo app exported for the browser (React Native Web): every 
 
 ## Build and serve
 
-`apps/web` is its own pnpm workspace (`apps/web/pnpm-workspace.yaml`, its own lockfile resolved by pnpm 11 under the same release-age policy: adding it to the root workspace would move the server's resolved versions). `cd apps/web && pnpm install --frozen-lockfile`, then `VITE_API_URL=<public API> npx vite build` (`VITE_BUILD` = the commit for the version line), output `apps/web/dist`.
+`apps/web` is its own pnpm workspace (`apps/web/pnpm-workspace.yaml`, its own lockfile resolved by pnpm 11 under the same release-age policy: adding it to the root workspace would move the server's resolved versions). `cd apps/web && pnpm install --frozen-lockfile`, then `VITE_API_URL=<public API> npx vite build` (`VITE_BUILD` = the commit for the version line), output `apps/web/dist`. An `apps/web/index-extra.html` beside `index.html`, or the file `WEB_INDEX_EXTRA=<file>` names (v1.7.1), goes into the page source just before `</body>`, for what a reader of the raw page must see without scripts (a directory's badge); the Docker build takes `WEB_INDEX_EXTRA` as a build argument of the same name.
 
 `apps/web/dist` is what the site serves. The deploy script builds it for the root and stops before swapping anything if the build fails (the site depends on it). It still builds the Expo export into `apps/mobile/dist/web`. Paths the app reads or writes go through `src/base.ts` (the base is `/`).

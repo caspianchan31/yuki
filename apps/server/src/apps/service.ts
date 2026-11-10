@@ -146,7 +146,16 @@ export class AppsService {
   /** Set by createApp: the conversation that started a connection hears it is done, and routines
    * paused for the app go on (engine/routines.ts `appConnected`). */
   onConnected?: (event: AppConnected) => Promise<void>;
-  private readonly toolCache = new Map<string, { at: number; tools: McpToolInfo[] }>();
+  private readonly toolCache = new Map<
+    string,
+    { at: number; tools: McpToolInfo[]; failed?: boolean }
+  >();
+  private readonly toolReads = new Map<string, Promise<McpToolInfo[]>>();
+  /** Both maps are keyed by space and record id: `mcp:<slug>` repeats from space to space, and
+   * one space's list, failure or running read is never another's. */
+  private toolKey(space: string, id: string) {
+    return `${space}\u0000${id}`;
+  }
   constructor(
     private readonly db: Store,
     private readonly config: Config,
@@ -290,7 +299,7 @@ export class AppsService {
         preset: true,
         abilities: preset.abilities,
         url: preset.url,
-        tools: record ? (this.toolCache.get(record.id)?.tools.length ?? undefined) : undefined,
+        tools: record ? this.toolCount(spaceKeyOf(owner), record.id) : undefined,
         connect: "oauth",
       });
     }
@@ -447,7 +456,7 @@ export class AppsService {
       createdAt: value.createdAt ?? new Date(this.now).toISOString(),
     };
     await this.db.put(space, kind, record);
-    this.toolCache.delete(record.id);
+    this.forgetTools(space, record.id);
     return record;
   }
 
@@ -461,20 +470,65 @@ export class AppsService {
       if (secret) await slackRevoke(this.slack, secret.token);
     }
     await this.db.take(space, kind, id);
-    this.toolCache.delete(id);
+    this.forgetTools(space, id);
   }
 
   private async mcpTools(space: string, record: AppRecord, signal?: AbortSignal) {
-    const cached = this.toolCache.get(record.id);
-    if (cached && this.now - cached.at < toolListTtlMs) return cached.tools;
-    const tools = await this.persistingMcp(
-      space,
-      record,
-      (client) => listMcpTools(client, signal),
-      signal,
-    );
-    this.toolCache.set(record.id, { at: this.now, tools });
-    return tools;
+    const cached = this.toolCache.get(this.toolKey(space, record.id));
+    const fresh = !!cached && this.now - cached.at < toolListTtlMs;
+    // v1.7.2 对话快: a list read before answers at once, and one older than a minute is read
+    // again behind the reply (asking the server cost every reply close to a second).
+    if (cached && !cached.failed) {
+      if (!fresh) void this.readTools(space, record).catch(() => undefined);
+      return cached.tools;
+    }
+    // A server that did not answer is not asked again by every reply within that minute.
+    if (cached && fresh) throw new Error("The server did not answer");
+    signal?.throwIfAborted();
+    // The read is shared, so a reply the person stops only stops waiting for it: the read goes
+    // on for the other replies and still fills the cache.
+    return waitUnlessAborted(this.readTools(space, record), signal);
+  }
+
+  /** Asks the server for its tools, once however many replies ask at the same time. It takes no
+   * caller's signal (its own time limits end it): no one reply may end it for the others. */
+  private readTools(space: string, record: AppRecord) {
+    const key = this.toolKey(space, record.id);
+    const running = this.toolReads.get(key);
+    if (running) return running;
+    const current = () => this.toolReads.get(key) === reading;
+    const reading: Promise<McpToolInfo[]> = this.persistingMcp(space, record, (client) =>
+      listMcpTools(client),
+    )
+      .then(
+        (tools) => {
+          if (current()) this.toolCache.set(key, { at: this.now, tools });
+          return tools;
+        },
+        (error) => {
+          // The list in hand stays; with none, the failure is what is remembered.
+          const kept = this.toolCache.get(key);
+          if (current() && (!kept || kept.failed))
+            this.toolCache.set(key, { at: this.now, tools: [], failed: true });
+          throw error;
+        },
+      )
+      .finally(() => {
+        if (current()) this.toolReads.delete(key);
+      });
+    this.toolReads.set(key, reading);
+    return reading;
+  }
+
+  private toolCount(space: string, id: string) {
+    const cached = this.toolCache.get(this.toolKey(space, id));
+    return cached && !cached.failed ? cached.tools.length : undefined;
+  }
+
+  private forgetTools(space: string, id: string) {
+    const key = this.toolKey(space, id);
+    this.toolCache.delete(key);
+    this.toolReads.delete(key);
   }
 
   /** Runs `work` on the server, keeping refreshed OAuth tokens sealed in the record. */
@@ -490,7 +544,11 @@ export class AppsService {
     else if (secret)
       auth = {
         provider: new StoredOAuthProvider(this.mcpRedirect(), secret as OAuthStore, async () => {
-          await this.db.put(space, kind, { ...record, secret: this.seal(secret) });
+          // A read may outlive the reply that started it: tokens refreshed for a connection
+          // that was removed or made again meanwhile are dropped, never written over it.
+          const now = await this.db.get<AppRecord>(space, kind, record.id);
+          if (now?.connectionId !== record.connectionId) return;
+          await this.db.put(space, kind, { ...now, secret: this.seal(secret) });
         }),
       };
     return withMcp({ url: record.url ?? "", ...auth }, work, signal, this.network);
@@ -575,14 +633,15 @@ export class AppsService {
     const tools: RunTool[] = [];
     const slack = records.find((record) => record.type === "slack");
     if (slack && this.slackConfigured()) tools.push(...this.slackTools(owner, hooks));
-    for (const record of records.filter((item) => item.type === "mcp")) {
-      let listed: McpToolInfo[];
-      try {
-        listed = await this.mcpTools(space, record, hooks.signal);
-      } catch {
-        // A server that does not answer gives no tools to this run; the others still do.
-        continue;
-      }
+    const servers = records.filter((item) => item.type === "mcp");
+    // All at once: a reply waits for the slowest server, not for their sum. A server that does
+    // not answer gives no tools to this run; the others still do.
+    const lists = await Promise.all(
+      servers.map((record) => this.mcpTools(space, record, hooks.signal).catch(() => null)),
+    );
+    for (const [index, record] of servers.entries()) {
+      const listed = lists[index];
+      if (!listed) continue;
       for (const info of listed.slice(0, toolsPerServer)) {
         if (tools.length >= toolsInTotal) break;
         tools.push({
@@ -810,3 +869,14 @@ export class AppsService {
 
 const message = (error: unknown) =>
   error instanceof Error ? error.message.slice(0, 500) : "Something went wrong";
+
+/** `work`'s outcome, or the signal's reason as soon as it aborts; `work` itself goes on. */
+function waitUnlessAborted<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return work;
+  return new Promise<T>((resolve, reject) => {
+    const stop = () => reject(signal.reason);
+    if (signal.aborted) stop();
+    else signal.addEventListener("abort", stop, { once: true });
+    work.then(resolve, reject).finally(() => signal.removeEventListener("abort", stop));
+  });
+}

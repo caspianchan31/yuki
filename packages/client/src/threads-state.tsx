@@ -53,10 +53,21 @@ export function ThreadsProvider({ children }: { children: ReactNode }) {
   const { workspace, navigate, api, notify } = useWorkspace();
   const handledPrompt = useRef(0);
   const enabled = workspace.runtime.richThreads === true;
-  const [selection, setSelection] = useState<Selection>({ id: "local", existing: false });
-  const [visited, setVisited] = useState<Selection[]>([]);
-  const [mainId, setMainId] = useState("local");
-  const [loading, setLoading] = useState(enabled);
+  // v1.7.2 对话快: the main chat this device last saw is on the very first draw. Read in an
+  // effect, the whole page drew twice more (once without the chat) before its history was asked.
+  const [boot] = useState<Selection | null>(() => {
+    const seen = enabled
+      ? readLastSeen<string>(lastSeenStorage(), scopeOf(api), "mainThread")
+      : undefined;
+    return seen ? { id: seen, existing: true } : null;
+  });
+  const booting = useRef(true);
+  const [selection, setSelection] = useState<Selection>(
+    () => boot ?? { id: "local", existing: false },
+  );
+  const [visited, setVisited] = useState<Selection[]>(() => (boot ? [boot] : []));
+  const [mainId, setMainId] = useState(boot?.id ?? "local");
+  const [loading, setLoading] = useState(enabled && !boot);
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
   // The main chat this page knows (null until the first read) and the read's generation: a new
@@ -71,6 +82,15 @@ export function ThreadsProvider({ children }: { children: ReactNode }) {
     known.current = null;
     fromCache.current = false;
     if (!enabled) return;
+    if (booting.current) {
+      booting.current = false;
+      if (boot) {
+        // Already on screen from the first draw.
+        known.current = boot.id;
+        fromCache.current = true;
+        return;
+      }
+    }
     setError("");
     const seen = readLastSeen<string>(lastSeenStorage(), scopeOf(api), "mainThread");
     if (seen) {
@@ -84,7 +104,7 @@ export function ThreadsProvider({ children }: { children: ReactNode }) {
       return;
     }
     setLoading(true);
-  }, [api, enabled, attempt]);
+  }, [api, enabled, attempt, boot]);
   /** The main chat moved (this page's 开新主聊天 or another member's): the page follows it. */
   const moveMain = useCallback((next: string) => {
     const former = known.current;

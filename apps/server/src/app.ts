@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { squeezed } from "./chat/squeeze.ts";
 import "./config.ts";
 import { randomUUID } from "node:crypto";
 import { MessageSchema } from "@ag-ui/core";
@@ -103,6 +104,8 @@ export async function createApp(
     rateLimit?: RateLimitStoreOptions;
     /** v1.4 (docs/apps.md): the fetch Slack calls go through (tests supply a fake Slack). */
     appsFetch?: typeof fetch;
+    /** The clock connected apps keep time by (tests move it). */
+    appsNow?: () => number;
     /** Who is asking and which space they act in; defaults to `singleUserTenancy`. */
     tenancy?: TenancyFactory;
   } = {},
@@ -136,6 +139,7 @@ export async function createApp(
     googleConfigured: () => google.configured(),
     mailbox: async (owner) => (await mail.forOwner(owner))?.address ?? null,
     fetch: options.appsFetch,
+    now: options.appsNow,
     // One owner's server (the core's single-user tenancy) may reach MCP servers on its own
     // machine or network; a shared one may not.
     privateNetwork: () => tenancy.privateNetwork === true,
@@ -192,7 +196,7 @@ export async function createApp(
   // CopilotKit runtime runs in SSE mode on its own runner. The owner of a chat request is
   // resolved in one place: the session's user, then the space named in its header (v0.5 spaces),
   // then the project named in its header; the owner must belong to that space.
-  const resolveRequest = async (request: Request) => {
+  const resolveFresh = async (request: Request) => {
     const user = await auth.user(request.headers.get("authorization") ?? undefined);
     const space = await tenancy.resolve(
       user.userId,
@@ -204,6 +208,18 @@ export async function createApp(
     );
     assertInSpace(owner, space.key);
     return { user, space, owner };
+  };
+  // v1.7.2 对话快: one chat request asked "who is this" four times over (the middlewares, the
+  // runtime's hook, the agent's owner, its speaker), some twenty database reads before the reply
+  // could begin. Asked once per request now; nothing is kept from one request to the next.
+  const resolved = new WeakMap<Request, ReturnType<typeof resolveFresh>>();
+  const resolveRequest = (request: Request) => {
+    let answer = resolved.get(request);
+    if (!answer) {
+      answer = resolveFresh(request);
+      resolved.set(request, answer);
+    }
+    return answer;
   };
   const resolveRequestOwner = async (request: Request) => (await resolveRequest(request)).owner;
   await initMigrationMarker(db);
@@ -783,6 +799,10 @@ export async function createApp(
         "Configure a model and provider API key, or a valid AG-UI endpoint, to start chat",
         503,
       );
+    // What the middlewares above already found out about this request.
+    const [user, space, owner] = [c.get("user"), c.get("space"), c.get("owner")];
+    if (user && space && owner && !tenancy.unscopedPath.test(c.req.path))
+      resolved.set(c.req.raw, Promise.resolve({ user, space, owner }));
     const response = await runtime.fetch(c.req.raw);
     // Runtime 1.70 emits SSE strings; a WHATWG Response body requires byte chunks.
     const encoder = new TextEncoder();
@@ -793,7 +813,11 @@ export async function createApp(
         },
       }),
     );
-    return new Response(body, { status: response.status, headers: response.headers });
+    return squeezed(
+      c.req.raw,
+      c.req.path,
+      new Response(body, { status: response.status, headers: response.headers }),
+    );
   });
   if (config.webDir) mountWeb(app, config.webDir);
   app.get("/", (c) =>

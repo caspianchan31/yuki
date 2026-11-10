@@ -175,6 +175,35 @@ export function replayedRun(events: BaseEvent[]): BaseEvent[] {
   );
 }
 
+/** The kinds of event that carry a model's thinking, not what it said or did. */
+const thinkingKinds = new Set<string>([
+  "REASONING_START",
+  "REASONING_MESSAGE_START",
+  "REASONING_MESSAGE_CONTENT",
+  "REASONING_MESSAGE_CHUNK",
+  "REASONING_MESSAGE_END",
+  "REASONING_END",
+  "REASONING_ENCRYPTED_VALUE",
+  "THINKING_START",
+  "THINKING_TEXT_MESSAGE_START",
+  "THINKING_TEXT_MESSAGE_CONTENT",
+  "THINKING_TEXT_MESSAGE_END",
+  "THINKING_END",
+]);
+
+/**
+ * v1.7.2 对话快: a past reply's thinking, left out of what a conversation sends when it opens.
+ * The app never shows it, and it was most of the download: a thinking model wrote it a few
+ * characters per event and those events are not merged as the words are, so one long reply
+ * stored ten thousand of them (a conversation opened as 35 000 events, 4 MB, three quarters
+ * thinking). The stored runs keep it; a reply still running streams it as before.
+ */
+export function withoutThinking(events: BaseEvent[]): BaseEvent[] {
+  return events.some((event) => thinkingKinds.has(event.type))
+    ? events.filter((event) => !thinkingKinds.has(event.type))
+    : events;
+}
+
 /** Every messageId in the events plus RUN_STARTED input message ids. */
 export function messageIdsOf(events: BaseEvent[]): string[] {
   const ids = new Set<string>();

@@ -53,7 +53,9 @@ import {
   turnErrorText,
 } from "./conversation-run";
 import { confirmedJevSelection, displayJevUserMessage, latestJevPanelId } from "./jev-actions";
-import { connectThread, heldMayResume, lockRefusalAgent } from "./local-thread";
+import { lastSeenStorage, scopeOf } from "./last-seen-store";
+import { connectThread, heldMayResume, knownRuntime, lockRefusalAgent } from "./local-thread";
+import { openingOver } from "./opening";
 import { computerStepTools } from "./shell/chat/computer-steps";
 import {
   desktopFold,
@@ -92,6 +94,7 @@ import { useShellNav } from "./shell/nav";
 import { useOnScreen, usePoll } from "./shell/poll";
 import { t } from "./shell/strings";
 import { useSpaceInfo } from "./tenancy-client";
+import { dropThreadCopy, readThreadCopy, replayCaughtUp, writeThreadCopy } from "./thread-copy";
 import { useThreadEnvironment } from "./thread-environment";
 import { type Selection, useMuseThread } from "./threads-state";
 import { useWorkspace } from "./workspace";
@@ -230,6 +233,19 @@ export function useChatSession({
   const [loaded, setLoaded] = useState(false);
   // Replayed messages show before connectAgent returns; new turns wait until it does.
   const [syncing, setSyncing] = useState(false);
+  // v1.7.2 对话快 (thread-copy.ts): this device's copy of the conversation is on screen from the
+  // first draw; the server's list takes over once its replay has caught up with it.
+  const copyScope = scopeOf(api);
+  const copy = useMemo(
+    () =>
+      richThreads && knownThread
+        ? readThreadCopy<Message>(lastSeenStorage(), copyScope, threadId)
+        : undefined,
+    [richThreads, knownThread, copyScope, threadId],
+  );
+  // The conversation whose load this page has begun, and the one whose copy has been left.
+  const [beganFor, setBeganFor] = useState("");
+  const [handedFor, setHandedFor] = useState("");
   const [queue] = useState(() => new ConversationQueue());
   const choiceCompletions = useRef(
     new Map<string, { resolve: () => void; reject: (error: unknown) => void }>(),
@@ -266,9 +282,13 @@ export function useChatSession({
     }
     setLoaded(false);
     setSyncing(false);
+    setBeganFor(threadId);
     const replay = agent.subscribe({
       onMessagesChanged: ({ messages }) => {
-        if (active && richThreads && messages.length) setLoaded(true);
+        if (active && richThreads && messages.length) {
+          setLoaded(true);
+          openingOver();
+        }
       },
     });
     async function hydrate() {
@@ -302,7 +322,9 @@ export function useChatSession({
           setHistoryError("");
           setLoaded(true);
         }
+        openingOver();
       } catch (e) {
+        openingOver();
         if (active) {
           setLoaded(false);
           if (
@@ -319,7 +341,12 @@ export function useChatSession({
               },
               chatRetryDelayMs(loadRetry.current.attempt++),
             );
-          } else setHistoryError(t.chat.loadError(errorText(e)));
+          } else {
+            // Not this person's any more, or gone: what this device kept of it goes too.
+            dropThreadCopy(lastSeenStorage(), copyScope, threadId);
+            setHandedFor(threadId);
+            setHistoryError(t.chat.loadError(errorText(e)));
+          }
         }
       }
     }
@@ -334,7 +361,18 @@ export function useChatSession({
       replay.unsubscribe();
       if (richThreads) void agent.detachActiveRun().catch(() => {});
     };
-  }, [agent, agentId, api, copilotkit, isReady, historyAttempt, richThreads, knownThread]);
+  }, [
+    agent,
+    agentId,
+    api,
+    copilotkit,
+    isReady,
+    historyAttempt,
+    richThreads,
+    knownThread,
+    threadId,
+    copyScope,
+  ]);
   const saveHistory = useCallback(async () => {
     if (!richThreads) await api.request("/api/conversation", { messages: agent.messages }, "PUT");
     setSaveError("");
@@ -358,14 +396,19 @@ export function useChatSession({
       try {
         await runConversationTurn(
           agentId,
-          () => copilotkit.runAgent({ agent }),
+          () => {
+            knownRuntime(agent);
+            return copilotkit.runAgent({ agent });
+          },
           (onError) => copilotkit.subscribe({ onError }),
           [],
           // A queued message refused by the thread lock (a 409 before the
           // stream) is held below, not reported.
           lockRefusalAgent(agent, Boolean(message)),
         );
-        await Promise.all([refresh(), refreshAgent()]);
+        // v1.7.2 对话快: the reply is over when its stream ends; what it changed is read behind
+        // it, so 正在回复 does not stay on (and the next message does not wait) for two reads.
+        void Promise.all([refresh(), refreshAgent()]).catch(() => {});
       } catch (e) {
         if (message && e instanceof ConversationTurnError && e.code === threadLocked) {
           // The server refused the turn before running it (another reply holds the thread),
@@ -560,7 +603,22 @@ export function useChatSession({
     queue.resume();
     flush();
   }
-  const messages = agent.messages || [];
+  const live = agent.messages || [];
+  const caughtUp =
+    handedFor === threadId || replayCaughtUp(copy, live, syncing, loaded && beganFor === threadId);
+  useEffect(() => {
+    if (caughtUp && handedFor !== threadId) setHandedFor(threadId);
+  }, [caughtUp, handedFor, threadId]);
+  const messages = caughtUp ? live : (copy as typeof live);
+  // Kept again whenever the conversation rests with what the server has confirmed: after the
+  // load, after each reply. Never while a reply is being written.
+  const restingWith = loaded && !syncing && !busy && !agent.isRunning && caughtUp ? live : null;
+  const restingKey = restingWith ? `${restingWith.length}:${restingWith.at(-1)?.id ?? ""}` : "";
+  // biome-ignore lint/correctness/useExhaustiveDependencies: restingKey says when the list changed
+  useEffect(() => {
+    if (richThreads && restingWith?.length)
+      writeThreadCopy(lastSeenStorage(), copyScope, threadId, restingWith);
+  }, [richThreads, restingKey, copyScope, threadId]);
   const latestPanelId = latestJevPanelId(messages, threadId);
   const latestUserIndex = messages.reduce(
     (last, message, index) => (message.role === "user" ? index : last),
@@ -762,7 +820,8 @@ export function useChatSession({
   const feedback = verdicts.thread === threadId ? verdicts.given : {};
   // A reply's consecutive desktop steps are
   // one block (core.ts `desktopFold`), live while the reply still adds to it.
-  const replying = busy || agent.isRunning;
+  // While this device's copy is on screen the agent is only reading the history: no reply yet.
+  const replying = busy || (agent.isRunning && caughtUp);
   const fold = useMemo(() => desktopFold(messages), [messages]);
   const replyRetrying = replying && retrying;
   // Background task reports for this thread, placed in the transcript
@@ -1102,7 +1161,8 @@ export function useChatSession({
     richThreads,
     renderToolCall,
     messages,
-    loaded,
+    // The copy counts as the conversation being there: the screen draws it at once.
+    loaded: loaded || (!caughtUp && !!copy),
     syncing,
     busy,
     replying,

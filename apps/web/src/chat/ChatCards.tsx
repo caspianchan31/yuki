@@ -29,6 +29,8 @@ import { groupTaskLine } from "@m/shell/chat/handoff";
 import { useShellData } from "@m/shell/data";
 import { type AccountModel, phaseActions, type TaskAction, type TaskEntry } from "@m/shell/model";
 import { phaseWords, t } from "@m/shell/strings";
+import { cardNeedsRead, cardTask, readTaskOnce, type TaskRead } from "@m/shell/task/detail-core";
+import { useWorkspace } from "@m/workspace";
 import { useContext, useEffect, useState } from "react";
 import type { ChatReport } from "../../../../packages/domain/src/agent";
 import { clockLabel } from "../../../../packages/domain/src/task-phase";
@@ -99,27 +101,86 @@ export function TaskCard({
   );
 }
 
-/** delegate_task's card: the live task card; while the task list catches up it reads
- * 「正在建任务…」, and only once a task-list read that started after the card first missed the
- * task still lacks it, 「这个任务已经不在了」. The card never reads the list itself. */
-export function DelegatedTaskCard({ result, loading }: { result: unknown; loading: boolean }) {
-  const { entryById, accountById } = useShellData();
+/** A card's task, by id. The task list carries only the live tasks and the recent past, the
+ * finished ones without their steps, so a task it lacks (or, with `whole`, carries trimmed) is
+ * read by itself, once. `missing` only when that read says there is no such task and a list read
+ * that started after the card first missed it lacks it too; until then the card does not know. */
+export function useCardTask(
+  taskId: string | null,
+  options: { enabled: boolean; whole?: boolean },
+): { entry: TaskEntry | null; missing: boolean; error: string } {
+  const { entryById, now, stalled } = useShellData();
+  const { api } = useWorkspace();
   const fetchedAt = useAgentFetchedAt();
-  const ref = toolResultRef(result);
-  const entry = ref.id ? entryById.get(ref.id) : undefined;
+  const live = taskId ? entryById.get(taskId) : undefined;
+  // A task the list lacks is read by itself only once the list has been read: on a page that
+  // has just opened every card's task is "not in the list" for a moment.
+  const wanted =
+    options.enabled &&
+    !!taskId &&
+    (!!live || fetchedAt !== null) &&
+    cardNeedsRead(live, options.whole === true);
+  const version = live?.task.updatedAt ?? "";
   // When this card first looked for its task and did not find it.
   const [missingSince, setMissingSince] = useState<{ id: string; at: number } | null>(null);
-  const taskId = ref.id;
+  const [read, setRead] = useState<{ id: string; value: TaskRead } | null>(null);
+  const [failed, setFailed] = useState<{ id: string; message: string } | null>(null);
   useEffect(() => {
-    if (loading || !taskId || entry) return;
+    if (!options.enabled || !taskId || live) return;
     setMissingSince((current) =>
       current?.id === taskId ? current : { id: taskId, at: Date.now() },
     );
-  }, [loading, taskId, entry]);
-  const checked =
-    !!ref.id && missingSince?.id === ref.id && fetchedAt !== null && fetchedAt >= missingSince.at;
+  }, [options.enabled, taskId, live]);
+  const failedAt = failed?.id === taskId ? fetchedAt : null;
+  useEffect(() => {
+    if (!wanted || !taskId) return;
+    let active = true;
+    readTaskOnce(api, taskId, version)
+      .then((value) => {
+        if (!active) return;
+        setRead({ id: taskId, value });
+        setFailed(null);
+      })
+      .catch((e) => {
+        if (active) setFailed({ id: taskId, message: e instanceof Error ? e.message : String(e) });
+      });
+    return () => {
+      active = false;
+    };
+    // A read that failed is asked again when the list is next read.
+  }, [api, taskId, wanted, version, failedAt]);
+  const listChecked =
+    !!taskId && missingSince?.id === taskId && fetchedAt !== null && fetchedAt >= missingSince.at;
+  const found = cardTask({
+    live,
+    read: read?.id === taskId ? read.value : null,
+    listChecked,
+    now,
+    stalled,
+  });
+  return { ...found, error: !found.entry && failed?.id === taskId ? failed.message : "" };
+}
+
+/** delegate_task's card: the live task card; while its task is not known yet it reads
+ * 「正在建任务…」. A task the list does not carry (it finished long ago) is read by itself and
+ * shown as any other; 「这个任务已经不在了」 only once the project really has no such task
+ * (`useCardTask`). */
+export function DelegatedTaskCard({ result, loading }: { result: unknown; loading: boolean }) {
+  const { accountById } = useShellData();
+  const ref = toolResultRef(result);
   const inGroup = useContext(InGroup);
   const opsName = useOpsName();
+  // The hall handed the task to a project, where it runs and reports; the hall
+  // never lists it, so the card asks that project's 运营专员 and leads there.
+  const handed = loading ? null : projectRef(result);
+  const {
+    entry,
+    missing,
+    error: readError,
+  } = useCardTask(ref.id, {
+    enabled: !loading && !(handed && !ref.error),
+    whole: !inGroup,
+  });
   // The 运营专员 asks the task's account by name, the task's state word
   // small beside it, instead of a task card in the middle of the conversation.
   if (entry && inGroup) {
@@ -137,9 +198,6 @@ export function DelegatedTaskCard({ result, loading }: { result: unknown; loadin
         <TaskResults task={entry.task} />
       </div>
     );
-  // The hall handed the task to a project, where it runs and reports; the hall
-  // never lists it, so the card asks that project's 运营专员 and leads there.
-  const handed = loading ? null : projectRef(result);
   if (handed && !ref.error) {
     if (inGroup)
       return (
@@ -157,13 +215,15 @@ export function DelegatedTaskCard({ result, loading }: { result: unknown; loadin
       </div>
     );
   }
-  const waiting = loading || (!!ref.id && !checked);
+  // Not known yet (the task is being made, or its read is on the way) is never "gone".
+  const error = ref.error ?? readError;
+  const waiting = loading || (!!ref.id && !missing && !error);
   return (
     <div className="tcard">
       {waiting ? (
-        <Spinner label={t.taskCard.saving} />
-      ) : ref.error ? (
-        <ErrorLine error={ref.error} />
+        <Spinner label={loading ? t.taskCard.saving : t.tools.waiting} />
+      ) : error ? (
+        <ErrorLine error={error} />
       ) : (
         <span className="muted">{t.taskCard.missing}</span>
       )}
@@ -288,10 +348,10 @@ export function RedirectCard({
   /** Pause_task and resume_task use this card too. */
   kind?: TaskControlKind;
 }) {
-  const { entryById } = useShellData();
   const view = redirectView(args, result, kind);
   const words = taskControlWords(kind);
-  const entry = view.taskId ? entryById.get(view.taskId) : undefined;
+  // The title is all this card shows of the task, so a trimmed copy is enough.
+  const { entry } = useCardTask(view.taskId ?? null, { enabled: !loading });
   // A step of the conversation, not news: one grey line.
   const inGroup = useContext(InGroup);
   if (inGroup && !loading && !view.failed)

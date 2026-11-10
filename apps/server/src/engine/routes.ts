@@ -30,7 +30,10 @@ const goalPatchSchema = z.object({
 
 export function agentRoutes(service: AgentService): Hono<{ Variables: { owner: string } }> {
   const app = new Hono<{ Variables: { owner: string } }>();
-  app.get("/", async (c) => c.json(await service.snapshot(c.get("owner"))));
+  // v1.7.2 快照只带活的: the live tasks and the recent past; `?all=1` for every task.
+  app.get("/", async (c) =>
+    c.json(await service.snapshot(c.get("owner"), { allTasks: c.req.query("all") === "1" })),
+  );
   // v1.7 启动链瘦身: what the roster needs of another project's tasks (their routine bucket),
   // instead of that project's whole snapshot.
   app.get("/routines", async (c) => c.json({ tasks: await service.routineRows(c.get("owner")) }));

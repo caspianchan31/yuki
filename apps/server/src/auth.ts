@@ -134,6 +134,19 @@ export function validatePassword(password: string) {
   return password;
 }
 
+/** How long a session that checked out is remembered in this process (IDENTITY_CACHE_TTL_MS,
+ * milliseconds; 30 s by default, 0 never). */
+export function identityKeepMs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.IDENTITY_CACHE_TTL_MS?.trim();
+  if (!raw) return 30_000;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0 || value > 300_000)
+    throw new Error(
+      "IDENTITY_CACHE_TTL_MS must be a whole number of milliseconds from 0 to 300000",
+    );
+  return value;
+}
+
 export class Auth {
   private code?: string;
   private readonly failures = new Map<string, { count: number; until: number }>();
@@ -319,6 +332,7 @@ export class Auth {
   }
   /** The operator opened the sign-up: its own password signs it in now. */
   async activateUser(id: string): Promise<UserRecord | null> {
+    this.forgetSessions();
     const user = await this.findUser(id);
     if (user?.status !== "pending" || !user.pendingHash || !user.pendingSalt) return null;
     return this.db.compareAndSwap<UserRecord>(
@@ -338,13 +352,16 @@ export class Auth {
   }
   /** The operator refused the sign-up: it never signs in. */
   async rejectUser(id: string): Promise<UserRecord | null> {
-    return this.db.compareAndSwap<UserRecord>(
+    this.forgetSessions();
+    const refused = await this.db.compareAndSwap<UserRecord>(
       "system",
       "users",
       id,
       { status: "pending" },
       { status: "rejected", updatedAt: new Date().toISOString() },
     );
+    this.forgetSessions();
+    return refused;
   }
   /** The admin account becomes the first user (same name, same password
    * hash, the platform operator). The admin record stays as it is, for a rollback. Each step only
@@ -382,11 +399,54 @@ export class Auth {
   async user(authorization?: string): Promise<SessionUser> {
     if (!authorization?.startsWith("Bearer ")) throw new AppError("Sign in to OpenMuse", 401);
     const id = digest(authorization.slice(7)).toString("hex");
+    // v1.7.2 对话快: every request asks whose session this is (two reads), and a page that opens
+    // sends some thirty at once. A session that checked out is remembered in this process for a
+    // short while (IDENTITY_CACHE_TTL_MS, 30 s; 0 turns it off), and those asking at the same
+    // moment share one read. Whatever this process does to a session or a user (sign-out, a new
+    // password, a sign-up opened or refused) forgets all of it at once, so it counts for the very
+    // next request; a change made straight in the database counts within that short while.
+    const now = Date.now();
+    const kept = this.known.get(id);
+    if (kept && now - kept.at < this.keepMs && kept.end > now) return kept.user;
+    const asking = this.asking.get(id);
+    if (asking) return asking;
+    const epoch = this.epoch;
+    const answer = this.readUser(id)
+      .then(({ user, end }) => {
+        // Not kept when something was forgotten while this read was on its way: a sign-out that
+        // landed meanwhile must not be undone by the answer of a read that began before it.
+        if (this.keepMs > 0 && epoch === this.epoch) {
+          if (this.known.size >= Auth.knownMax) this.known.clear();
+          this.known.set(id, { user, end, at: Date.now() });
+        }
+        return user;
+      })
+      .finally(() => {
+        if (this.asking.get(id) === answer) this.asking.delete(id);
+      });
+    this.asking.set(id, answer);
+    return answer;
+  }
+  private readonly asking = new Map<string, Promise<SessionUser>>();
+  private readonly known = new Map<string, { user: SessionUser; end: number; at: number }>();
+  private static readonly knownMax = 5000;
+  private epoch = 0;
+  private readonly keepMs = identityKeepMs();
+  /** Nothing remembered about any session holds from here on. */
+  forgetSessions() {
+    this.epoch += 1;
+    this.known.clear();
+    this.asking.clear();
+  }
+  private async readUser(id: string): Promise<{ user: SessionUser; end: number }> {
     const session = await this.db.get<SessionRecord>("system", "sessions", id);
     if (!session || sessionEnd(session) < Date.now())
       throw new AppError("Session expired. Sign in again.", 401);
     if (this.config.mode !== "live" && !session.userId)
-      return { userId: sampleUserId, username: sampleUserId, operator: false };
+      return {
+        user: { userId: sampleUserId, username: sampleUserId, operator: false },
+        end: sessionEnd(session),
+      };
     let userId = session.userId;
     if (!userId) {
       if (session.owner !== firstSpaceKey || !(await this.findUser(firstUserId)))
@@ -403,7 +463,10 @@ export class Auth {
     const user = await this.findUser(userId);
     // A sign-up not opened (or refused) has no session that works.
     if (!user || user.status) throw new AppError("Session expired. Sign in again.", 401);
-    return { userId: user.id, username: user.username, operator: user.operator };
+    return {
+      user: { userId: user.id, username: user.username, operator: user.operator },
+      end: sessionEnd(session),
+    };
   }
   /** The key of the space a session acts in when its user has one space (the sample workspace,
    * tests and single-space tools); set by the app (tenancy). */
@@ -414,7 +477,9 @@ export class Auth {
   /** Ends the session the request carries; a missing or expired one is already ended. */
   async logout(authorization?: string) {
     if (!authorization?.startsWith("Bearer ")) return;
+    this.forgetSessions();
     await this.db.remove("system", "sessions", digest(authorization.slice(7)).toString("hex"));
+    this.forgetSessions();
   }
   /** Changes the signed-in user's own password after checking the current one, ends that user's
    * other sessions and returns a fresh one for the caller. For the first user the admin record
@@ -458,6 +523,7 @@ export class Auth {
    * first user (kept for a rollback, so it never reopens the old password), and ends every
    * session of the user and (Fork, 重置密码) his open reset links. */
   private async storePassword(user: UserRecord, next: string): Promise<UserRecord> {
+    this.forgetSessions();
     const salt = randomBytes(16);
     const hash = await scrypt(next, salt, keyLength, scryptParams);
     const saved = await this.db.compareAndSwap<UserRecord>(
@@ -483,6 +549,7 @@ export class Auth {
     for (const session of await this.db.list<SessionRecord>("system", "sessions"))
       if (session.userId === user.id || (!session.userId && user.id === firstUserId))
         await this.db.remove("system", "sessions", session.id);
+    this.forgetSessions();
     await this.passwordStored(user.id);
     return saved;
   }

@@ -26,8 +26,19 @@ import { type ActionProposal, isMessageToPeople } from "../packages/domain/src/i
 import { modelFixture } from "./helpers/model.ts";
 
 /** A fake MCP server: `lookup` is read-only, `create_note` is not. Calls are recorded. */
-async function fakeMcp(token: string | null = "secret-token", oauth = false) {
+async function fakeMcp(token: string | null = "secret-token", oauth = false, alone?: string) {
   const calls: { tool: string; args: unknown }[] = [];
+  // How often the tool list was asked for, and a switch that makes the server stop answering.
+  // `gate` holds every tool list back until it settles; `token` is the one accepted now, `issued`
+  // how often a token was given out, `onToken` runs before one is.
+  const state: {
+    lists: number;
+    down: boolean;
+    gate?: Promise<void>;
+    token: string | null;
+    issued: number;
+    onToken?: () => Promise<void>;
+  } = { lists: 0, down: false, token, issued: 0 };
   let origin = "";
   const server: Server = createServer(async (request, response) => {
     let text = "";
@@ -37,6 +48,11 @@ async function fakeMcp(token: string | null = "secret-token", oauth = false) {
       response.end(JSON.stringify(value));
     };
     const path = new URL(request.url ?? "/", origin || "http://x").pathname;
+    if (state.down) return json({ error: "down" }, 503);
+    if (text.includes('"tools/list"')) {
+      state.lists += 1;
+      await state.gate;
+    }
     if (oauth && path.startsWith("/.well-known/oauth-protected-resource"))
       return json({ resource: `${origin}/mcp`, authorization_servers: [origin] });
     if (oauth && path.startsWith("/.well-known/oauth-authorization-server"))
@@ -50,9 +66,12 @@ async function fakeMcp(token: string | null = "secret-token", oauth = false) {
       });
     if (oauth && path === "/register")
       return json({ ...JSON.parse(text), client_id: "client-1" }, 201);
-    if (oauth && path === "/token")
-      return json({ access_token: token, token_type: "Bearer", refresh_token: "refresh-1" });
-    if (token && request.headers.authorization !== `Bearer ${token}`)
+    if (oauth && path === "/token") {
+      state.issued += 1;
+      await state.onToken?.();
+      return json({ access_token: state.token, token_type: "Bearer", refresh_token: "refresh-1" });
+    }
+    if (state.token && request.headers.authorization !== `Bearer ${state.token}`)
       return json(
         { error: "unauthorized" },
         401,
@@ -63,26 +82,35 @@ async function fakeMcp(token: string | null = "secret-token", oauth = false) {
           : {},
       );
     const mcp = new McpServer({ name: "fake", version: "1.0.0" });
-    mcp.registerTool(
-      "lookup",
-      {
-        description: "Look something up",
-        inputSchema: { q: z.string() },
-        annotations: { readOnlyHint: true },
-      },
-      async (args) => {
-        calls.push({ tool: "lookup", args });
-        return { content: [{ type: "text", text: `found ${args.q}` }] };
-      },
-    );
-    mcp.registerTool(
-      "create_note",
-      { description: "Create a note", inputSchema: { title: z.string() } },
-      async (args) => {
-        calls.push({ tool: "create_note", args });
-        return { content: [{ type: "text", text: `note ${args.title} created` }] };
-      },
-    );
+    // A server of its own: one read-only tool by that name, and neither of the usual two.
+    if (alone)
+      mcp.registerTool(
+        alone,
+        { description: "Its own tool", annotations: { readOnlyHint: true } },
+        async () => ({ content: [{ type: "text", text: "own" }] }),
+      );
+    else
+      mcp.registerTool(
+        "lookup",
+        {
+          description: "Look something up",
+          inputSchema: { q: z.string() },
+          annotations: { readOnlyHint: true },
+        },
+        async (args) => {
+          calls.push({ tool: "lookup", args });
+          return { content: [{ type: "text", text: `found ${args.q}` }] };
+        },
+      );
+    if (!alone)
+      mcp.registerTool(
+        "create_note",
+        { description: "Create a note", inputSchema: { title: z.string() } },
+        async (args) => {
+          calls.push({ tool: "create_note", args });
+          return { content: [{ type: "text", text: `note ${args.title} created` }] };
+        },
+      );
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     response.on("close", () => {
       void transport.close();
@@ -98,6 +126,7 @@ async function fakeMcp(token: string | null = "secret-token", oauth = false) {
   return {
     url: `http://127.0.0.1:${port}/mcp`,
     calls,
+    state,
     close: () => {
       server.closeAllConnections();
       server.close();
@@ -113,6 +142,7 @@ async function setup(
     fetch?: typeof fetch;
     slackApiUrl?: string;
     slackAuthorizeUrl?: string;
+    now?: () => number;
   } = {},
 ) {
   const directory = await mkdtemp(join(tmpdir(), "openmuse-apps-"));
@@ -134,7 +164,7 @@ async function setup(
     googleRedirectUri: "http://localhost:8787/api/google/callback",
     allowedOrigins: [],
   };
-  const server = await createApp(db, given, { appsFetch: config.fetch });
+  const server = await createApp(db, given, { appsFetch: config.fetch, appsNow: config.now });
   t.after(async () => {
     await server.chat.close();
     await server.agent.stop();
@@ -406,6 +436,178 @@ test("a connected server's tools reach chat as app_<slug>__<tool>; read-only run
     "no proposal for a read",
   );
   assert.ok(requests[0].body.includes("connected apps"), "the prompt names the apps");
+});
+
+// v1.7.2 对话快: asking every connected server for its tools cost each reply close to a second.
+test("a reply does not wait for a server's tool list twice: the list in hand answers, and an old one is read again behind it", async (t) => {
+  const mcp = await fakeMcp();
+  t.after(mcp.close);
+  let clock = 1_000_000;
+  const s = await setup(t, { now: () => clock });
+  await connectFake(s, mcp.url);
+  const names = async () =>
+    (await s.server.agent.apps!.runTools("local-user", { propose: async () => null })).map(
+      (tool) => tool.name,
+    );
+  const settled = async (count: number) => {
+    for (let tries = 0; tries < 200 && mcp.state.lists < count; tries += 1)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(mcp.state.lists, count);
+  };
+  const before = mcp.state.lists;
+  const [first, second] = await Promise.all([names(), names()]);
+  assert.ok(first.includes("app_fake__lookup"));
+  assert.deepEqual(second, first);
+  assert.ok(mcp.state.lists - before <= 1, "two replies at once ask the server once");
+  const asked = mcp.state.lists;
+  clock += 30_000;
+  assert.deepEqual(await names(), first);
+  assert.equal(mcp.state.lists, asked, "within the minute nothing is asked");
+  clock += 60_000;
+  assert.deepEqual(await names(), first, "an old list still answers at once");
+  await settled(asked + 1);
+  // A server that stops answering keeps the tools it last gave.
+  mcp.state.down = true;
+  clock += 120_000;
+  assert.deepEqual(await names(), first);
+});
+
+test("a server that does not answer is asked once a minute, not by every reply", async (t) => {
+  const mcp = await fakeMcp();
+  t.after(mcp.close);
+  let clock = 1_000_000;
+  const s = await setup(t, { now: () => clock });
+  await connectFake(s, mcp.url);
+  // Connecting read the list; a new process starts with none.
+  (s.server.agent.apps as unknown as { toolCache: Map<string, unknown> }).toolCache.clear();
+  let asked = 0;
+  const counting = mcp.state;
+  const names = async () =>
+    (await s.server.agent.apps!.runTools("local-user", { propose: async () => null })).map(
+      (tool) => tool.name,
+    );
+  counting.down = true;
+  assert.deepEqual(await names(), []);
+  const origin = new URL(mcp.url).origin;
+  const real = globalThis.fetch;
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input instanceof Request ? input.url : input).startsWith(origin)) asked += 1;
+    return real(input, init);
+  }) as typeof fetch;
+  t.after(() => {
+    globalThis.fetch = real;
+  });
+  assert.deepEqual(await names(), []);
+  assert.equal(asked, 0, "the second reply does not try the dead server again");
+  counting.down = false;
+  clock += 61_000;
+  assert.ok((await names()).includes("app_fake__lookup"), "a minute later it is asked again");
+});
+
+type AppsInside = {
+  toolCache: Map<string, unknown>;
+  toolCount: (space: string, id: string) => number | undefined;
+};
+const inside = (s: Setup) => s.server.apps as unknown as AppsInside;
+const namesFor = async (s: Setup, owner: string, signal?: AbortSignal) =>
+  (await s.server.apps.runTools(owner, { propose: async () => null, signal })).map(
+    (tool) => tool.name,
+  );
+
+// The record id is `mcp:<slug>` in every space: lists, failures and running reads are per space.
+test("two spaces with a server under the same slug each get their own tools", async (t) => {
+  const mine = await fakeMcp();
+  const theirs = await fakeMcp("secret-token", false, "their_tool");
+  t.after(mine.close);
+  t.after(theirs.close);
+  const s = await setup(t);
+  await connectFake(s, mine.url);
+  const [record] = await s.db.list<{ id: string; url: string }>("local-user", "apps");
+  assert.equal(record.id, "mcp:fake");
+  await s.db.put("other-space", "apps", { ...record, url: theirs.url, connectionId: randomUUID() });
+  assert.deepEqual((await namesFor(s, "local-user")).sort(), [
+    "app_fake__create_note",
+    "app_fake__lookup",
+  ]);
+  assert.deepEqual(await namesFor(s, "other-space"), ["app_fake__their_tool"]);
+  assert.deepEqual((await namesFor(s, "local-user")).sort(), [
+    "app_fake__create_note",
+    "app_fake__lookup",
+  ]);
+  assert.equal(inside(s).toolCount("local-user", "mcp:fake"), 2, "the directory's count");
+  assert.equal(inside(s).toolCount("other-space", "mcp:fake"), 1);
+  // One space's server not answering is remembered for that space only.
+  inside(s).toolCache.clear();
+  mine.state.down = true;
+  assert.deepEqual(await namesFor(s, "local-user"), []);
+  assert.deepEqual(await namesFor(s, "other-space"), ["app_fake__their_tool"]);
+  // One space disconnecting leaves the other's list in hand.
+  const asked = theirs.state.lists;
+  assert.equal((await s.api("/api/apps/mcp:fake/disconnect", {})).status, 200);
+  assert.deepEqual(await namesFor(s, "other-space"), ["app_fake__their_tool"]);
+  assert.equal(theirs.state.lists, asked, "not asked again");
+});
+
+test("a reply that is stopped while the tool list is read does not take the list from the others", async (t) => {
+  const mcp = await fakeMcp();
+  t.after(mcp.close);
+  const s = await setup(t);
+  await connectFake(s, mcp.url);
+  inside(s).toolCache.clear();
+  let open = () => {};
+  mcp.state.gate = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  t.after(() => open());
+  const asked = mcp.state.lists;
+  const stopping = new AbortController();
+  const first = namesFor(s, "local-user", stopping.signal);
+  const second = namesFor(s, "local-user", new AbortController().signal);
+  for (let tries = 0; tries < 300 && mcp.state.lists === asked; tries += 1)
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(mcp.state.lists, asked + 1, "one read for both, held by the server");
+  stopping.abort();
+  assert.deepEqual(await first, [], "the stopped reply stops waiting at once");
+  open();
+  assert.deepEqual((await second).sort(), ["app_fake__create_note", "app_fake__lookup"]);
+  mcp.state.gate = undefined;
+  assert.equal((await namesFor(s, "local-user")).length, 2);
+  assert.equal(mcp.state.lists, asked + 1, "and the read filled the list in hand");
+});
+
+test("tokens refreshed during a read are not written over a connection removed meanwhile", async (t) => {
+  const mcp = await fakeMcp("oauth-access", true);
+  t.after(mcp.close);
+  const s = await setup(t);
+  const started = await s.api("/api/apps/mcp", { name: "Fake", url: mcp.url });
+  const state = new URL(((await started.json()) as { url: string }).url).searchParams.get("state");
+  await s.server.app.request(`/api/apps/mcp/callback?state=${state}&code=granted`);
+  const saved = async () =>
+    s.db.list<{ secret: string; connectionId: string }>("local-user", "apps");
+  const [before] = await saved();
+  // The server stops taking the token: the next read refreshes it, and that is kept.
+  mcp.state.token = "oauth-second";
+  inside(s).toolCache.clear();
+  let issued = mcp.state.issued;
+  assert.equal((await namesFor(s, "local-user")).length, 2);
+  assert.equal(mcp.state.issued, issued + 1, "refreshed");
+  const [kept] = await saved();
+  assert.equal(kept.connectionId, before.connectionId);
+  assert.notEqual(kept.secret, before.secret, "the new tokens are saved");
+  inside(s).toolCache.clear();
+  issued = mcp.state.issued;
+  assert.equal((await namesFor(s, "local-user")).length, 2);
+  assert.equal(mcp.state.issued, issued, "and used by the next read");
+  // Now the person disconnects while a read is refreshing the token.
+  mcp.state.token = "oauth-third";
+  inside(s).toolCache.clear();
+  mcp.state.onToken = async () => {
+    mcp.state.onToken = undefined;
+    assert.equal((await s.api("/api/apps/mcp:fake/disconnect", {})).status, 200);
+  };
+  await namesFor(s, "local-user");
+  assert.equal(mcp.state.issued, issued + 1, "the read did refresh");
+  assert.deepEqual(await saved(), [], "the removed connection is not put back");
 });
 
 test("a write call in chat is an app.call proposal that runs on approval", async (t) => {

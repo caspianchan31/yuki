@@ -122,7 +122,7 @@ counts, the start-up decision).
 
 A connect used to replay every event of the thread, so a conversation used for months took as
 long to open as it was long (a 25 000-event thread: a 3.3 MB stream and 30 seconds, then every
-message drawn). Now `LocalAgentRunner` replays only the newest `replayRuns` closed runs (40 by
+message drawn). Now `LocalAgentRunner` replays only the newest `replayRuns` closed runs (24 by
 default; `CHAT_REPLAY_RUNS`, 0 for everything): `ChatStore.connectHistory(threadId, excludeRunId,
 { lastRuns })` reads them in one statement, newest first and limited, then in order. The older
 runs come through `GET /api/copilotkit/threads/:id/older?before=<messageId>&limit=<runs>`: the

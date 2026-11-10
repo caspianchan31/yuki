@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseEnv } from "node:util";
+import { historyBudgetKb } from "./engine/history-window.ts";
+import { thinkingSetting } from "./engine/model-thinking.ts";
 
 /** .env keys whose file value loses to a different value already set in the environment. */
 export function shadowedEnvKeys(
@@ -92,6 +94,10 @@ export interface Config {
   taskWorkerEnabled?: boolean;
   webSearchEnabled?: boolean;
   computerEnabled?: boolean;
+  /** v1.7.2 工具按场景: COMPUTER_ENABLED=false says the computer is off for this install (the
+   * hosted site until its own computer comes): the members' chats then carry no computer tools
+   * and no computer rules. Unset leaves the provider to decide, as before. */
+  computerOff?: boolean;
   /** Owner -> the owner its desktop was made
    * under, for projects and accounts moved to another space (their sandboxes keep the name they
    * were made with). Read from the data at start (loadDesktopIdentities), never from the env. */
@@ -216,6 +222,9 @@ export function readConfig(): Config {
     )
   )
     throw new Error("ATTACHMENT_MAX_GB must be a number above 0 and at most 1000");
+  // Read again by each model run; checked here so a typo stops the start, not every reply.
+  thinkingSetting();
+  historyBudgetKb();
   const port = Number(process.env.PORT ?? 8787);
   const publicUrl = process.env.PUBLIC_API_URL ?? `http://localhost:${port}`;
   const config: Config = {

@@ -21,6 +21,8 @@ import { map, mergeMap, type Observable } from "rxjs";
 import { z } from "zod";
 import { MODEL_MAX_RETRIES } from "../config.ts";
 import { askAgain } from "./ask-again.ts";
+import { historyWindowMiddleware } from "./history-window.ts";
+import { thinkingFetch, thinkingSetting } from "./model-thinking.ts";
 import type { ModelUsage } from "./model-usage.ts";
 import { prunePageTextsMiddleware } from "./prune-page-texts.ts";
 import { defaultKeepScreenshots, pruneScreenshotsMiddleware } from "./prune-screenshots.ts";
@@ -185,6 +187,8 @@ export function adapter(spec: string) {
             openaiChatCompletions(id as OpenAIChatModel, {
               baseURL: process.env.OPENAI_BASE_URL,
               maxRetries: MODEL_MAX_RETRIES,
+              // v1.7.2 回复先开口: no hidden thinking before the first word (MODEL_THINKING).
+              fetch: thinkingFetch(thinkingSetting(), process.env.OPENAI_BASE_URL),
             }),
           ),
         );
@@ -296,6 +300,11 @@ export function tanstackAgent(options: {
         !(typeof input.state === "object" && Object.keys(input.state).length === 0)
       )
         system += `\n## Application State\nThis is state from the application that you can edit by calling AGUISendStateSnapshot or AGUISendStateDelta.\n\`\`\`json\n${JSON.stringify(input.state, null, 2)}\n\`\`\`\n`;
+      // v1.7.2: where the system prompt's bytes are (the engine's own words, the context the
+      // app sends, the state), once per run, beside the model-call line.
+      console.info(
+        `[model prompt] base ${Math.round((options.prompt?.length ?? 0) / 1024)} KB, context ${input.context.length} items ${Math.round(input.context.reduce((n, ctx) => n + ctx.value.length + ctx.description.length, 0) / 1024)} KB, state ${Math.round((system.length - (options.prompt?.length ?? 0)) / 1024)} KB in all beyond the base`,
+      );
       // v1.2: the adapter reports each model turn's token counts to the caller.
       const onUsage = options.onUsage;
       const modelAdapter = adapter(options.model);
@@ -323,6 +332,8 @@ export function tanstackAgent(options: {
           pruneScreenshotsMiddleware(options.keepScreenshots ?? defaultKeepScreenshots),
           // Older page reads leave the context.
           prunePageTextsMiddleware(),
+          // v1.7.2 提示只带近的: the newest turns up to a budget (MODEL_HISTORY_KB).
+          historyWindowMiddleware(),
           // On the Chat Completions route (OPENAI_CHAT_COMPLETIONS,
           // production's) a tool result's screenshot reaches the model only as a user message
           // with image parts; the Responses, Anthropic and Gemini adapters carry it themselves.

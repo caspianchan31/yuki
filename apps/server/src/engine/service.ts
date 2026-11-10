@@ -75,6 +75,7 @@ import {
   mailPollMs,
   type Routine,
 } from "../../../../packages/domain/src/routines.ts";
+import { shellTasks } from "../../../../packages/domain/src/shell-tasks.ts";
 import {
   failedRunsBeforeOwner,
   infrastructureNoteLabel,
@@ -742,7 +743,9 @@ export class AgentService {
       };
     });
   }
-  async snapshot(owner: string): Promise<AgentWorkspace> {
+  /** The shell's snapshot. v1.7.2 快照只带活的: the tasks are the live ones and the recent past
+   * (domain `shellTasks`), unless `allTasks` asks for every task there is. */
+  async snapshot(owner: string, options: { allTasks?: boolean } = {}): Promise<AgentWorkspace> {
     await this.ensure(owner);
     const [tasks, goals, monitors, ideas, memories, artifacts, notifications, identity] =
       await Promise.all([
@@ -757,7 +760,7 @@ export class AgentService {
       ]);
     const heartbeat = await this.db.get<{ lastTickAt: string }>("system", "worker-status", "tasks");
     return {
-      tasks,
+      tasks: options.allTasks ? tasks : shellTasks(tasks),
       goals,
       monitors,
       ideas,
