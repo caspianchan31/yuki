@@ -56,7 +56,11 @@ cd "$SRC"
 # never quietly, so a failure here is seen.
 git fetch --tags --force origin
 git checkout -q "$REF"; NEW=$(git describe --tags --always); say "code now $NEW"
-if docker image inspect "$IMG:latest" >/dev/null 2>&1; then docker tag "$IMG:latest" "$IMG:prev"; fi
+# The computer's image goes back with the service's on a rollback (v1.7.5: their screenshot reply
+# changed; a mixed pair is never left running).
+for I in "$IMG" "$P-computer"; do
+  if docker image inspect "$I:latest" >/dev/null 2>&1; then docker tag "$I:latest" "$I:prev"; fi
+done
 say "building"; docker compose -p "$P" build
 TS=$(date +%Y%m%d-%H%M%S); B=$ROOT/backups/$TS; mkdir -p "$B"
 say "stopping the service and backing up to $B"
@@ -68,7 +72,7 @@ if wait_health; then say "health ok"; if desktop_up; then ok=1; else say "the de
 if [ $ok = 1 ]; then echo "UPDATE_OK $NEW (backup $B)"; exit 0; fi
 say "rolling back"
 docker compose -p "$P" stop yuki
-docker tag "$IMG:prev" "$IMG:latest" 2>/dev/null || true
+for I in "$IMG" "$P-computer"; do docker tag "$I:prev" "$I:latest" 2>/dev/null || true; done
 for v in yuki-data yuki-keys; do docker run --rm -v "${P}_$v:/v" -v "$B:/b" alpine sh -c "rm -rf /v/* /v/.[!.]* 2>/dev/null; tar xzf /b/$v.tgz -C /v"; done
 docker compose -p "$P" up -d --no-build
 echo "UPDATE_ROLLED_BACK (code left at $NEW; backup $B)"; exit 1

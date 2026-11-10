@@ -43,9 +43,23 @@ const stepTools = new Set([
   "computer_browser",
   "computer_desktop",
   "computer_screenshot",
+  // v1.7.5: a click at a point of the screen, with the picture of what it did.
+  "computer_mouse",
 ]);
 /** Argument fields a step line may show; everything else stays out of the frame. */
-const shownArgs = ["action", "url", "text", "path", "key", "n", "app", "command", "field"];
+const shownArgs = [
+  "action",
+  "url",
+  "text",
+  "path",
+  "key",
+  "n",
+  "app",
+  "command",
+  "field",
+  "direction",
+  "amount",
+];
 const maxArg = 200;
 
 function parseJson(text: unknown): Record<string, unknown> | null {

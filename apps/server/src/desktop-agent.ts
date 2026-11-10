@@ -34,6 +34,18 @@ export type BrowserAction =
 
 /** A member's step with the desktop's apps (apps.py behind the agent's /desktop): a look numbers an
  * app's buttons, fields and menus; click, type and set name one by the look's snapshot and n. */
+/** v1.7.5: the pointer at a point of the 0..1000 grid over the screenshot (0,0 its top left
+ * corner, 1000,1000 its bottom right), the way vision models give positions. */
+export type PointerAction =
+  | { action: "click" | "double_click" | "right_click" | "move"; x: number; y: number }
+  | { action: "scroll"; x: number; y: number; direction: "up" | "down"; amount: number };
+/** What a pointer action did: where it went in screen pixels, the screen's size, and the screen
+ * just after (base64, JPEG or PNG). */
+export interface PointerDone {
+  at: [number, number];
+  screen: [number, number];
+  image: string;
+}
 export type DesktopAppAction =
   | { action: "apps" }
   | { action: "open"; app: "editor" | "files"; path?: string }
@@ -186,8 +198,26 @@ export class DesktopAgent {
       throw new AppError(reply.error || "File operation failed", 400);
     return reply.result;
   }
+  /** The whole screen, base64: a JPEG since v1.7.5 (an older agent answers a PNG as `png`). */
   async screenshot(): Promise<string> {
-    return (await this.call<{ png: string }>("POST", "/screenshot", {}, { timeoutMs: 20000 })).png;
+    return pictureOf(
+      await this.call<{ image?: string; png?: string }>(
+        "POST",
+        "/screenshot",
+        {},
+        { timeoutMs: 20000 },
+      ),
+    );
+  }
+  /** v1.7.5: the pointer at a grid point, then the screen just after. */
+  async pointer(action: PointerAction, signal?: AbortSignal): Promise<PointerDone> {
+    const reply = await this.call<{
+      at: [number, number];
+      screen: [number, number];
+      image?: string;
+      png?: string;
+    }>("POST", "/pointer", action, { timeoutMs: 30000, signal });
+    return { at: reply.at, screen: reply.screen, image: pictureOf(reply) };
   }
   async browser(action: BrowserAction, signal?: AbortSignal): Promise<DesktopPage> {
     return (
@@ -206,4 +236,11 @@ export class DesktopAgent {
       })
     ).view;
   }
+}
+
+/** The picture in an agent's answer: `image` (v1.7.5, JPEG), or `png` from an older agent. */
+function pictureOf(reply: { image?: string; png?: string }): string {
+  const picture = reply.image ?? reply.png;
+  if (!picture) throw new AppError("The screen could not be captured", 502);
+  return picture;
 }

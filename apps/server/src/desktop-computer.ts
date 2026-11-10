@@ -21,6 +21,8 @@ import type {
   DesktopAppAction,
   DesktopAppsView,
   DesktopPage,
+  PointerAction,
+  PointerDone,
 } from "./desktop-agent.ts";
 import type { ShotStore } from "./desktop-shots-store.ts";
 import { AppError } from "./errors.ts";
@@ -447,14 +449,14 @@ export class DesktopComputer {
   async tree() {
     return this.file<{ entries: WorkspaceEntry[]; truncated: boolean }>({ operation: "tree" });
   }
-  /** The whole screen now, as base64 PNG; the desktop starts when it is paused. */
+  /** The whole screen now, base64 (JPEG since v1.7.5); the desktop starts when it is paused. */
   async screenshot(): Promise<string> {
     await this.start();
     this.touch();
     return this.agent.screenshot();
   }
   private readonly memoryShots = new Map<string, { png: string; at: number }>();
-  /** Keeps a screenshot (base64 PNG) so the person sees it in the chat
+  /** Keeps a screenshot (base64 JPEG or PNG) so the person sees it in the chat
    * (GET /api/computer/screenshots/:id); its id. With a store it is written to disk and kept for
    * the store's retention; without one the newest `keptShots` are kept in memory, an hour each. */
   keepShot(png: string): string {
@@ -471,7 +473,7 @@ export class DesktopComputer {
     }
     return id;
   }
-  /** A kept screenshot's PNG bytes; null when there is no such picture. */
+  /** A kept screenshot's bytes (JPEG or PNG); null when there is no such picture. */
   shotOf(id: string): Buffer | null {
     if (this.shots) return this.shots.read(id);
     const shot = this.memoryShots.get(id);
@@ -487,6 +489,17 @@ export class DesktopComputer {
     const page = await this.agent.browser(action, signal);
     this.touch();
     return page;
+  }
+  /** v1.7.5: a member's pointer action at a point of the 0..1000 grid over the screenshot, and
+   * the screen just after; the desktop starts when it is paused; nothing is done while the person
+   * drives. */
+  async pointer(action: PointerAction, signal?: AbortSignal): Promise<PointerDone> {
+    this.assertMembersDrive();
+    await this.start();
+    this.assertMembersDrive();
+    const done = await this.agent.pointer(action, signal);
+    this.touch();
+    return done;
   }
   /** A member's step with the desktop's apps: the desktop starts when it is paused; nothing is
    * done while the person drives. */

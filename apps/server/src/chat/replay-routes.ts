@@ -2,6 +2,7 @@
 // who has the token (no sign-in), and GET /api/replays/:token/shots/:id a picture that replay
 // shows and no other. Mounted before the session check; the token is the whole secret.
 import { Hono } from "hono";
+import { sniffImage } from "../image-generation.ts";
 import { chatAgentId } from "./main-thread.ts";
 import { type ReplayFrame, replayFrames, replayShotIds } from "./replay.ts";
 import type { ReplayShares } from "./replay-shares.ts";
@@ -54,7 +55,7 @@ export function replayPublicRoutes(
     if (!replayShotIds(found.frames).has(id)) return c.json({ error: "No such picture" }, 404);
     const png = shotPng(id);
     if (!png) return c.json({ error: "This screenshot is gone" }, 404);
-    c.header("Content-Type", "image/png");
+    c.header("Content-Type", sniffImage(png) ?? "image/png");
     c.header("Cache-Control", "private, max-age=3600");
     c.header("X-Content-Type-Options", "nosniff");
     return c.body(new Uint8Array(png));

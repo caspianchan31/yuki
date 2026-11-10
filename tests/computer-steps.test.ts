@@ -73,6 +73,15 @@ test("a step's line says what the member did, in plain words", () => {
     ],
     ["computer_desktop", { action: "press", key: "ctrl+s" }, "按了 ctrl+s"],
     ["computer_desktop", { action: "dance" }, "在电脑上做了一步"],
+    ["computer_mouse", { action: "click", x: 500, y: 500 }, "在屏幕上点了一下"],
+    ["computer_mouse", { action: "double_click", x: 5, y: 5 }, "在屏幕上双击了一下"],
+    ["computer_mouse", { action: "right_click", x: 5, y: 5 }, "在屏幕上右键点了一下"],
+    [
+      "computer_mouse",
+      { action: "scroll", x: 5, y: 5, direction: "down", amount: 4 },
+      "在屏幕上往下滚了 4 格",
+    ],
+    ["computer_mouse", { action: "scroll", x: 5, y: 5, direction: "up" }, "在屏幕上往上滚了 3 格"],
   ];
   for (const [name, args, line] of cases) assert.equal(computerStepText(name, args), line, name);
   // Long text stays on one short line.
@@ -91,4 +100,11 @@ test("a step that did not work says so", () => {
   assert.equal(computerStepFailed({ status: "succeeded", stdout: "ok" }), false);
   assert.equal(computerStepFailed({ snapshot: "s3", elements: [] }), false);
   assert.equal(computerStepFailed(undefined), false);
+});
+
+// v1.7.5: the live chat holds a step's result as its JSON text; a failure there reads as one.
+test("a step's result given as JSON text is read before it is judged", () => {
+  assert.equal(computerStepFailed('{"error":"The desktop is busy with another step"}'), true);
+  assert.equal(computerStepFailed('{"did":"click","at":{"x":1,"y":2}}'), false);
+  assert.equal(computerStepFailed("not json"), false);
 });

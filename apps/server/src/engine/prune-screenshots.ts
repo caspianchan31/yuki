@@ -1,15 +1,17 @@
 import type { ChatMiddleware, ContentPart, ModelMessage } from "@tanstack/ai";
 
-/** Default for AGENT_KEEP_SCREENSHOTS: the screenshots the model still sees in one run. */
-export const defaultKeepScreenshots = 4;
+/** Default for AGENT_KEEP_SCREENSHOTS: the screenshots the model still sees in one run. v1.7.5: one
+ * (it was four). Every model call sends again each picture kept, and on a slow way to the model
+ * service four pictures made each desktop step wait up to a minute. */
+export const defaultKeepScreenshots = 1;
 /** What an older screenshot turns into, so the step and its text result stay visible. */
 export const omittedScreenshot = "[earlier screenshot omitted]";
 
 /**
  * Fork: every use_desktop action returns a JPEG screenshot as an image part of its tool
  * result, and a model run keeps all of them, so the context grows by one image per step.
- * This keeps the `keep` most recent image parts across all messages (tool results, and user
- * or assistant parts if any carry one) and replaces each older one with a text part.
+ * This keeps the `keep` most recent image parts of tool results (since v1.7.5 only those: a
+ * picture the person sent is not a screenshot) and replaces each older one with a text part.
  * Text, tool calls, tool-call arguments and reasoning are never touched. Pure: the input is
  * not modified; unchanged messages keep their identity, and with nothing to drop the input
  * array itself is returned.
@@ -21,7 +23,9 @@ export function pruneScreenshots(messages: ModelMessage[], keep: number): ModelM
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index] as ModelMessage;
     const content = message.content;
-    if (!Array.isArray(content)) continue;
+    // v1.7.5: only tool results' pictures (screenshots, a click's picture) count and go. The
+    // person's own pictures are not screenshots: they keep their own cap (keepAttachedImages).
+    if (message.role !== "tool" || !Array.isArray(content)) continue;
     let parts: ContentPart[] | undefined;
     for (let at = content.length - 1; at >= 0; at--) {
       if ((content[at] as ContentPart).type !== "image") continue;

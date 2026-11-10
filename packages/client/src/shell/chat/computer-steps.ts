@@ -4,6 +4,7 @@
  * screenshot a member takes is a card of its own (reply-core.ts's result tools), and a command is
  * run_computer_command's card (a hosted desktop run draws its commands as part of the run).
  */
+import { toolResultValue } from "../../tool-cards-core";
 import { t } from "../strings";
 
 /** The computer's step tools the chat draws a line for (chat-state.tsx registers them). */
@@ -19,6 +20,7 @@ export const computerStepTools = [
   { name: "export_computer_pdf", description: "Show the PDF a member saved back to Files" },
   { name: "computer_browser", description: "Show what a member did in the computer's browser" },
   { name: "computer_desktop", description: "Show what a member did in the computer's apps" },
+  { name: "computer_mouse", description: "Show where a member clicked on the computer's screen" },
 ] as const;
 
 /** A tool's text, on one line and cut to `max` characters. */
@@ -100,6 +102,21 @@ export function computerStepText(name: string, args: Record<string, unknown>): s
         default:
           return s.other;
       }
+    case "computer_mouse":
+      switch (args.action) {
+        case "click":
+          return s.pointerClick;
+        case "double_click":
+          return s.pointerDouble;
+        case "right_click":
+          return s.pointerRight;
+        case "move":
+          return s.pointerMove;
+        case "scroll":
+          return s.pointerScroll(args.direction === "up", number(args.amount) || "3");
+        default:
+          return s.other;
+      }
     default:
       return s.other;
   }
@@ -108,8 +125,10 @@ export function computerStepText(name: string, args: Record<string, unknown>): s
 /** A step that did not do what it was asked: an error or failure, or a command that failed,
  * timed out or was interrupted. */
 export function computerStepFailed(result: unknown): boolean {
-  if (!result || typeof result !== "object") return false;
-  const value = result as Record<string, unknown>;
+  // The live chat holds a tool's result as its JSON text; a replay may hold it parsed.
+  const parsed = toolResultValue(result);
+  if (!parsed || typeof parsed !== "object") return false;
+  const value = parsed as Record<string, unknown>;
   if (typeof value.error === "string" || typeof value.failure === "string") return true;
   return (
     value.status === "failed" || value.status === "timed_out" || value.status === "interrupted"

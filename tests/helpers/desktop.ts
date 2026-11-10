@@ -9,6 +9,7 @@ import type {
   DesktopAppsView,
   DesktopExecResult,
   DesktopPage,
+  PointerAction,
 } from "../../apps/server/src/desktop-agent.ts";
 
 export const desktopConfig: Config = {
@@ -50,6 +51,7 @@ export class FakeAgent {
     ],
   };
   appActions: DesktopAppAction[] = [];
+  pointerActions: PointerAction[] = [];
   readonly live = { view: "v".repeat(32), control: "c".repeat(32), port: 6080 };
 
   asAgent() {
@@ -103,6 +105,16 @@ export class FakeAgent {
   async screenshot() {
     this.calls.push("screenshot");
     return "UE5H";
+  }
+  async pointer(action: PointerAction) {
+    this.calls.push("pointer");
+    this.pointerActions.push(action);
+    // A JPEG's first bytes, base64: what the agent answers since v1.7.5.
+    return {
+      at: [Math.round((action.x * 1280) / 1000), Math.round((action.y * 800) / 1000)],
+      screen: [1280, 800],
+      image: "/9j/4AAQ",
+    };
   }
   async desktopApps(action: DesktopAppAction) {
     this.calls.push("desktop");

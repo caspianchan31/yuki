@@ -86,6 +86,7 @@ const renderers: Record<WorkspaceToolName, (props: RenderProps) => ReactElement 
   export_computer_pdf: step("export_computer_pdf"),
   computer_browser: step("computer_browser"),
   computer_desktop: step("computer_desktop"),
+  computer_mouse: step("computer_mouse"),
   present_choices: ({ result, status }) => (
     <JevToolCard result={result} loading={status !== "complete"} />
   ),

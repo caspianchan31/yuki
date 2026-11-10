@@ -13,7 +13,10 @@ is read from DESKTOP_TOKEN_FILE (made on first start when missing, mode 0600) an
   POST /exec              {"command", "cwd", "timeout"}: bash in /workspace, output capped
   POST /files             the files helper's request (files.py), passed through
   POST /browser           {"action": "open"|"read"|"click"|"type"|"press"|"back", ...}
-  POST /screenshot        the whole screen as a PNG, base64 in {"png": ...}
+  POST /screenshot        the whole screen as a JPEG, base64 in {"image": ..., "mimeType": "image/jpeg"}
+  POST /pointer           {"action": "click"|"double_click"|"right_click"|"move"|"scroll", "x", "y",
+                          "direction", "amount"}: the pointer at a point of the 0..1000 grid over the
+                          screenshot, then a fresh screenshot as /screenshot gives it
   POST /desktop           {"action": "apps"|"open"|"look"|"click"|"type"|"set"|"press", ...}: the
                           desktop's apps through the accessibility bus (apps.py), numbered by a look
 
@@ -40,6 +43,12 @@ PORT = int(os.environ.get("DESKTOP_PORT", "7070"))
 LIVE_PORT = int(os.environ.get("DESKTOP_LIVE_PORT", "6080"))
 DISPLAY = os.environ.get("DESKTOP_DISPLAY", ":1")
 SIZE = os.environ.get("DESKTOP_SIZE", "1280x800")
+# v1.7.5: screenshots are JPEG at this quality (a third of the PNG): every picture a member looks at
+# travels to the model service, and the way there can be slow.
+SHOT_QUALITY = max(30, min(95, int(os.environ.get("DESKTOP_SHOT_QUALITY", "60"))))
+# Points a member reads off a screenshot are on this grid: 0,0 the top left corner, GRID,GRID the
+# bottom right, whatever the picture's size in pixels (the way vision models give positions).
+GRID = 1000
 DEVTOOLS = 9222
 VIEW_VNC, CONTROL_VNC = 5900, 5901
 NOVNC = os.environ.get("DESKTOP_NOVNC", "/usr/share/novnc")
@@ -168,14 +177,14 @@ def run_command(command: str, cwd: str, timeout: float) -> dict:
     }
 
 
-def take_screenshot() -> str:
-    """The whole screen (window panel included), base64 PNG."""
+def take_screenshot() -> dict:
+    """The whole screen (window panel included): {"image": base64 JPEG, "mimeType"}."""
     import base64
 
     os.makedirs(RUN_DIR, exist_ok=True)
-    path = os.path.join(RUN_DIR, "screen.png")
+    path = os.path.join(RUN_DIR, "screen.jpg")
     process = subprocess.run(
-        ["scrot", "--overwrite", path],
+        ["scrot", "--overwrite", "--quality", str(SHOT_QUALITY), path],
         env=session_env(),
         capture_output=True,
         timeout=15,
@@ -183,7 +192,71 @@ def take_screenshot() -> str:
     if process.returncode != 0:
         raise RuntimeError("The screen could not be captured")
     with open(path, "rb") as source:
-        return base64.b64encode(source.read()).decode("ascii")
+        picture = base64.b64encode(source.read()).decode("ascii")
+    # "png" for one release: a server of 1.7.4 or older (a rollback leaves it beside this agent)
+    # reads only that field; it then sends the JPEG as a PNG, which works.
+    return {"image": picture, "mimeType": "image/jpeg", "png": picture}
+
+
+def screen_size() -> tuple:
+    width, height = SIZE.lower().split("x")
+    return int(width), int(height)
+
+
+def grid_point(x, y, size=None) -> tuple:
+    """A point of the 0..GRID grid over the screenshot, in screen pixels, kept on the screen."""
+    width, height = size or screen_size()
+    for value in (x, y):
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= GRID:
+            raise ValueError(f"x and y are points of the 0 to {GRID} grid over the screenshot")
+    return (
+        min(width - 1, max(0, int(x * width / GRID + 0.5))),
+        min(height - 1, max(0, int(y * height / GRID + 0.5))),
+    )
+
+
+POINTER_BUTTONS = {
+    "click": ["click", "1"],
+    "double_click": ["click", "--repeat", "2", "--delay", "120", "1"],
+    "right_click": ["click", "3"],
+    "move": [],
+}
+# What the screen is given to answer a click (a menu opening, a page starting to load) before the
+# picture is taken.
+POINTER_SETTLE = float(os.environ.get("DESKTOP_POINTER_SETTLE", "0.8"))
+# How long a pointer action waits for another desktop step to end. Below the server's 30 s for
+# /pointer: a click must never land after the server has told the model it failed.
+POINTER_LOCK_WAIT = 20
+
+
+def pointer_argv(body: dict) -> tuple:
+    """The xdotool words for a pointer action, and the point in pixels; checked before anything moves."""
+    action = body.get("action")
+    if action not in (*POINTER_BUTTONS, "scroll"):
+        raise ValueError("action is click, double_click, right_click, move or scroll")
+    x, y = grid_point(body.get("x"), body.get("y"))
+    argv = ["xdotool", "mousemove", str(x), str(y)]
+    if action == "scroll":
+        direction = body.get("direction")
+        if direction not in ("up", "down"):
+            raise ValueError("scroll needs direction: up or down")
+        amount = body.get("amount", 3)
+        if isinstance(amount, bool) or not isinstance(amount, int) or not 1 <= amount <= 15:
+            raise ValueError("amount is a whole number from 1 to 15")
+        argv += ["click", "--repeat", str(amount), "--delay", "60", "4" if direction == "up" else "5"]
+    else:
+        argv += POINTER_BUTTONS[action]
+    return argv, (x, y)
+
+
+def pointer_action(body: dict) -> dict:
+    """The pointer at a grid point (click, double click, right click, move or scroll), then the screen."""
+    argv, (x, y) = pointer_argv(body)
+    process = subprocess.run(argv, env=session_env(), capture_output=True, timeout=15)
+    if process.returncode != 0:
+        raise RuntimeError("The pointer could not be moved")
+    time.sleep(POINTER_SETTLE)
+    return {"at": [x, y], "screen": list(screen_size()), **take_screenshot()}
 
 
 def ensure_workspace_folders() -> None:
@@ -880,7 +953,17 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == "/screenshot":
                 if not SESSION_STATE.running():
                     raise ValueError("The desktop is not running")
-                return self.reply(200, {"png": take_screenshot()})
+                return self.reply(200, take_screenshot())
+            if self.path == "/pointer":
+                pointer_argv(body)
+                if not DESKTOP_LOCK.acquire(timeout=POINTER_LOCK_WAIT):
+                    raise ValueError("The desktop is busy with another step; nothing was clicked")
+                try:
+                    if not SESSION_STATE.running():
+                        raise ValueError("The desktop is not running")
+                    return self.reply(200, pointer_action(body))
+                finally:
+                    DESKTOP_LOCK.release()
             if self.path == "/browser":
                 with BROWSER_LOCK:
                     SESSION_STATE.ensure_browser()

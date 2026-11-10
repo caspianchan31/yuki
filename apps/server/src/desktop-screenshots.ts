@@ -4,15 +4,16 @@
 // session check.
 import { Hono } from "hono";
 import type { DesktopComputer } from "./desktop-computer.ts";
+import { sniffImage } from "./image-generation.ts";
 
-/** GET /:id: a kept screenshot as PNG; 404 when there is no such picture (never kept, past the
+/** GET /:id: a kept screenshot (JPEG since v1.7.5, PNG before); 404 when there is no such picture (never kept, past the
  * retention, or its conversation was deleted). */
 export function desktopScreenshotRoutes(desktop: () => DesktopComputer) {
   const app = new Hono();
   app.get("/:id", (c) => {
     const png = desktop().shotOf(c.req.param("id"));
     if (!png) return c.json({ error: "This screenshot is gone" }, 404);
-    c.header("Content-Type", "image/png");
+    c.header("Content-Type", sniffImage(png) ?? "image/png");
     // A picture never changes once kept; the browser may keep it for a day.
     c.header("Cache-Control", "private, max-age=86400");
     c.header("X-Content-Type-Options", "nosniff");

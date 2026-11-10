@@ -17,6 +17,8 @@ import {
   desktopAppActionOf,
   desktopInstructions,
   desktopTools,
+  pictureType,
+  pointerActionOf,
 } from "../apps/server/src/desktop-tools.ts";
 import { desktopConfig, FakeAgent } from "./helpers/desktop.ts";
 
@@ -39,6 +41,7 @@ test("the tools keep the product's computer tool names, and add the browser, the
   assert.deepEqual(tools.map((tool) => tool.name).sort(), [
     "computer_browser",
     "computer_desktop",
+    "computer_mouse",
     "computer_screenshot",
     "computer_status",
     "list_computer_files",
@@ -99,6 +102,7 @@ test("while the person drives, tools that change anything wait and say why; look
     ["stop_computer", {}],
     ["computer_browser", { action: "open", url: "https://example.com" }],
     ["computer_desktop", { action: "open", app: "editor" }],
+    ["computer_mouse", { action: "click", x: 500, y: 500 }],
   ] as const) {
     const result = await call(name, args);
     assert.equal(result.error, personDrivesNote, name);
@@ -243,6 +247,75 @@ test("a screenshot comes back as text plus an image, and the chat can show the p
   const { shotId } = JSON.parse(parts[0].content ?? "{}") as { shotId?: string };
   assert.match(shotId ?? "", /^[A-Za-z0-9_-]{16,64}$/);
   assert.deepEqual(computer.shotOf(shotId ?? ""), Buffer.from("UE5H", "base64"));
+});
+
+// ---- v1.7.5: the pointer on the 0..1000 grid over the screenshot ----------------------------------
+
+test("computer_mouse clicks at a grid point and answers with the screen just after, kept for the replay", async () => {
+  const { agent, call, computer } = await setup();
+  const parts = (await call("computer_mouse", {
+    action: "click",
+    x: 922,
+    y: 112,
+    direction: null,
+    amount: null,
+  })) as unknown as {
+    type: string;
+    content?: string;
+    source?: { mimeType: string; value: string };
+  }[];
+  assert.deepEqual(agent.pointerActions, [{ action: "click", x: 922, y: 112 }]);
+  assert.deepEqual(
+    parts.map((part) => part.type),
+    ["text", "image"],
+  );
+  assert.deepEqual([parts[1].source?.mimeType, parts[1].source?.value], ["image/jpeg", "/9j/4AAQ"]);
+  const said = JSON.parse(parts[0].content ?? "{}") as { did?: string; shotId?: string };
+  assert.equal(said.did, "click");
+  assert.deepEqual(computer.shotOf(said.shotId ?? ""), Buffer.from("/9j/4AAQ", "base64"));
+});
+
+test("computer_mouse refuses a point off the grid and a scroll without its direction, before the pointer moves", async () => {
+  const { agent, call } = await setup();
+  for (const args of [
+    { action: "click", x: 1280, y: 10 },
+    { action: "click", x: -1, y: 10 },
+    { action: "click", x: 10 },
+    { action: "drag", x: 10, y: 10 },
+    { action: "scroll", x: 10, y: 10 },
+    { action: "scroll", x: 10, y: 10, direction: "down", amount: 99 },
+  ]) {
+    const result = await call("computer_mouse", args);
+    assert.ok(typeof result.error === "string", JSON.stringify(args));
+  }
+  assert.deepEqual(agent.pointerActions, []);
+  assert.deepEqual(pointerActionOf({ action: "scroll", x: 1, y: 2, direction: "up" }), {
+    action: "scroll",
+    x: 1,
+    y: 2,
+    direction: "up",
+    amount: 3,
+  });
+});
+
+test("the instructions say where points come from and that xdotool takes pixels, not the grid", () => {
+  assert.match(desktopInstructions, /computer_mouse/);
+  assert.match(desktopInstructions, /0 to 1000 grid/);
+  assert.match(desktopInstructions, /xdotool[^.]*screen pixels/);
+});
+
+test("a picture's type is read from its bytes: JPEG from the agent since v1.7.5, PNG before", () => {
+  assert.equal(pictureType("/9j/4AAQSkZJRg"), "image/jpeg");
+  assert.equal(pictureType("iVBORw0KGgo"), "image/png");
+});
+
+test("GET /api/computer/screenshots/:id answers a kept JPEG as a JPEG", async () => {
+  const { computer } = await setup();
+  const app = desktopScreenshotRoutes(() => computer);
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 16, 0x4a, 0x46, 0x49, 0x46, 0, 1, 1]);
+  const reply = await app.request(`/${computer.keepShot(jpeg.toString("base64"))}`);
+  assert.equal(reply.status, 200);
+  assert.equal(reply.headers.get("content-type"), "image/jpeg");
 });
 
 test("GET /api/computer/screenshots/:id answers the kept picture as PNG, an unknown one 404", async () => {

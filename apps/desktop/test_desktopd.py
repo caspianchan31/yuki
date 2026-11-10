@@ -239,6 +239,28 @@ class Door(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertIn("not running", body["error"])
 
+    def test_the_pointer_clicks_nothing_when_another_desktop_step_holds_the_screen(self):
+        token = "k" * 48
+        wait = desktopd.POINTER_LOCK_WAIT
+        desktopd.POINTER_LOCK_WAIT = 0.2
+        desktopd.DESKTOP_LOCK.acquire()
+        try:
+            status, body = call(self.base, token, "POST", "/pointer", {"action": "click", "x": 20, "y": 1})
+            self.assertEqual(status, 400)
+            self.assertIn("nothing was clicked", body["error"])
+        finally:
+            desktopd.DESKTOP_LOCK.release()
+            desktopd.POINTER_LOCK_WAIT = wait
+
+    def test_the_pointer_refuses_a_point_off_the_grid_and_needs_a_running_desktop(self):
+        token = "k" * 48
+        status, body = call(self.base, token, "POST", "/pointer", {"action": "click", "x": 2000, "y": 1})
+        self.assertEqual(status, 400)
+        self.assertIn("grid", body["error"])
+        status, body = call(self.base, token, "POST", "/pointer", {"action": "click", "x": 20, "y": 1})
+        self.assertEqual(status, 400)
+        self.assertIn("not running", body["error"])
+
 
 class Browser(unittest.TestCase):
     def test_the_browser_is_started_for_the_container_and_pointed_at_one_profile(self):
@@ -285,6 +307,54 @@ class Browser(unittest.TestCase):
             self.assertIn("Page.navigate", pages[-1].calls)
         finally:
             desktopd.Page = original
+
+
+class PointerOnTheGrid(unittest.TestCase):
+    """v1.7.5 (/pointer): a member gives a point of the 0..1000 grid over the screenshot (the way
+    vision models give positions); the pointer goes to that point in screen pixels."""
+
+    def test_grid_points_land_where_they_are_on_the_picture(self):
+        size = (1280, 800)
+        self.assertEqual(desktopd.grid_point(0, 0, size), (0, 0))
+        self.assertEqual(desktopd.grid_point(500, 500, size), (640, 400))
+        # What a model said for a button drawn at 1180,90 on a 1280x800 picture.
+        self.assertEqual(desktopd.grid_point(922, 112, size), (1180, 90))
+        self.assertEqual(desktopd.grid_point(166.4, 200, size), (213, 160))
+        # The far edge stays on the screen.
+        self.assertEqual(desktopd.grid_point(1000, 1000, size), (1279, 799))
+
+    def test_points_off_the_grid_or_not_numbers_are_refused(self):
+        for x, y in ((-1, 10), (10, 1001), ("5", 5), (None, 5), (True, 5), (float("nan"), 5)):
+            with self.assertRaises(ValueError, msg=(x, y)):
+                desktopd.grid_point(x, y, (1280, 800))
+
+    def test_actions_are_checked_before_the_pointer_moves(self):
+        for body in (
+            {"action": "drag", "x": 1, "y": 1},
+            {"action": "click"},
+            {"action": "scroll", "x": 5, "y": 5},
+            {"action": "scroll", "x": 5, "y": 5, "direction": "left"},
+            {"action": "scroll", "x": 5, "y": 5, "direction": "down", "amount": 0},
+            {"action": "scroll", "x": 5, "y": 5, "direction": "down", "amount": 2.5},
+        ):
+            with self.assertRaises(ValueError, msg=body):
+                desktopd.pointer_argv(body)
+
+    def test_the_xdotool_words_for_each_action(self):
+        at = {"x": 500, "y": 500}
+        self.assertEqual(
+            desktopd.pointer_argv({"action": "click", **at})[0],
+            ["xdotool", "mousemove", "640", "400", "click", "1"],
+        )
+        self.assertEqual(
+            desktopd.pointer_argv({"action": "right_click", **at})[0][-2:], ["click", "3"]
+        )
+        self.assertIn("--repeat", desktopd.pointer_argv({"action": "double_click", **at})[0])
+        self.assertEqual(
+            desktopd.pointer_argv({"action": "scroll", "direction": "down", "amount": 4, **at})[0][-6:],
+            ["click", "--repeat", "4", "--delay", "60", "5"],
+        )
+        self.assertEqual(desktopd.pointer_argv({"action": "move", **at})[0], ["xdotool", "mousemove", "640", "400"])
 
 
 class DesktopApps(unittest.TestCase):

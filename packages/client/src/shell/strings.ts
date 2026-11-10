@@ -135,6 +135,13 @@ const zh = {
     type: (text: string) => (text ? `在软件里输入「${text}」` : "在软件里输入了文字"),
     set: (text: string) => (text ? `把内容改成「${text}」` : "改了一处内容"),
     press: (key: string) => (key ? `按了 ${key}` : "按了一个键"),
+    /** v1.7.5 computer_mouse: a click at a point of the screen. */
+    pointerClick: "在屏幕上点了一下",
+    pointerDouble: "在屏幕上双击了一下",
+    pointerRight: "在屏幕上右键点了一下",
+    pointerMove: "把鼠标移了过去",
+    pointerScroll: (up: boolean, amount: string) =>
+      `在屏幕上往${up ? "上" : "下"}滚了 ${amount} 格`,
     editor: "文本编辑器",
     files: "文件管理器",
     other: "在电脑上做了一步",
