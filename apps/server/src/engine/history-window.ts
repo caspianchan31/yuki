@@ -62,6 +62,71 @@ function noted(message: ModelMessage, note: string): ModelMessage {
   return { ...message, content: note };
 }
 
+/**
+ * v1.7.4 不断片: an older message longer than this goes to the model as its start only. On
+ * 2026-11-10 one long tool result in the turn before pushed the whole conversation out of the
+ * window (707 messages became the newest one alone) and the member went on with no idea what had
+ * been done. The current turn is never shortened: the model is working on it.
+ */
+export const olderMessageBytes = 6 * 1024;
+/** How much of a shortened text stays (characters). */
+const keptStart = 1500;
+
+function shortened(text: string): string {
+  const bytes = Buffer.byteLength(text, "utf8");
+  if (bytes <= olderMessageBytes) return text;
+  const head = text.slice(0, keptStart);
+  const rest = Math.max(1, Math.round((bytes - Buffer.byteLength(head, "utf8")) / 1024));
+  return `${head}\n…[the rest of this, about ${rest} KB, is not shown]`;
+}
+
+/** An older message within olderMessageBytes: its texts cut to their start, and arguments of a
+ * tool call too long to show replaced by a note (still JSON, as the provider expects). */
+function capped(message: ModelMessage): ModelMessage {
+  if (size(message) <= olderMessageBytes) return message;
+  let next: ModelMessage = message;
+  if (typeof message.content === "string") next = { ...next, content: shortened(message.content) };
+  else if (Array.isArray(message.content))
+    next = {
+      ...next,
+      content: message.content.map((part) => {
+        const text = part as { type?: unknown; content?: unknown };
+        return text?.type === "text" && typeof text.content === "string"
+          ? ({ ...text, content: shortened(text.content) } as typeof part)
+          : part;
+      }) as typeof message.content,
+    };
+  const calls = (message as { toolCalls?: { function?: { arguments?: unknown } }[] }).toolCalls;
+  if (Array.isArray(calls))
+    next = {
+      ...next,
+      toolCalls: calls.map((call) => {
+        const args = call?.function?.arguments;
+        if (typeof args !== "string" || Buffer.byteLength(args, "utf8") <= olderMessageBytes)
+          return call;
+        const kb = Math.round(Buffer.byteLength(args, "utf8") / 1024);
+        return {
+          ...call,
+          function: { ...call.function, arguments: JSON.stringify({ notShown: `${kb} KB` }) },
+        };
+      }),
+    } as ModelMessage;
+  return next;
+}
+
+/** A turn's final words: its last assistant message with text and no tool call. */
+function finalAnswer(messages: ModelMessage[], from: number, to: number): number {
+  for (let index = to - 1; index > from; index--) {
+    const message = messages[index] as ModelMessage & { toolCalls?: unknown[] };
+    const words = typeof message.content === "string" ? message.content.trim() : "";
+    if (message.role === "assistant" && words && !message.toolCalls?.length) return index;
+  }
+  return -1;
+}
+
+export const stepsNotShown =
+  "[Of the turn below only what was asked and the final answer are shown; its steps are not.]";
+
 /** `messages` within `budgetBytes`, cut at the start of a turn; the input itself when it fits.
  * (The system prompt travels apart from these, as `systemPrompts`.) */
 export function windowHistory(messages: ModelMessage[], budgetBytes: number): ModelMessage[] {
@@ -69,21 +134,42 @@ export function windowHistory(messages: ModelMessage[], budgetBytes: number): Mo
   let total = 0;
   for (const message of messages) total += size(message);
   if (total <= budgetBytes) return messages;
-  // The newest user message and everything after it stay; before that, whole turns as they fit.
+  // The newest user message and everything after it stay as they are; before that, each message
+  // within olderMessageBytes, then whole turns as they fit.
   let lastUser = messages.length - 1;
   while (lastUser > 0 && messages[lastUser]?.role !== "user") lastUser--;
+  const work = [...messages.slice(0, lastUser).map(capped), ...messages.slice(lastUser)];
+  total = 0;
+  for (const message of work) total += size(message);
+  if (total <= budgetBytes) return work;
   let left = budgetBytes;
-  for (let index = messages.length - 1; index >= lastUser; index--)
-    left -= size(messages[index] as ModelMessage);
+  for (let index = work.length - 1; index >= lastUser; index--)
+    left -= size(work[index] as ModelMessage);
   let cut = lastUser;
   for (let index = lastUser - 1; index >= 0; index--) {
-    const message = messages[index] as ModelMessage;
+    const message = work[index] as ModelMessage;
     left -= size(message);
     if (left < 0) break;
     if (message.role === "user") cut = index;
   }
-  if (cut === 0) return messages;
-  const kept = messages.slice(cut);
+  if (cut === 0) return work;
+  if (cut === lastUser && lastUser > 0) {
+    // Not even the turn before fits: still what was asked in it and how it ended, so the
+    // conversation does not start over.
+    let previous = lastUser - 1;
+    while (previous > 0 && work[previous]?.role !== "user") previous--;
+    if (work[previous]?.role === "user") {
+      const answer = finalAnswer(work, previous, lastUser);
+      const asked = work[previous] as ModelMessage;
+      const note = previous > 0 ? `${omittedTurns(previous)} ${stepsNotShown}` : stepsNotShown;
+      return [
+        noted(asked, note),
+        ...(answer > 0 ? [work[answer] as ModelMessage] : []),
+        ...work.slice(lastUser),
+      ];
+    }
+  }
+  const kept = work.slice(cut);
   return [noted(kept[0] as ModelMessage, omittedTurns(cut)), ...kept.slice(1)];
 }
 
