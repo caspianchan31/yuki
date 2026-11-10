@@ -87,6 +87,17 @@ const zh = {
     frame: "电脑的实时画面",
     viewOnly: "这里只能看；要动手请先点「接手」。",
     starting: "正在打开电脑…",
+    /** v1.7.3 电脑在旁边: the preview beside the conversation and the big picture. */
+    stoppedShort: "已暂停",
+    enlarge: "放大看电脑",
+    hideDock: "收到右边",
+    showDock: "显示电脑",
+    inViewer: "正在大画面里看",
+    connecting: "正在连上画面…",
+    pausedHint: "电脑已暂停，点一下打开",
+    lookHint: "点画面放大，可以接手",
+    close: "关闭",
+    drivingHint: "你在操作这台电脑，成员先等着。做完点「交还」，它接着干。",
     /** A screenshot a member took, shown in the chat (computer_screenshot). */
     screenshot: "电脑屏幕截图",
     shooting: "正在截图…",

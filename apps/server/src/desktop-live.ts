@@ -12,11 +12,13 @@ import type { Duplex } from "node:stream";
 import { Hono } from "hono";
 import type { DesktopComputer } from "./desktop-computer.ts";
 import {
+  moduleGraph,
   novncFile,
+  novncVersion,
   packageViewerFiles,
   type ViewerFiles,
-  viewerPage,
-  viewerScript,
+  viewerPageFor,
+  viewerScriptFor,
 } from "./desktop-viewer.ts";
 
 const ticketPattern = "[A-Za-z0-9_-]{20,64}";
@@ -34,8 +36,33 @@ export const viewerPolicy =
 export function desktopLiveRoutes(
   computer: () => DesktopComputer | null,
   files: ViewerFiles = packageViewerFiles(),
+  version: string = novncVersion(),
 ) {
   const app = new Hono();
+  // v1.7.3: the noVNC client at one address per version, with no ticket in it: the browser keeps
+  // it, so opening the picture again (the preview, the big picture, taking over) does not fetch
+  // its fifty files again. It is the package's own public code; the page and the websocket still
+  // need a ticket.
+  const lib = `../lib/${version}/`;
+  let graph: Promise<string[]> | undefined;
+  app.get("/lib/:version/*", async (c) => {
+    if (!computer() || c.req.param("version") !== version)
+      return c.json({ error: "Not found" }, 404);
+    let rest: string;
+    try {
+      rest = decodeURIComponent(c.req.path.split(`/lib/${version}/`)[1] ?? "");
+    } catch {
+      return c.json({ error: "Not found" }, 404);
+    }
+    if (!novncFile.test(rest) || rest.split("/").includes(".."))
+      return c.json({ error: "Not found" }, 404);
+    const body = await files.read(rest);
+    if (body === null) return c.json({ error: "Not found" }, 404);
+    c.header("Content-Type", "text/javascript; charset=utf-8");
+    c.header("Cache-Control", "public, max-age=31536000, immutable");
+    c.header("X-Content-Type-Options", "nosniff");
+    return c.body(body);
+  });
   app.get("/:ticket/*", async (c) => {
     const desktop = computer();
     const ticket = c.req.param("ticket");
@@ -52,9 +79,10 @@ export function desktopLiveRoutes(
     let body: string | null = null;
     let type = "text/javascript; charset=utf-8";
     if (rest === "view.html") {
-      body = viewerPage;
+      graph ??= moduleGraph(files).catch(() => []);
+      body = viewerPageFor((await graph).map((path) => `${lib}${path}`));
       type = "text/html; charset=utf-8";
-    } else if (rest === "view.js") body = viewerScript;
+    } else if (rest === "view.js") body = viewerScriptFor(lib);
     else if (rest.startsWith("novnc/") && novncFile.test(rest.slice("novnc/".length)))
       body = await files.read(rest.slice("novnc/".length));
     if (body === null) return c.json({ error: "Not found" }, 404);

@@ -36,6 +36,7 @@ import { Centered } from "./gate/Centered";
 import { CopilotKitProvider } from "./platform/copilotkit-headless";
 import { ReplayPage } from "./replay/ReplayPage";
 import { ownReplaySource, sharedReplaySource } from "./replay/sources";
+import { ContainerComputerProvider } from "./shell/container-computer-state";
 import { Shell } from "./shell/Shell";
 import { setFrame } from "./shell/state";
 import { useTenancyUi } from "./tenancy-ui";
@@ -221,7 +222,9 @@ function WorkspaceApp({ token, projectId }: { token: string; projectId: string |
         <AgentWorkspaceProvider>
           <ThreadsProvider>
             <ShellDataProvider>
-              <Shell toast={toast} clearToast={clearToast} error={error} prompt={prompt} />
+              <ContainerComputerProvider>
+                <Shell toast={toast} clearToast={clearToast} error={error} prompt={prompt} />
+              </ContainerComputerProvider>
             </ShellDataProvider>
           </ThreadsProvider>
         </AgentWorkspaceProvider>

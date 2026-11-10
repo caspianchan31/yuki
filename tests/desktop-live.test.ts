@@ -61,7 +61,8 @@ test("the starter connects noVNC to the websocket next to the page, view-only un
   assert.equal(reply.status, 200);
   assert.match(reply.headers.get("content-type") ?? "", /text\/javascript/);
   const script = await reply.text();
-  assert.match(script, /import RFB from "\.\/novnc\/core\/rfb\.js"/);
+  // v1.7.3: from the shared copy of this noVNC version, which the browser keeps.
+  assert.match(script, /import RFB from "\.\.\/lib\/[0-9A-Za-z.-]+\/core\/rfb\.js"/);
   assert.match(script, /replace\(\/\[\^\/\]\*\$\/, "websockify"\)/);
   assert.match(script, /params\.get\("view_only"\) !== "0"/);
 });
@@ -205,4 +206,73 @@ test("an upgrade for another path is not this relay's: refused when nobody else 
   assert.match(other.written, /^HTTP\/1.1 404/);
   const traversal = await handshake(server, "/api/computer/live/../websockify", {});
   assert.match(traversal.written, /^HTTP\/1.1 404/);
+});
+
+// v1.7.3: opening the picture again (the preview, the big picture, taking over) fetched noVNC's
+// fifty files again each time, under a new ticket and with no-store: fifteen seconds of 正在连接.
+test("noVNC is also at one address per version, kept by the browser, with no ticket", async () => {
+  const { computer } = await setup();
+  const files: ViewerFiles = {
+    async read(path) {
+      return path === "core/rfb.js"
+        ? 'import { a } from "./util/a.js";\nimport "../vendor/pako/x.js";\nexport default class RFB {}'
+        : path === "core/util/a.js"
+          ? 'export * from "./b.js";\nexport const a = 1;'
+          : path === "core/util/b.js" || path === "vendor/pako/x.js"
+            ? "export const b = 1;"
+            : null;
+    },
+  };
+  const app = desktopLiveRoutes(() => computer, files, "9.9.9");
+  const shared = await app.request("/lib/9.9.9/core/rfb.js");
+  assert.equal(shared.status, 200);
+  assert.match(shared.headers.get("cache-control") ?? "", /max-age=31536000.*immutable/);
+  assert.match(shared.headers.get("content-type") ?? "", /text\/javascript/);
+  assert.match(await shared.text(), /export default class RFB/);
+  // another version, a file outside core/ and vendor/, a path that climbs: refused
+  assert.equal((await app.request("/lib/1.0.0/core/rfb.js")).status, 404);
+  assert.equal((await app.request("/lib/9.9.9/app/ui.js")).status, 404);
+  assert.equal((await app.request("/lib/9.9.9/core/../x.js")).status, 404);
+  // no computer, no library
+  const none = desktopLiveRoutes(() => null, files, "9.9.9");
+  assert.equal((await none.request("/lib/9.9.9/core/rfb.js")).status, 404);
+});
+
+test("the page names every module the starter needs, so the browser asks for them at once", async () => {
+  const { computer } = await setup();
+  const files: ViewerFiles = {
+    async read(path) {
+      return path === "core/rfb.js"
+        ? 'import { a } from "./util/a.js";\nexport default class RFB {}'
+        : path === "core/util/a.js"
+          ? 'import { b } from "../util/b.js";\nexport const a = b;'
+          : path === "core/util/b.js"
+            ? "export const b = 1;"
+            : null;
+    },
+  };
+  const app = desktopLiveRoutes(() => computer, files, "9.9.9");
+  const view = await computer.liveView("owner");
+  const ticket = view.url.match(/live\/([A-Za-z0-9_-]+)\//)?.[1] ?? "";
+  const page = await (await app.request(`/${ticket}/view.html`)).text();
+  const preloads = [...page.matchAll(/<link rel="modulepreload" href="([^"]+)">/g)].map(
+    (m) => m[1],
+  );
+  assert.deepEqual(preloads, [
+    "../lib/9.9.9/core/rfb.js",
+    "../lib/9.9.9/core/util/a.js",
+    "../lib/9.9.9/core/util/b.js",
+  ]);
+  assert.doesNotMatch(page, /<script>(?!<)/, "still no inline script");
+  const script = await (await app.request(`/${ticket}/view.js`)).text();
+  assert.match(script, /import RFB from "\.\.\/lib\/9\.9\.9\/core\/rfb\.js"/);
+});
+
+test("the pinned noVNC package's own modules are found from its entry", async () => {
+  const { moduleGraph, novncVersion } = await import("../apps/server/src/desktop-viewer.ts");
+  const graph = await moduleGraph(packageViewerFiles());
+  assert.equal(graph[0], "core/rfb.js");
+  assert.ok(graph.length > 20, `noVNC's modules (${graph.length})`);
+  assert.ok(graph.every((path) => novncFile.test(path)));
+  assert.match(novncVersion(), /^\d+\.\d+/);
 });

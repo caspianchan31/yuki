@@ -17,6 +17,7 @@ import { PanelHost } from "../panels/PanelHost";
 import { BannerSlot } from "../rail/BannerSlot";
 import { useTenancyUi } from "../tenancy-ui";
 import { cx, Skeleton } from "../ui/primitives";
+import { ComputerDock, ComputerViewer } from "./ComputerDock";
 import { GroupMembers } from "./GroupMembers";
 import { MemberDetail } from "./MemberDetail";
 import { NewGroup } from "./NewGroup";
@@ -130,6 +131,8 @@ export function Shell({ toast, clearToast, error, prompt }: ShellProps) {
           <div className="chat-col">
             <ChatArea prompt={prompt} inView={chatInView} />
           </div>
+          {/* v1.7.3: the members' computer kept beside the conversation. */}
+          <ComputerDock />
         </div>
         {page === "platform" && platform ? (
           <div className="content">
@@ -162,6 +165,7 @@ export function Shell({ toast, clearToast, error, prompt }: ShellProps) {
         ) : null}
       </aside>
       <PanelHost />
+      <ComputerViewer />
       {frame.newMember ? <NewMember /> : null}
       {frame.newGroup ? <NewGroup /> : null}
       {frame.palette ? <Palette /> : null}

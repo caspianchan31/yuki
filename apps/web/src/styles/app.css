@@ -2111,3 +2111,173 @@ textarea.input {
     font-size: 16px;
   }
 }
+
+/* v1.7.3 电脑在旁边 (shell/ComputerDock.tsx): the members' computer beside the conversation
+   on a wide window, and opened big over the page. */
+.cd-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--fg3);
+  flex: none;
+}
+.cd-dot.on {
+  background: var(--green);
+}
+.computer-dock {
+  display: none;
+}
+@media (min-width: 1100px) {
+  .computer-dock {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 380px;
+    flex: none;
+    padding: 10px 12px;
+    border-left: 1px solid var(--line);
+    overflow-y: auto;
+  }
+  .computer-dock.folded {
+    width: auto;
+    padding: 8px 4px;
+  }
+}
+/* With a member's or Yuki's card open on the right as well, the conversation keeps its room:
+   the preview folds away until the window is wide enough for the three. */
+@media (min-width: 1100px) and (max-width: 1439px) {
+  .app.peek .computer-dock:not(.folded) {
+    display: none;
+  }
+}
+.computer-dock-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  min-height: 28px;
+}
+.computer-dock-status {
+  color: var(--fg2);
+  font-size: 12px;
+}
+.computer-dock-screen {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg2);
+  cursor: zoom-in;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.computer-dock-screen iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  /* the preview is only a picture: a click opens the big one */
+  pointer-events: none;
+}
+.computer-dock-placeholder {
+  color: var(--fg2);
+  font-size: 13px;
+  padding: 0 12px;
+  text-align: center;
+}
+.computer-dock-line {
+  color: var(--fg2);
+  font-size: 12px;
+}
+.computer-dock-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  writing-mode: vertical-rl;
+  padding: 10px 6px;
+  border-radius: 6px;
+  color: var(--fg2);
+  font-size: 13px;
+}
+.computer-dock-tab:hover {
+  background: var(--bg2);
+}
+.computer-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.computer-viewer-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+}
+.computer-viewer-box {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(96vw, 1680px);
+  height: min(94vh, 1100px);
+  background: var(--bg);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.35);
+}
+.computer-viewer-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+.computer-viewer-head .member-run {
+  align-self: center;
+}
+.computer-viewer-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #111;
+  container-type: size;
+}
+.computer-viewer-stage .computer-dock-placeholder {
+  color: rgba(255, 255, 255, 0.7);
+}
+/* the desktop is 16:10: as large as the stage allows, never cut */
+.computer-viewer-screen {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  width: min(100cqw, 160cqh);
+}
+.computer-viewer-screen iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.computer-viewer-foot {
+  min-height: 30px;
+  padding: 6px 12px;
+  color: var(--fg2);
+  font-size: 12px;
+}
+@media (max-width: 767px) {
+  .computer-viewer-box {
+    width: 100vw;
+    height: 100dvh;
+    border-radius: 0;
+  }
+}

@@ -19,6 +19,7 @@ import { Ellipsis, Menu, Monitor, PanelRight } from "lucide-react";
 import { useSyncExternalStore } from "react";
 import { useTenancyUi } from "../tenancy-ui";
 import { cx } from "../ui/primitives";
+import { useContainerComputer } from "./container-computer-state";
 import { openMemberComputer } from "./member-computer";
 import { useNarrow } from "./narrow";
 import { setFrame, useFrame } from "./state";
@@ -31,6 +32,7 @@ export function Topbar() {
   const ui = useTenancyUi();
   const { project, current } = useProjects();
   const data = useShellData();
+  const computer = useContainerComputer();
   const { accountById } = data;
   const memberName = frame.peek ? (accountById.get(frame.peek)?.name ?? "") : "";
   const narrow = useNarrow();
@@ -155,6 +157,19 @@ export function Topbar() {
           ) : null}
         </>
       )}
+      {/* v1.7.3: the members' computer, opened big (the open core's container computer). */}
+      {computer?.ours && computer.configured && !frame.platform ? (
+        <button
+          type="button"
+          className={cx("tb-btn", computer.viewerOpen && "on")}
+          title={t.containerComputer.enlarge}
+          aria-label={t.containerComputer.enlarge}
+          aria-pressed={computer.viewerOpen}
+          onClick={() => (computer.viewerOpen ? computer.closeViewer() : void computer.look())}
+        >
+          <Monitor size={15} />
+        </button>
+      ) : null}
       <button
         type="button"
         className="tb-btn"

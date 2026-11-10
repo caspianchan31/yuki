@@ -312,6 +312,14 @@ export async function createApp(
       onError: (c) => c.json({ error: "Request is too large; PDFs must be 10 MB or smaller" }, 413),
     }),
   );
+  // The members' computer's live view: its ticket in the path is the check (desktop-live.ts). It
+  // comes before the rate limit: the viewer page loads a few dozen script files with no session,
+  // so counted per address, the preview beside the chat and the big picture opened together (and
+  // the reload of taking over) ran out the budget and the picture never connected (v1.7.3).
+  app.route(
+    "/api/computer/live",
+    desktopLiveRoutes(() => desktopOf(computer)),
+  );
   // Counted per signed-in user (every tab and device of one person share a
   // budget; members of a space behind one office address do not), per signed link, else per
   // client address (sign-in, invite links, a session that does not check out).
@@ -457,11 +465,6 @@ export async function createApp(
   const core = { db, config, auth, agent, computer, environments, credentials, credentialStore };
   await tenancy.attach(core);
   tenancy.mountPublic(app, core);
-  // The members' computer's live view: its ticket in the path is the check (desktop-live.ts).
-  app.route(
-    "/api/computer/live",
-    desktopLiveRoutes(() => desktopOf(computer)),
-  );
   // What listens to the HTTP server's websocket upgrades (see attachServer below).
   const upgradeHooks: ((server: UpgradeServer) => void)[] = [];
   upgradeHooks.push((server) => attachDesktopLive(server, () => desktopOf(computer), origins));
