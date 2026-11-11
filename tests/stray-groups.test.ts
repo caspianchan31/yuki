@@ -21,7 +21,6 @@ function projectsOf(h: Harness) {
     {} as BrowserService,
     h.agent,
   );
-  h.agent.createProject = (owner, name) => projects.create(owner, { name });
   return projects;
 }
 async function chat(h: Harness, text: string) {
@@ -58,7 +57,7 @@ test("a request for no project, said as the word null, makes no group", async (t
   await chat(h, "把「晨报」存成技能：每天整理一页");
   assert.deepEqual(await projects.list(h.owner), []);
   assert.deepEqual(await h.db.list<Project>(h.owner, "projects"), []);
-  // The hall's create_project is refused the same way, and so is the API.
+  // The person's own 新建群 refuses it the same way (the hall makes no group since v1.7.6).
   await assert.rejects(() => projects.create(h.owner, { name: "null" }), { status: 422 });
   await assert.rejects(() => projects.create(h.owner, { name: " None " }), { status: 422 });
 });

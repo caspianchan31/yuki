@@ -25,7 +25,7 @@ import { useProjects } from "@m/projects-state";
 import { normalizeAccountOperating } from "@m/shell/accounts/operating-core";
 import { latestNeedReportIds } from "@m/shell/chat/core";
 import { scrollIntent } from "@m/shell/chat/follow-latest";
-import { type GroupTurn, inGroupChat } from "@m/shell/chat/group-core";
+import { type GroupTurn, inGroupChat, missingGroupRef } from "@m/shell/chat/group-core";
 import { routineCreatedLine } from "@m/shell/chat/handoff";
 import {
   desktopForOpenMember,
@@ -33,7 +33,7 @@ import {
   shouldPinMemberDesktop,
 } from "@m/shell/chat/member-desktop";
 import { memberConversationId } from "@m/shell/chat/member-thread";
-import { splitToolCalls } from "@m/shell/chat/reply-core";
+import { isResultTool, splitToolCalls } from "@m/shell/chat/reply-core";
 import type { SupersededSegment } from "@m/shell/chat/superseded-core";
 import { useShellData } from "@m/shell/data";
 import {
@@ -47,6 +47,7 @@ import {
   queuedClockWake,
   usageDayLabel,
 } from "@m/shell/members/member-detail";
+import { needReportLabels } from "@m/shell/model";
 import { phaseWords, t } from "@m/shell/strings";
 import { ThreadEnvironmentProvider, useThreadEnvironment } from "@m/thread-environment";
 import type { Selection } from "@m/threads-state";
@@ -217,8 +218,13 @@ function Conversation({
   const memberName = frame.peek ? (accountById.get(frame.peek)?.name ?? "这个成员") : null;
   const openNeeds = needsForMember(needs, frame.peek, needEnvironment);
   // Questions, reviews and handoffs stay as their own cards. The line under a routine is a result.
-  const routineReports = chat.grouped.flatMap((item) =>
-    item.type === "reports" ? item.reports.filter((report) => !isHandoffNotice(report)) : [],
+  // From the member's reports, not from what is drawn: a card waiting for an older page (v1.7.6)
+  // still gives its routine its result.
+  const routineReports = (chat.showReports ? chat.reports : []).filter(
+    (report) =>
+      !isHandoffNotice(report) &&
+      !report.notice &&
+      !(report.kind === "outcome" && needReportLabels.includes(report.title)),
   );
   const member = frame.peek ? accountById.get(frame.peek) : undefined;
   const [goalText, setGoalText] = useState("");
@@ -753,7 +759,12 @@ function MessageBlock({
   // what it did, and its steps fold into one line (open while the reply is still under way).
   const { result, steps } = user
     ? { result: toolCalls, steps: [] as typeof toolCalls }
-    : splitToolCalls(toolCalls);
+    : splitToolCalls(
+        toolCalls,
+        (call) =>
+          isResultTool(call.function.name) ||
+          (call.function.name === "route_request" && missingGroupRef(resultOf(call.id)) !== null),
+      );
   const live =
     chat.replying && messages.filter((item) => item.role === "assistant").at(-1)?.id === message.id;
   const tools = toolCalls.length ? (

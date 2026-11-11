@@ -3161,6 +3161,14 @@ const zh = {
     /** The hall made a project a request named, and handed a task to a project. */
     projectMade: (name: string) => `建好了群「${name}」`,
     projectThere: (name: string) => `群「${name}」已经有了`,
+    /** v1.7.6: a request routed to a group that does not exist: nothing is made unless the person
+     * makes it here. */
+    noGroup: (name: string) => `还没有叫「${name}」的群，所以这件事没有交出去。要建吗？`,
+    makeGroup: (name: string) => `建群「${name}」`,
+    makingGroup: "正在建群…",
+    madeNote: (name: string) => `（已建好群「${name}」）`,
+    noteFailed: (why: string) => `群建好了，但没能告诉对话：${why}`,
+    tellAgain: "再告诉对话",
     toProject: (name: string) => `去 ${name} ›`,
     /** Whose a request is, and why. */
     routedTo: (name: string, why: string) => `归 ${name}：${why}`,

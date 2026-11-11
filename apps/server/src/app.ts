@@ -189,8 +189,6 @@ export async function createApp(
     agent.accountMoved(from, to, environmentId, sites, withdrawn);
   // Partitions of the workspace; the chat runtime resolves owners through it.
   const projects = new ProjectService(db, config, computer, environments, browser, agent);
-  // The 营销总群's assistant makes the project a request names when there is none.
-  agent.createProject = (owner, name) => projects.create(owner, { name });
   auth.spaceKeyOf = (userId) => tenancy.defaultKey(userId);
   // Conversations live in this server's database; the
   // CopilotKit runtime runs in SSE mode on its own runner. The owner of a chat request is

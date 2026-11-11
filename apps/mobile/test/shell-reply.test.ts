@@ -38,3 +38,20 @@ test("a reply's result cards stay; reading, searching, the desktop and status re
   // A tool the client does not know is a step: it never stands as the reply's result.
   assert.equal(isResultTool("something_new"), false);
 });
+
+test("v1.7.6: a call can be made a result card by itself (a routing that found no such group)", () => {
+  const calls = [
+    { id: "r", function: { name: "route_request" } },
+    { id: "b", function: { name: "browse_web" } },
+  ];
+  assert.deepEqual(splitToolCalls(calls).result, []);
+  const { result, steps } = splitToolCalls(calls, (call) => call.id === "r");
+  assert.deepEqual(
+    result.map((call) => call.id),
+    ["r"],
+  );
+  assert.deepEqual(
+    steps.map((call) => call.id),
+    ["b"],
+  );
+});

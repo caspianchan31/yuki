@@ -81,7 +81,7 @@ import {
   supersededPlacement,
 } from "./shell/chat/superseded-core";
 import { chatTurn } from "./shell/chat/turn";
-import { messageMoments, normalizeTurns, type TurnTime } from "./shell/chat/turn-time";
+import { messageMoments, normalizeTurns, type TurnTime, turnStarts } from "./shell/chat/turn-time";
 import { useShellData } from "./shell/data";
 import {
   capReportTasks,
@@ -770,6 +770,9 @@ export function useChatSession({
     () => (turnsHere ? messageMoments(messages, turnsHere.turns) : null),
     [turnsHere, messages],
   );
+  // v1.7.6: the start of every turn of the thread, loaded or not, so a report whose message is on
+  // an older page still finds its place (mergeReports).
+  const starts = useMemo(() => turnStarts(turnsHere?.turns ?? null), [turnsHere]);
   // v1.6 聊天基础动作: the stretches the person went back on (folded in the chat) and the
   // verdicts given on replies, read from the server once the conversation is loaded and again
   // after each turn (and after going back, `backVersion`).
@@ -949,7 +952,15 @@ export function useChatSession({
     return reportsForMember(base, memberId, environmentOf);
   }, [byTask, conversationOnly, reports, hall, memberId, memberThreadId, roster, shellData.tasks]);
   const shownReports = showReports ? placed : [];
-  const transcript = mergeReports(visible, shownReports);
+  // v1.7.6: a report whose message is not loaded goes by its time, never to the bottom. Without
+  // rich threads the whole conversation is loaded (no older pages).
+  const transcript = mergeReports(visible, shownReports, {
+    moments,
+    starts,
+    // A loaded conversation with no message has nothing older (its probe never runs).
+    older:
+      !richThreads || (loaded && !syncing && !firstMessageId) ? false : (olderHere?.more ?? null),
+  });
   // Consecutive reports of one task merge into one group; a stop
   // report (a question, a review, a failure) stands alone as a need card.
   const grouped = groupTranscript(transcript);

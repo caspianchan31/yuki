@@ -27,6 +27,7 @@ import type { ModelUsage } from "./model-usage.ts";
 import { prunePageTextsMiddleware } from "./prune-page-texts.ts";
 import { defaultKeepScreenshots, pruneScreenshotsMiddleware } from "./prune-screenshots.ts";
 import { toolImagesMiddleware } from "./tool-images.ts";
+import { catchToolSlips } from "./tool-slip.ts";
 
 /** Whether `spec` goes out over the Chat Completions wire
  * format (`openai/...` with OPENAI_CHAT_COMPLETIONS=true), which cannot carry images in a tool
@@ -283,6 +284,9 @@ export function tanstackAgent(options: {
   middleware?: ChatMiddleware[];
   // v1.2: the token usage of each model turn of a run, with the model it was on.
   onUsage?: (usage: ModelUsage & { model: string }) => void;
+  /** A turn that says something was started or awaits review with no tool called in the reply
+   * is asked again (tool-slip.ts); chat replies. A call written as text is caught in every run. */
+  checkClaims?: boolean;
 }) {
   const agent = new BuiltInAgent({
     type: "tanstack",
@@ -310,8 +314,9 @@ export function tanstackAgent(options: {
       const modelAdapter = adapter(options.model);
       if (onUsage) withUsage(modelAdapter, (usage) => onUsage({ ...usage, model: options.model }));
       return chat({
-        // A turn with reasoning only is asked again.
-        adapter: askAgain(modelAdapter),
+        // A turn with reasoning only is asked again; a call written as text, or words that
+        // say something was started with no call, are caught and asked again once.
+        adapter: catchToolSlips(askAgain(modelAdapter), { claims: options.checkClaims }),
         messages: converted.messages,
         systemPrompts: system ? [system] : [],
         tools: [

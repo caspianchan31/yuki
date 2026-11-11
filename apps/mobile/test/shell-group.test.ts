@@ -8,6 +8,7 @@ import {
   inGroupChat,
   itemSpeaker,
   memberVoice,
+  missingGroupRef,
   projectRef,
   type SpeakerLookup,
 } from "../../../packages/client/src/shell/chat/group-core.ts";
@@ -129,4 +130,13 @@ test("a member's own chat is not the group, even in the hall", () => {
   assert.equal(inGroupChat({ hall: false, pro: false, memberOpen: false }), true);
   assert.equal(inGroupChat({ hall: true, pro: true, memberOpen: true }), true);
   assert.equal(inGroupChat({ hall: false, pro: true, memberOpen: false }), false);
+});
+
+test("v1.7.6 missingGroupRef: a routing to a group that does not exist, nothing else", () => {
+  assert.equal(missingGroupRef(JSON.stringify({ missingGroup: "acme", groups: [] })), "acme");
+  assert.equal(missingGroupRef({ missingGroup: "  Yuki  " }), "Yuki");
+  assert.equal(missingGroupRef({ project: { id: "p1", name: "alpha" }, created: false }), null);
+  assert.equal(missingGroupRef({ forNoProject: true }), null);
+  assert.equal(missingGroupRef({ missingGroup: "" }), null);
+  assert.equal(missingGroupRef("not json"), null);
 });

@@ -32,6 +32,16 @@ export function normalizeTurns(payload: unknown): TurnTime[] {
     return [{ runId: text(item.runId), at, end: text(item.end), messages }];
   });
 }
+/** v1.7.6: when the turn that brought each message of the whole thread began (ms), loaded on
+ * this device or not; a message in no turn is not in the map. */
+export function turnStarts(turns: readonly TurnTime[] | null): Map<string, number> {
+  const startOf = new Map<string, number>();
+  for (const turn of turns ?? []) {
+    const at = Date.parse(turn.at);
+    for (const id of turn.messages) if (!startOf.has(id)) startOf.set(id, at);
+  }
+  return startOf;
+}
 /**
  * When each of `messages` was said, as the start of its turn (ms): a reply shares its turn's
  * time, so nothing can stand between a question and its answer. A message the server has not
@@ -45,11 +55,7 @@ export function messageMoments(
 ): Map<string, number> {
   const out = new Map<string, number>();
   if (!turns) return out;
-  const startOf = new Map<string, number>();
-  for (const turn of turns) {
-    const at = Date.parse(turn.at);
-    for (const id of turn.messages) if (!startOf.has(id)) startOf.set(id, at);
-  }
+  const startOf = turnStarts(turns);
   let last = Number.NEGATIVE_INFINITY;
   for (const message of messages) {
     const known = startOf.get(message.id);

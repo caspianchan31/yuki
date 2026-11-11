@@ -425,26 +425,69 @@ export type TranscriptItem<M> =
   | { type: "message"; key: string; message: M }
   | { type: "report"; key: string; report: ChatReport };
 
+/** v1.7.6: what places a report whose message is not among the loaded ones (a conversation
+ * opens with its newest turns only; older pages load on scrolling up). */
+export interface ReportPlacement {
+  /** When each loaded message was said (chat-state `moments`); null until the turn times are read. */
+  moments: ReadonlyMap<string, number> | null;
+  /** The turn start of every message of the thread, loaded or not (turnStarts). */
+  starts: ReadonlyMap<string, number> | null;
+  /** Older messages remain to be loaded: true, false, or null while unknown. */
+  older: boolean | null;
+}
+
 /**
  * The transcript with reports placed in it. A report seen before goes right after the message
  * it was first seen after ("" = before the first message), in creation order with any other
- * report anchored there; a report not seen yet, or whose message is no longer in the
- * transcript, goes at the end in creation order.
+ * report anchored there; a report not seen yet goes at the end in creation order.
+ *
+ * Without `placement`, a seen report whose message is not in the transcript goes at the end too.
+ * With it (v1.7.6), such a report goes where its time puts it among the loaded messages: the start
+ * of its message's turn, else when it was first seen (a message in another conversation, or a
+ * stretch gone back on). Older than every loaded message, it waits for the older page that holds
+ * its time, and stands at the top once nothing older is left. Until the turn times are read it is
+ * not drawn, so it never shows at the bottom first and then jumps.
  */
 export function mergeReports<M extends { id: string }>(
   messages: M[],
   reports: ChatReport[],
+  placement?: ReportPlacement,
 ): TranscriptItem<M>[] {
   const ids = new Set(messages.map((message) => message.id));
   const anchored = new Map<string, ChatReport[]>();
   const tail: ChatReport[] = [];
+  const put = (slot: string, report: ChatReport) => {
+    const list = anchored.get(slot) ?? [];
+    list.push(report);
+    anchored.set(slot, list);
+  };
+  // "" = before the first message; a message id = right after it; undefined = not drawn yet.
+  const slotOf = (report: ChatReport, at: ReportPlacement): string | undefined => {
+    const top = at.older === false ? "" : undefined;
+    if (report.afterMessageId === "") return top;
+    if (!at.moments) return undefined;
+    const when =
+      (report.afterMessageId ? at.starts?.get(report.afterMessageId) : undefined) ??
+      Date.parse(report.readAt ?? report.createdAt);
+    if (Number.isNaN(when)) return undefined;
+    let after: string | undefined;
+    for (const message of messages) {
+      if ((at.moments.get(message.id) ?? Number.NEGATIVE_INFINITY) > when) break;
+      after = message.id;
+    }
+    return after ?? top;
+  };
   for (const report of [...reports].sort(byCreated)) {
     const anchor = report.afterMessageId;
-    if (anchor === "" || (anchor && ids.has(anchor))) {
-      const list = anchored.get(anchor) ?? [];
-      list.push(report);
-      anchored.set(anchor, list);
-    } else tail.push(report);
+    if (anchor && ids.has(anchor)) put(anchor, report);
+    else if (!placement) {
+      if (anchor === "") put("", report);
+      else tail.push(report);
+    } else if (anchor == null && !report.readAt) tail.push(report);
+    else {
+      const slot = slotOf(report, placement);
+      if (slot !== undefined) put(slot, report);
+    }
   }
   const reportItem = (report: ChatReport): TranscriptItem<M> => ({
     type: "report",

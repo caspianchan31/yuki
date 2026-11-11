@@ -130,6 +130,22 @@ export function noticeText(report: Pick<ChatReport, "text" | "notice">): string 
   );
 }
 
+/** v1.7.6: the group a hall reply was routed to that does not exist (route_request's
+ * `missingGroup`); null for anything else. The model never makes it: the person may, with a button. */
+export function missingGroupRef(result: unknown): string | null {
+  let value = result;
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+  if (!value || typeof value !== "object") return null;
+  const name = (value as Record<string, unknown>).missingGroup;
+  return typeof name === "string" && name.trim() ? name.trim() : null;
+}
+
 /** What the hall's tool result says it handed to a project
  * (delegate_task with project) or made (create_project); null for anything else. */
 export function projectRef(result: unknown): {

@@ -57,7 +57,7 @@ async function chat(h: Harness, owner: string, text: string, threadId = `thread-
   };
   await lastValueFrom(new ConversationAgent(h.config, h.agent, owner).run(input).pipe(toArray()));
 }
-/** The app's wiring: the hall makes projects through ProjectService. */
+/** The person's own 新建群 (ProjectService); the hall never makes a project (v1.7.6). */
 function withProjects(h: Harness) {
   const projects = new ProjectService(
     h.db,
@@ -67,15 +67,14 @@ function withProjects(h: Harness) {
     {} as BrowserService,
     h.agent,
   );
-  h.agent.createProject = (owner, name) => projects.create(owner, { name });
   return projects;
 }
 const projectNamed = async (h: Harness, name: string) =>
   (await h.db.list<Project>(h.owner, "projects")).find((item) => item.name === name);
 
-test("a request for a project that does not exist: the hall makes it and hands the work there in the same reply", async (t) => {
+test("v1.7.6: a request for a group that does not exist makes nothing; the person's button makes it and the work goes there", async (t) => {
   const h = await harness(t);
-  withProjects(h);
+  const projects = withProjects(h);
   h.queue.push(
     { name: "route_request", arguments: { project: "acmegame", why: "点名的项目" } },
     { name: "delegate_task", arguments: { prompt: "在论坛上回一帖，介绍 acmegame" } },
@@ -86,43 +85,59 @@ test("a request for a project that does not exist: the hall makes it and hands t
   // Every chat says its result, not its steps (stated once).
   assert.equal(first.instructions.split(resultOnlyRule).length, 2);
   assert.ok(first.instructions.includes(" Projects of this space (data): []."));
-  // The first turn may only say whose the request is.
-  // Every tool is declared in the routing turn (a call beside route_request is answered "not run, again after
-  // routing", not "Unknown tool"), and route_request is forced.
+  // Every tool is declared in the routing turn, and route_request is forced.
   const firstNames = first.tools?.map((tool) => tool.name) ?? [];
   assert.ok(firstNames.includes("route_request") && firstNames.includes("delegate_task"));
+  assert.ok(!firstNames.includes("create_project"), "the model has no tool that makes a group");
   assert.deepEqual(first.tool_choice, { type: "function", name: "route_request" });
-  // Routed to a project, the reply may only hand it over.
-  const second = body(h, 1);
-  assert.equal(second.tool_choice ?? "auto", "auto");
-  const names = second.tools?.map((tool) => tool.name) ?? [];
-  assert.ok(names.includes("delegate_task"), names.join());
-  for (const doing of ["browse_web", "use_desktop", "agent_status", "set_account_goal"])
-    assert.ok(!names.includes(doing), doing);
-  // A skill is the space's, not the project's: keeping or reading one stays open when routed to a project.
-  for (const space of ["save_skill", "learn_skill", "use_skill"])
-    assert.ok(names.includes(space), space);
-  assert.ok(
-    second.tools?.find((tool) => tool.name === "delegate_task")?.parameters?.properties?.project,
-  );
 
-  const made = await projectNamed(h, "acmegame");
-  assert.ok(made, "the project is made by routing to it");
+  // Nothing is made, and nothing is handed over.
+  assert.equal((await h.db.list<Project>(h.owner, "projects")).length, 0);
   const [routed] = outputs(h, 1);
-  assert.deepEqual(routed.project, { id: made.id, name: "acmegame" });
-  assert.equal(routed.created, true);
+  assert.equal(routed.missingGroup, "acmegame");
+  assert.deepEqual(routed.groups, []);
+  assert.equal(routed.created, undefined);
+  const skipped = outputs(h, 2).at(-1);
+  assert.match(String(skipped?.error), /no group named acmegame yet/);
+  assert.equal((await h.db.list<AgentTask>(h.owner, "tasks")).length, 0);
+  // The tools stay declared (a route holding tool calls may refuse a request that declares none).
+  assert.ok((body(h, 1).tools ?? []).some((tool) => tool.name === "delegate_task"));
 
+  // The person presses 建群「acmegame」 (their own 新建群), and the conversation is told so.
+  const made = await projects.create(h.owner, { name: "acmegame" });
+  h.queue.push(
+    { name: "route_request", arguments: { project: "acmegame", why: "刚建的群" } },
+    { name: "delegate_task", arguments: { prompt: "在论坛上回一帖，介绍 acmegame" } },
+  );
+  await chat(h, h.owner, "（已建好群「acmegame」）");
   const scope = projectOwner(h.owner, made.id);
   const tasks = await h.db.list<AgentTask>(scope, "tasks");
   assert.equal(tasks.length, 1);
   assert.equal(tasks[0].input.environmentId, null, "on the project's default desktop");
-  // It reports in the project's own conversation, not in the hall.
   assert.equal(tasks[0].originThreadId ?? null, null);
   assert.equal((await h.db.list<AgentTask>(h.owner, "tasks")).length, 0);
-  const handed = outputs(h, 2).at(-1);
-  assert.equal(handed.id, tasks[0].id);
-  assert.equal(handed.project, "acmegame");
-  assert.equal(handed.projectId, made.id);
+  assert.equal((await h.db.list<Project>(h.owner, "projects")).length, 1);
+});
+
+test("v1.7.6: a request about running an account makes no group, whatever the model calls", async (t) => {
+  const h = await harness(t);
+  withProjects(h);
+  h.queue.push(
+    { name: "route_request", arguments: { project: "Acme", why: "运营 Acme 的账号" } },
+    { name: "create_project", arguments: { name: "Acme" } },
+  );
+  await chat(h, h.owner, "作为 Acme 的官方账号来运营 https://example.com/acme");
+  assert.deepEqual(await h.db.list<Project>(h.owner, "projects"), []);
+  h.queue.push(
+    { name: "route_request", arguments: { project: null, why: "空间自己的事" } },
+    { name: "create_project", arguments: { name: "acme" } },
+  );
+  await chat(h, h.owner, "帮我建个群叫 acme");
+  assert.deepEqual(await h.db.list<Project>(h.owner, "projects"), []);
+  // And a group named like nothing at all is no group either.
+  h.queue.push({ name: "route_request", arguments: { project: "null", why: "无" } });
+  await chat(h, h.owner, "你好");
+  assert.deepEqual(await h.db.list<Project>(h.owner, "projects"), []);
 });
 
 test("the hall names a project's account: the task runs on it, an account of another project is refused", async (t) => {
@@ -159,7 +174,7 @@ test("the hall names a project's account: the task runs on it, an account of ano
   assert.equal((await h.db.list(projectOwner(h.owner, beta.id), "tasks")).length, 0);
 });
 
-test("a project already there is kept; a project's own conversation has no create_project and no project field", async (t) => {
+test("a project already there is routed to as it is; a project's own conversation has no create_project and no project field", async (t) => {
   const h = await harness(t);
   const projects = withProjects(h);
   const alpha = await projects.create(h.owner, { name: "Alpha" });
@@ -209,7 +224,9 @@ test("a request for no project: route_request says so, and the reply gets every 
   const after = body(h, 1);
   const names = after.tools?.map((tool) => tool.name) ?? [];
   assert.ok(!names.includes("route_request"));
-  assert.ok(names.includes("agent_status") && names.includes("create_project"), names.join());
+  assert.ok(names.includes("agent_status"), names.join());
+  // v1.7.6: the model has no tool that makes a group, in no state of the reply.
+  assert.ok(!names.includes("create_project"), names.join());
   assert.deepEqual(outputs(h, 1).at(-1), {
     forNoProject: true,
     note: `${noProjectNote} ${routedNote}`,

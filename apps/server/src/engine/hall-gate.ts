@@ -1,7 +1,8 @@
 // every reply in the 营销总群 first says whose the request is, and the server holds it to that.
 // The first model turn may only call route_request (forced by tool_choice); a request routed to a
-// project leaves the reply only the tools that hand it over (and make the project); one for no
-// project gets every tool. The hall's duty is fixed by what it can call, not by its words.
+// project leaves the reply only the tools that hand it over; one for no project gets every tool.
+// v1.7.6: a project that does not exist is never made by the model: the reply only says so, and the
+// person makes the group with the button under it (the 新建群 path), or not. The hall's duty is fixed by what it can call, not by its words.
 import { type BaseEvent, EventType } from "@ag-ui/core";
 import type { ChatMiddleware, ChatMiddlewareConfig } from "@tanstack/ai";
 import { Observable } from "rxjs";
@@ -30,7 +31,7 @@ export const routeRequestSchema = z.object({
     .max(80)
     .nullable()
     .describe(
-      "The project whose work this is, by name: the one named or @-ed, or, when none is, the one you judge it belongs to (a name not among the projects makes it); null only when it is for no project",
+      "The project whose work this is, by name: the one named or @-ed, or, when none is, the one among the projects you judge it belongs to; a name not among the projects is never made by you (the person gets a button to make that group); null only when it is for no project",
     ),
   why: z
     .string()
@@ -50,7 +51,6 @@ export const routeRequestSchema = z.object({
  * is by delegate_task. */
 export const handOverTools = new Set([
   "route_request",
-  "create_project",
   "delegate_task",
   "create_routine",
   "save_skill",
@@ -64,17 +64,34 @@ export const handOverTools = new Set([
  * that waits for the person (it needs no project's task). */
 export const spaceOwnTool = (name: string) => handOverTools.has(name) || name.startsWith("app_");
 
-/** Whose the reply's request is, once route_request has said so. */
+/** Whose the reply's request is, once route_request has said so. `missing`: a group by that name
+ * does not exist; nothing is made or handed over in this reply (v1.7.6). */
 export interface HallGate {
-  decided: null | { project: string } | "none";
+  decided: null | { project: string } | { missing: string } | "none";
 }
 
-/** The tool_choice that forces route_request, in the request shape of the route. */
-export function forceRoute(chatCompletions: boolean) {
+/** The project the reply's request was routed to, when it exists; null otherwise. */
+export const routedName = (gate: HallGate): string | null =>
+  gate.decided && gate.decided !== "none" && "project" in gate.decided
+    ? gate.decided.project
+    : null;
+
+/** What every call is answered while the routed group does not exist (it did not run). */
+export const missingGroupResult = (name: string) => ({
+  notRun: true,
+  error: `Not run: there is no group named ${name} yet, and nothing is made or handed over until the person makes it with the button under this reply. Say so in one short sentence and stop.`,
+});
+
+/** The tool_choice that forces route_request, in the request shape of the route (v1.7.6: the
+ * Anthropic route takes { type: "tool", name }, passed through as it is by its adapter). */
+export function forceRoute(chatCompletions: boolean, anthropic = false) {
+  if (anthropic) return { type: "tool", name: "route_request" };
   return chatCompletions
     ? { type: "function", function: { name: "route_request" } }
     : { type: "function", name: "route_request" };
 }
+/** Whether a model spec goes through the Anthropic route. */
+export const anthropicRoute = (spec: string) => /^anthropic[/:]/i.test(spec.trim());
 
 /** What a call made before the request was routed is answered (it did not run): said so, so the model
  * makes it again after route_request. `notYet` also marks the answer for `hideUnroutedCalls`. */
@@ -84,7 +101,11 @@ export const notYetResult = {
     "Not run: this reply must first say whose the request is with route_request. Call this tool again now, after it has answered.",
 };
 
-export function hallGateMiddleware(gate: HallGate, chatCompletions: boolean): ChatMiddleware {
+export function hallGateMiddleware(
+  gate: HallGate,
+  chatCompletions: boolean,
+  anthropic = false,
+): ChatMiddleware {
   // The tools as the reply was given them: what one iteration returns is the next one's config.
   let all: ChatMiddlewareConfig["tools"] | null = null;
   return {
@@ -99,7 +120,7 @@ export function hallGateMiddleware(gate: HallGate, chatCompletions: boolean): Ch
       if (gate.decided === null)
         return {
           tools,
-          modelOptions: { ...options, tool_choice: forceRoute(chatCompletions) },
+          modelOptions: { ...options, tool_choice: forceRoute(chatCompletions, anthropic) },
         };
       if (gate.decided === "none")
         return {
@@ -112,6 +133,11 @@ export function hallGateMiddleware(gate: HallGate, chatCompletions: boolean): Ch
       };
     },
     onBeforeToolCall: (_ctx, call) => {
+      // The group does not exist: nothing runs for the rest of the reply, a second routing
+      // neither (the tools stay declared: a route that holds tool calls in the conversation may
+      // refuse a request that declares none).
+      if (gate.decided && gate.decided !== "none" && "missing" in gate.decided)
+        return { type: "skip", result: missingGroupResult(gate.decided.missing) };
       if (call.toolName === "route_request") return;
       if (gate.decided === null) return { type: "skip", result: notYetResult };
       // Declared in the routing turn, but a reply routed to a project may only hand the work over.
@@ -146,8 +172,9 @@ export function hideUnroutedCalls(
         const callId = id(event);
         if (event.type === EventType.TOOL_CALL_START && callId) {
           const name = (event as { toolCallName?: string }).toolCallName;
-          if (name === "route_request" || gate.decided === null) {
-            held.set(callId, { events: [event], early: name !== "route_request" });
+          const missing = !!gate.decided && gate.decided !== "none" && "missing" in gate.decided;
+          if (name === "route_request" || gate.decided === null || missing) {
+            held.set(callId, { events: [event], early: name !== "route_request" || missing });
             return;
           }
         }
@@ -162,7 +189,7 @@ export function hideUnroutedCalls(
         const content = String((event as { content?: unknown }).content ?? "");
         if (
           waiting.early
-            ? /Unknown tool|"notYet":\s*true/.test(content)
+            ? /Unknown tool|"notYet":\s*true|"notRun":\s*true/.test(content)
             : /"forNoProject":\s*true/.test(content)
         )
           return;

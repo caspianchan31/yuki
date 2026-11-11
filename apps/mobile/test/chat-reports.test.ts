@@ -267,6 +267,152 @@ test("a report goes after the message it was first seen after; unseen ones go la
   assert.equal(new Set(keys).size, keys.length, "keys are unique");
 });
 
+// v1.7.6: a conversation opens with its newest turns only. A report seen after a message on an
+// older page used to fall to the bottom under a stale day line; now it goes by its time.
+test("a seen report whose message is on an older page goes by its time, never to the bottom", () => {
+  const T = (minute: number) => Date.UTC(2026, 10, 7, 12, minute);
+  // The whole thread: turns at minutes 1..4 (m1/a1 … m4/a4); this device has loaded turns 3 and 4.
+  const starts = new Map([
+    ["m1", T(1)],
+    ["a1", T(1)],
+    ["m2", T(2)],
+    ["a2", T(2)],
+    ["m3", T(3)],
+    ["a3", T(3)],
+    ["m4", T(4)],
+    ["a4", T(4)],
+  ]);
+  const loaded = [{ id: "m3" }, { id: "a3" }, { id: "m4" }, { id: "a4" }];
+  const moments = new Map(loaded.map((m) => [m.id, starts.get(m.id) ?? 0]));
+  const iso = (minute: number) => new Date(T(minute)).toISOString();
+  const onOlderPage = report("old", iso(2), { afterMessageId: "a1", readAt: iso(2) });
+  const betweenTurns = report("mid", iso(3), {
+    afterMessageId: "a2-x",
+    readAt: new Date(T(3) + 30_000).toISOString(),
+  });
+  const fresh = report("new", iso(5));
+  const reports = [onOlderPage, betweenTurns, fresh];
+  // Older pages remain: the old card waits for its page; the other by its time; the unseen one last.
+  assert.deepEqual(order(mergeReports(loaded, reports, { moments, starts, older: true })), [
+    "m3",
+    "a3",
+    "R:mid",
+    "m4",
+    "a4",
+    "R:new",
+  ]);
+  // Nothing older is left: the old card stands at the top.
+  assert.deepEqual(order(mergeReports(loaded, reports, { moments, starts, older: false })), [
+    "R:old",
+    "m3",
+    "a3",
+    "R:mid",
+    "m4",
+    "a4",
+    "R:new",
+  ]);
+  // Once its page is loaded it is right after its own turn (a1), before the next question.
+  const all = [{ id: "m1" }, { id: "a1" }, { id: "m2" }, { id: "a2" }, ...loaded];
+  const allMoments = new Map(all.map((m) => [m.id, starts.get(m.id) ?? 0]));
+  assert.deepEqual(
+    order(mergeReports(all, reports, { moments: allMoments, starts, older: false })),
+    ["m1", "a1", "R:old", "m2", "a2", "m3", "a3", "R:mid", "m4", "a4", "R:new"],
+  );
+});
+
+test("a card's place by time: its message's turn, else when first seen; never inside a turn", () => {
+  const T = (minute: number) => Date.UTC(2026, 10, 7, 12, minute);
+  const loaded = [{ id: "u3" }, { id: "a3" }, { id: "u4" }, { id: "a4" }];
+  const moments = new Map([
+    ["u3", T(3)],
+    ["a3", T(3)],
+    ["u4", T(4)],
+    ["a4", T(4)],
+  ]);
+  // Its message is in the thread's turns (not loaded here): the turn start decides.
+  const starts = new Map([["x", T(3)]]);
+  const byTurn = report("turn", new Date(T(9)).toISOString(), {
+    afterMessageId: "x",
+    readAt: new Date(T(9)).toISOString(),
+  });
+  assert.deepEqual(order(mergeReports(loaded, [byTurn], { moments, starts, older: true })), [
+    "u3",
+    "a3",
+    "R:turn",
+    "u4",
+    "a4",
+  ]);
+  // Read with no anchor (or in another conversation): when it was first seen decides.
+  const read = report("read", new Date(T(1)).toISOString(), {
+    afterMessageId: null,
+    readAt: new Date(T(4) + 1000).toISOString(),
+  });
+  assert.deepEqual(order(mergeReports(loaded, [read], { moments, starts, older: true })), [
+    "u3",
+    "a3",
+    "u4",
+    "a4",
+    "R:read",
+  ]);
+  // Not seen yet: last, whatever is known.
+  for (const older of [true, false, null])
+    assert.deepEqual(
+      order(
+        mergeReports(loaded, [report("unseen", new Date(T(0)).toISOString())], {
+          moments,
+          starts,
+          older,
+        }),
+      ).at(-1),
+      "R:unseen",
+    );
+});
+
+test('before the turn times are read, an out-of-range card waits; "" waits for the top of the thread', () => {
+  const loaded = [{ id: "m5" }, { id: "a5" }];
+  const early = report("early", "2026-11-07T12:00:00.000Z", {
+    afterMessageId: "gone",
+    readAt: "2026-11-07T12:00:00.000Z",
+  });
+  const first = report("first", "2026-11-07T11:00:00.000Z", {
+    afterMessageId: "",
+    readAt: "2026-11-07T11:00:00.000Z",
+  });
+  assert.deepEqual(
+    order(mergeReports(loaded, [early, first], { moments: null, starts: null, older: null })),
+    ["m5", "a5"],
+  );
+  assert.deepEqual(
+    order(mergeReports(loaded, [first], { moments: null, starts: null, older: true })),
+    ["m5", "a5"],
+  );
+  assert.deepEqual(
+    order(mergeReports(loaded, [first], { moments: null, starts: null, older: false })),
+    ["R:first", "m5", "a5"],
+  );
+});
+
+test("v1.7.6: an empty conversation has nothing older: a seen card stands at the top, not gone", () => {
+  const seenFirst = report("first", "2026-11-07T11:00:00.000Z", {
+    afterMessageId: "",
+    readAt: "2026-11-07T11:00:00.000Z",
+  });
+  const seenElsewhere = report("hall", "2026-11-07T12:00:00.000Z", {
+    afterMessageId: "hall-msg",
+    readAt: "2026-11-07T12:00:00.000Z",
+  });
+  assert.deepEqual(
+    order(
+      mergeReports([], [seenFirst, seenElsewhere], {
+        moments: new Map(),
+        starts: new Map(),
+        older: false,
+      }),
+    ),
+    ["R:first", "R:hall"],
+  );
+});
+
 test("unseen reports are recorded as seen after the last message, once", () => {
   const reports = [
     report("seen", "2026-10-10T10:00:00.000Z", { readAt: "2026-10-10T10:00:05.000Z" }),

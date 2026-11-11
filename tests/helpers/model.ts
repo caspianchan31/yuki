@@ -7,8 +7,9 @@ import type { TestContext } from "node:test";
 type ModelCall = { name: string; arguments: object | string };
 const argumentsOf = (call: ModelCall) =>
   typeof call.arguments === "string" ? call.arguments : JSON.stringify(call.arguments);
-/** A reply of text alone, no tool call (fork: the email check answers in text). */
-type ModelText = { text: string };
+/** A reply of text alone, no tool call (fork: the email check answers in text). `pieces`: the
+ * Chat Completions fixture streams the text in these chunks (they join to `text`). */
+type ModelText = { text: string; pieces?: string[] };
 type Reply = ModelCall | ModelText | undefined;
 const isText = (reply: Reply): reply is ModelText => !!reply && "text" in reply;
 
@@ -279,7 +280,8 @@ export async function chatCompletionsFixture(
         })}\n\n`,
       );
     chunk({ role: "assistant" }, null);
-    if (isText(answer)) chunk({ content: answer.text }, null);
+    if (isText(answer))
+      for (const piece of answer.pieces ?? [answer.text]) chunk({ content: piece }, null);
     else if (call) {
       chunk({ content: "I'll check first." }, null);
       chunk(

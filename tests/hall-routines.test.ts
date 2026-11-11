@@ -55,7 +55,6 @@ function withProjects(h: Harness) {
     {} as BrowserService,
     h.agent,
   );
-  h.agent.createProject = (owner, name) => projects.create(owner, { name });
   return projects;
 }
 const routinesOf = async (h: Harness, owner: string) =>

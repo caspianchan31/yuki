@@ -362,9 +362,6 @@ export class AgentService {
   /** v1.5: each member's AGENTS.md, MEMORY.md and daily notes (docs/member-files.md). The core
    * keeps them on disk; createApp swaps in the hosted layer's store. */
   memberFiles: MemberFiles;
-  /** Makes a project in the space when the 营销总群's
-   * assistant is asked for work in one that does not exist (set by the app: ProjectService). */
-  createProject?: (owner: string, name: string) => Promise<{ id: string; name: string }>;
   /** Routines and their mail poll. */
   readonly routines: Routines;
   private maintenance?: ReturnType<typeof setInterval>;

@@ -23,20 +23,21 @@ import {
   taskControlWords,
   toolResultRef,
 } from "@m/shell/chat/core";
-import { type GroupTurn, noticeText, projectRef } from "@m/shell/chat/group-core";
+import { type GroupTurn, missingGroupRef, noticeText, projectRef } from "@m/shell/chat/group-core";
 import { useOpsName } from "@m/shell/chat/group-state";
 import { groupTaskLine } from "@m/shell/chat/handoff";
 import { useShellData } from "@m/shell/data";
+import { groupError, groupNameProblem } from "@m/shell/members/groups";
 import { type AccountModel, phaseActions, type TaskAction, type TaskEntry } from "@m/shell/model";
 import { phaseWords, t } from "@m/shell/strings";
 import { cardNeedsRead, cardTask, readTaskOnce, type TaskRead } from "@m/shell/task/detail-core";
 import { useWorkspace } from "@m/workspace";
-import { useContext, useEffect, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import type { ChatReport } from "../../../../packages/domain/src/agent";
 import { clockLabel } from "../../../../packages/domain/src/task-phase";
 import { peekAccount } from "../shell/state";
 import { Btn, ErrorLine, Spinner } from "../ui/primitives";
-import { InGroup } from "./context";
+import { InGroup, JevInteractionContext } from "./context";
 import { Block, LinkBtn, StatusPill, TaskAccount } from "./parts";
 import { TaskResults } from "./results";
 
@@ -231,8 +232,9 @@ export function DelegatedTaskCard({ result, loading }: { result: unknown; loadin
   );
 }
 
-/** 「归 acmegame：…」 under a hall reply routed to a project (the project
- * made for it reads as create_project's card does); nothing for a request for no project. */
+/** 「归 acmegame：…」 under a hall reply routed to a project (an older reply's project made for
+ * it reads as create_project's card does); for a group that does not exist (v1.7.6), the button
+ * that makes it; nothing for a request for no project. */
 export function RouteLine({
   args,
   result,
@@ -242,13 +244,104 @@ export function RouteLine({
   result: unknown;
   loading: boolean;
 }) {
+  const missing = loading ? null : missingGroupRef(result);
   const made = loading ? null : projectRef(result);
   const why = typeof args.why === "string" ? args.why : "";
+  if (missing) return <MakeGroupOffer name={missing} />;
   if (!made) return null;
   return (
     <div className="stack">
       {made.created ? <div>{t.group.projectMade(made.name)}</div> : null}
       <div className="hint">{t.group.routedTo(made.name, why)}</div>
+    </div>
+  );
+}
+
+/** v1.7.6: a group the hall's reply was routed to does not exist. Only the person makes it: the
+ * button goes through their own 新建群 (POST /api/projects), then tells the conversation with a
+ * fixed line so the reply that waited goes on and hands the work over. */
+function MakeGroupOffer({ name }: { name: string }) {
+  const projects = useProjects();
+  const chat = useContext(JevInteractionContext);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  // The group this card made, and why the conversation was not told (so it can be told again).
+  const [told, setTold] = useState<{ name: string; error: string } | null>(null);
+  // This card made the group (so it says 建好了, not 已经有了).
+  const [madeHere, setMadeHere] = useState(false);
+  const pressed = useRef(false);
+  const tell = (made: string) =>
+    chat
+      .send(t.group.madeNote(made))
+      .then(() => setTold(null))
+      .catch((failure: unknown) =>
+        setTold({
+          name: made,
+          error: failure instanceof Error ? failure.message : String(failure),
+        }),
+      );
+  if (told?.error)
+    return (
+      <div className="tcard">
+        <div className="stack">
+          <div>{t.group.projectMade(told.name)}</div>
+          <ErrorLine error={t.group.noteFailed(told.error)} />
+          <div className="acts-row">
+            <Btn className="sm" onClick={() => void tell(told.name)}>
+              {t.group.tellAgain}
+            </Btn>
+          </div>
+        </div>
+      </div>
+    );
+  const there = projects.projects.find((item) => item.name.toLowerCase() === name.toLowerCase());
+  if (there)
+    return (
+      <div className="stack">
+        <div className="hint">
+          {madeHere ? t.group.projectMade(there.name) : t.group.projectThere(there.name)}
+        </div>
+        <ToProject projectId={there.id} name={there.name} />
+      </div>
+    );
+  // A name the person's own 新建群 would refuse: say why, offer nothing.
+  const problem = groupNameProblem(name);
+  if (problem)
+    return (
+      <div className="tcard">
+        <div className="stack">
+          <div>{t.group.noGroup(name)}</div>
+          <div className="hint">{problem}</div>
+        </div>
+      </div>
+    );
+  const make = async () => {
+    if (pressed.current) return;
+    pressed.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      const made = await projects.create(name);
+      setMadeHere(true);
+      await tell(made.name);
+    } catch (failure) {
+      pressed.current = false;
+      setError(groupError(failure instanceof Error ? failure.message : String(failure)));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="tcard">
+      <div className="stack">
+        <div>{t.group.noGroup(name)}</div>
+        <div className="acts-row">
+          <Btn className="sm" disabled={busy} onClick={() => void make()}>
+            {busy ? t.group.makingGroup : t.group.makeGroup(name)}
+          </Btn>
+        </div>
+        <ErrorLine error={error} />
+      </div>
     </div>
   );
 }
@@ -270,7 +363,6 @@ function ToProject({ projectId, name }: { projectId: string | null; name: string
 export function ProjectToolCard({ result, loading }: { result: unknown; loading: boolean }) {
   const projects = useProjects();
   const made = loading ? null : projectRef(result);
-  const error = toolResultRef(result).error;
   const { refresh } = projects;
   const madeId = made?.id ?? null;
   useEffect(() => {
@@ -282,12 +374,9 @@ export function ProjectToolCard({ result, loading }: { result: unknown; loading:
         <Spinner label={t.tools.waiting} />
       </div>
     );
-  if (!made)
-    return (
-      <div className="tcard">
-        <ErrorLine error={error ?? ""} />
-      </div>
-    );
+  // v1.7.6: create_project is gone; only an older conversation's made project shows. A call that
+  // failed (a model copying an old one gets "Unknown tool") shows nothing.
+  if (!made) return null;
   return (
     <div className="tcard">
       <div>{made.created ? t.group.projectMade(made.name) : t.group.projectThere(made.name)}</div>

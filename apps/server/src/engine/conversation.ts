@@ -75,10 +75,12 @@ import {
 import { searchDescription, searchInputSchema, searchInstructions } from "../search.ts";
 import { currentRulesMiddleware, olderRepliesRule } from "./current-rules.ts";
 import {
+  anthropicRoute,
   type HallGate,
   hallGateMiddleware,
   hideUnroutedCalls,
   noProjectWord,
+  routedName,
   routedProject,
   routeRequestSchema,
 } from "./hall-gate.ts";
@@ -163,15 +165,11 @@ export const routedNote =
 export const noProjectNote =
   "It is for no project: do it yourself now. Say nothing to the person about projects, groups or whose it is; just answer or do it.";
 export const hallChatLineFor = (computer: boolean) =>
-  ` This conversation is the space's own group chat and you are its assistant, Yuki: the person gives work for any project here, by naming the project or @-ing it, its 运营专员 or one of its accounts. Finish such a request in this reply. First say whose it is with route_request: the project they name or @, or, when they name none, the one you judge it belongs to by what each project is for and the accounts' personas (a project not among the projects below is made); null only for what is for no project. Never ask them whom to give it. Work for a project is that project's and never yours to do here, however small: hand it over in this reply, with delegate_task (it runs and reports there, on one of its accounts or, when none fits, ${computer ? "its default desktop" : "as the project's own"}), and say in one sentence why it went there. A page they point at, read yourself, and so are the space's own matters, which are for no project (route_request null): saving a skill, calling a connected app's tool, a question about the space, a setting, and a routine for the person themself (to greet, remind or tell them something here at a time, on days or on new mail: create_routine here, it is yours and reports here); never hand those to a project, even one named like you. Ask at most one question, only for what no tool here can tell you, and never hand back part of the work for them to do.`;
+  ` This conversation is the space's own group chat and you are its assistant, Yuki: the person gives work for any project here, by naming the project or @-ing it, its 运营专员 or one of its accounts. Finish such a request in this reply. First say whose it is with route_request: the project they name or @, or, when they name none, the one you judge it belongs to by what each project is for and the accounts' personas (only one among the projects below: you never make a group; a name not among them makes nothing, and route_request then gives the person a button to make it); null only for what is for no project. Never ask them whom to give it. Work for a project is that project's and never yours to do here, however small: hand it over in this reply, with delegate_task (it runs and reports there, on one of its accounts or, when none fits, ${computer ? "its default desktop" : "as the project's own"}), and say in one sentence why it went there. A page they point at, read yourself, and so are the space's own matters, which are for no project (route_request null): saving a skill, calling a connected app's tool, a question about the space, a setting, and a routine for the person themself (to greet, remind or tell them something here at a time, on days or on new mail: create_routine here, it is yours and reports here); never hand those to a project, even one named like you. Ask at most one question, only for what no tool here can tell you, and never hand back part of the work for them to do.`;
 export const hallChatLine = hallChatLineFor(true);
 /** The space's projects and their accounts, as data for the hall's assistant. */
 export const hallProjectsLine = (projects: { name: string; accounts: string[] }[]) =>
   ` Projects of this space (data): ${JSON.stringify(projects)}.`;
-/** Create_project's words. */
-export const createProjectSchema = z.object({
-  name: z.string().trim().min(1).max(80).describe("The project's name, as the person says it"),
-});
 /** Delegate_task in the hall also takes the project the task is for. */
 export const hallDelegateSchema = createTaskSchema.extend({
   project: z
@@ -654,8 +652,8 @@ export class ConversationAgent extends AbstractAgent {
           if (parsedHall && parsedHall.project !== undefined && !noProjectWord(parsedHall.project))
             parsedHall.project = undefined;
           const forProject =
-            parsedHall && !parsedHall.project && gate.decided && gate.decided !== "none"
-              ? { ...parsedHall, project: gate.decided.project }
+            parsedHall && !parsedHall.project && routedName(gate)
+              ? { ...parsedHall, project: routedName(gate) ?? undefined }
               : parsedHall;
           const repeat = (args as { repeatMinutes?: unknown }).repeatMinutes;
           if (forProject?.project)
@@ -695,10 +693,7 @@ export class ConversationAgent extends AbstractAgent {
               // In the hall, a routine for a group is made and reports in that group.
               const parsedHall = hall ? hallRoutineSchema.parse(args) : null;
               const forProject =
-                routedProject(parsedHall?.project) ??
-                (parsedHall && gate.decided && gate.decided !== "none"
-                  ? gate.decided.project
-                  : null);
+                routedProject(parsedHall?.project) ?? (parsedHall ? routedName(gate) : null);
               if (parsedHall && forProject)
                 return await this.routineInProject(
                   { ...parsedHall, project: forProject },
@@ -780,26 +775,6 @@ export class ConversationAgent extends AbstractAgent {
           },
         }),
       ],
-      // The hall makes the project a request names.
-      ...(hall && this.service.createProject
-        ? [
-            defineTool({
-              name: "create_project",
-              description:
-                "Make a project in this space by the name the person gives (one already there by that name is kept and returned): its own conversation, accounts and jobs",
-              parameters: createProjectSchema,
-              execute: async (args) => {
-                try {
-                  return await this.ensureProject(createProjectSchema.parse(args).name);
-                } catch (error) {
-                  return {
-                    error: error instanceof Error ? error.message : "The project was not made",
-                  };
-                }
-              },
-            }),
-          ]
-        : []),
       // The account's persona and long-term goal, in the
       // person's words, and what the chat needs to know about one account of the project.
       ...(this.service.environments.available()
@@ -1214,6 +1189,8 @@ export class ConversationAgent extends AbstractAgent {
                 // Saying whose a request is takes no step of the work.
                 (inHall ? 1 : 0),
               keepScreenshots: this.config.agentKeepScreenshots,
+              // A reply's words never claim an action no tool took (tool-slip.ts).
+              checkClaims: true,
               stepLimitNote:
                 "I reached my step limit for this reply before finishing. Say “continue” and I’ll pick up where I left off.",
               tools,
@@ -1224,6 +1201,9 @@ export class ConversationAgent extends AbstractAgent {
                       hallGateMiddleware(
                         gate,
                         chatCompletionsRoute(
+                          modelSpec(this.config.model, this.config.fallbackModel) ?? "",
+                        ),
+                        anthropicRoute(
                           modelSpec(this.config.model, this.config.fallbackModel) ?? "",
                         ),
                       ),
@@ -1308,7 +1288,13 @@ export class ConversationAgent extends AbstractAgent {
                 options.middleware = [
                   currentRules,
                   ...(inHall
-                    ? [hallGateMiddleware(gate, chatCompletionsRoute(options.model))]
+                    ? [
+                        hallGateMiddleware(
+                          gate,
+                          chatCompletionsRoute(options.model),
+                          anthropicRoute(options.model),
+                        ),
+                      ]
                     : []),
                 ];
                 agent = tanstackAgent(options);
@@ -1393,13 +1379,14 @@ export class ConversationAgent extends AbstractAgent {
       };
     });
   }
-  /** Route_request, the hall reply's first call: whose the request is.
-   * A project named that does not exist is made. */
+  /** Route_request, the hall reply's first call: whose the request is. v1.7.6: a project named
+   * that does not exist is not made: the reply only says so, and the person gets a button under it
+   * to make the group (or not). */
   private routeTool(gate: HallGate) {
     return defineTool({
       name: "route_request",
       description:
-        "Say whose the person's request is before anything else: the project it belongs to (named, @-ed, or as you judge it), or null for no project (saving a skill, calling a connected app, a question about the space are for no project, never a project's work). Routed to a project, this reply only hands it over. Call it alone, first: no other tool is open until it has answered",
+        "Say whose the person's request is before anything else: the project it belongs to (named, @-ed, or as you judge it among the projects), or null for no project (saving a skill, calling a connected app, a question about the space are for no project, never a project's work). Routed to a project, this reply only hands it over. A project that does not exist is never made by you. Call it alone, first: no other tool is open until it has answered",
       parameters: routeRequestSchema,
       execute: async (args) => {
         try {
@@ -1412,10 +1399,21 @@ export class ConversationAgent extends AbstractAgent {
             gate.decided = "none";
             return { forNoProject: true, note: `${noProjectNote} ${routedNote}` };
           }
-          const made = await this.ensureProject(project);
-          gate.decided = { project: made.project.name };
+          const found = await this.findProject(project);
+          if (!found) {
+            gate.decided = { missing: project.trim() };
+            const groups = (await liveProjects(this.service.db, this.owner)).map((p) => p.name);
+            return {
+              missingGroup: project.trim(),
+              groups,
+              why,
+              next: `There is no group named ${project.trim()}; nothing was made or handed over. Under this reply the person sees a button to make that group; only they decide. Say in one short sentence that this work waits for that group (or that they can name one of the groups that exist), then stop: never do it here.`,
+            };
+          }
+          gate.decided = { project: found.name };
           return {
-            ...made,
+            project: found,
+            created: false,
             why,
             next: `Hand it over now to this project with delegate_task (project set), or create_routine (project set) for work at a clock time, on days or on new mail; do not do it here. ${routedNote}`,
           };
@@ -1431,8 +1429,9 @@ export class ConversationAgent extends AbstractAgent {
     return !parseOwner(this.owner).projectId;
   }
   /** The project named `name` in this space, made when there is none. */
-  private async ensureProject(name: string) {
-    if (!(await this.isHall())) throw new AppError("Projects are made only in the 营销总群", 422);
+  /** The project of this space by that name (any case), or null: nothing is made here (v1.7.6). */
+  private async findProject(name: string): Promise<{ id: string; name: string } | null> {
+    if (!(await this.isHall())) throw new AppError("Projects are routed only in the 营销总群", 422);
     if (noProjectWord(name) === null)
       throw new AppError(
         `"${name.trim()}" is no project name: for no project, route_request says null`,
@@ -1442,10 +1441,7 @@ export class ConversationAgent extends AbstractAgent {
     const found = (await liveProjects(this.service.db, this.owner)).find(
       (project) => project.name.toLowerCase() === wanted,
     );
-    if (found) return { project: { id: found.id, name: found.name }, created: false };
-    if (!this.service.createProject) throw new AppError("Projects are unavailable", 503);
-    const made = await this.service.createProject(this.owner, name.trim());
-    return { project: { id: made.id, name: made.name }, created: true };
+    return found ? { id: found.id, name: found.name } : null;
   }
   /** The hall's task for a project: made in that project (on the account named, or
    * its default desktop), where it runs and reports; the hall's card names the project. */

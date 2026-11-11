@@ -29,12 +29,14 @@ export function isResultTool(name: string): boolean {
   return resultTools.has(name);
 }
 
-/** A reply's tool calls in their order, split into its result and its steps. */
+/** A reply's tool calls in their order, split into its result and its steps. `isResult` decides
+ * by the call itself when given (v1.7.6: a routing that found no such group shows its button). */
 export function splitToolCalls<T extends { function: { name: string } }>(
   calls: readonly T[],
+  isResult: (call: T) => boolean = (call) => isResultTool(call.function.name),
 ): { result: T[]; steps: T[] } {
   const result: T[] = [];
   const steps: T[] = [];
-  for (const call of calls) (isResultTool(call.function.name) ? result : steps).push(call);
+  for (const call of calls) (isResult(call) ? result : steps).push(call);
   return { result, steps };
 }
